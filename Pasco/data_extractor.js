@@ -45,187 +45,6 @@ function throwEnumError(value, className, propName) {
   throw new Error(JSON.stringify(err));
 }
 
-/**
- * Enumerated property usage types allowed by the County.Property schema.
- * @typedef {
- *  | "Residential"
- *  | "Commercial"
- *  | "Industrial"
- *  | "Agricultural"
- *  | "Recreational"
- *  | "Conservation"
- *  | "Retirement"
- *  | "ResidentialCommonElementsAreas"
- *  | "DrylandCropland"
- *  | "HayMeadow"
- *  | "CroplandClass2"
- *  | "CroplandClass3"
- *  | "TimberLand"
- *  | "GrazingLand"
- *  | "OrchardGroves"
- *  | "Poultry"
- *  | "Ornamentals"
- *  | "Church"
- *  | "PrivateSchool"
- *  | "PrivateHospital"
- *  | "HomesForAged"
- *  | "NonProfitCharity"
- *  | "MortuaryCemetery"
- *  | "ClubsLodges"
- *  | "SanitariumConvalescentHome"
- *  | "CulturalOrganization"
- *  | "Military"
- *  | "ForestParkRecreation"
- *  | "PublicSchool"
- *  | "PublicHospital"
- *  | "GovernmentProperty"
- *  | "RetailStore"
- *  | "DepartmentStore"
- *  | "Supermarket"
- *  | "ShoppingCenterRegional"
- *  | "ShoppingCenterCommunity"
- *  | "OfficeBuilding"
- *  | "MedicalOffice"
- *  | "TransportationTerminal"
- *  | "Restaurant"
- *  | "FinancialInstitution"
- *  | "ServiceStation"
- *  | "AutoSalesRepair"
- *  | "MobileHomePark"
- *  | "WholesaleOutlet"
- *  | "Theater"
- *  | "Entertainment"
- *  | "RaceTrack"
- *  | "GolfCourse"
- *  | "LightManufacturing"
- *  | "HeavyManufacturing"
- *  | "LumberYard"
- *  | "PackingPlant"
- *  | "Cannery"
- *  | "MineralProcessing"
- *  | "Warehouse"
- *  | "OpenStorage"
- *  | "Utility"
- *  | "RiversLakes"
- *  | "TransitionalProperty"
- *  | "ReferenceParcel"
- *  | "Unknown"
- *  | "Hotel"
- * } PropertyUsageType
- */
-
-/**
- * Mapping from Pasco County property use codes to Lexicon property usage enums.
- * @type {Record<string, PropertyUsageType>}
- */
-const PROPERTY_USE_CODE_USAGE_MAP = (() => {
-  /** @type {Record<string, PropertyUsageType>} */
-  const map = {};
-
-  /**
-   * Register a batch of codes against a Lexicon usage enum.
-   * @param {string[]} codes
-   * @param {PropertyUsageType} usage
-   */
-  const assign = (codes, usage) => {
-    for (const code of codes) {
-      map[code] = usage;
-    }
-  };
-
-  assign(
-    ["0100", "0101", "0109", "0110", "0119", "0120", "0129", "0130", "0131", "0132", "0139", "0140", "0149", "0700", "0800", "0809"],
-    "Residential",
-  );
-  assign(["0200", "0201", "0209"], "Residential");
-  assign(["0210", "0219", "0220", "0229"], "MobileHomePark");
-  assign(["0300", "0309", "0400", "0401", "0409", "0500", "0509"], "Residential");
-  assign(["0600"], "Retirement");
-  assign(["1000", "1009"], "Commercial");
-  assign(["1100", "1109", "1110", "1119", "1200", "1209", "2500", "2509", "3000"], "RetailStore");
-  assign(["1300", "1309"], "DepartmentStore");
-  assign(["1400", "1409"], "Supermarket");
-  assign(["1500", "1509"], "ShoppingCenterRegional");
-  assign(["1600", "1609"], "ShoppingCenterCommunity");
-  assign(["1700", "1709", "1800", "1809", "1900", "1909", "2400"], "OfficeBuilding");
-  assign(["2000"], "TransportationTerminal");
-  assign(["2100", "2109", "2200"], "Restaurant");
-  assign(["2300"], "FinancialInstitution");
-  assign(["2600", "2609"], "ServiceStation");
-  assign(["2700", "2709"], "AutoSalesRepair");
-  assign(["2800"], "Commercial");
-  assign(["2900"], "WholesaleOutlet");
-  assign(["3100", "3200"], "Theater");
-  assign(["3300", "3400", "3500"], "Entertainment");
-  assign(["3600"], "Recreational");
-  assign(["3700"], "RaceTrack");
-  assign(["3800"], "GolfCourse");
-  assign(["3900", "3909"], "Hotel");
-  assign(["4000"], "Industrial");
-  assign(["4100"], "LightManufacturing");
-  assign(["4200"], "HeavyManufacturing");
-  assign(["4300"], "LumberYard");
-  assign(["4400"], "PackingPlant");
-  assign(["4500", "4600"], "Cannery");
-  assign(["4700", "9200", "9300"], "MineralProcessing");
-  assign(["4800", "4809"], "Warehouse");
-  assign(["4900"], "OpenStorage");
-  assign(["5000", "5001", "5003", "5009", "5200", "5300", "5301", "6701", "6702", "6703", "6706", "6709", "6800", "6801", "9909"], "Agricultural");
-  assign(["5100", "5200", "5300", "5301"], "DrylandCropland");
-  assign(["5101"], "HayMeadow");
-  assign(["5102", "6600", "6601", "6602", "6603", "6604", "6605", "6606", "6607", "6608", "6609", "6610", "6615", "6616", "6617", "6618", "6620", "6630", "6640", "6650", "6661"], "OrchardGroves");
-  assign(["5400", "6901"], "TimberLand");
-  assign(["5500", "9600"], "Conservation");
-  assign(["6000", "6100", "6200", "6300", "6400", "6500", "6802"], "GrazingLand");
-  assign(["6700", "6704", "6705"], "Poultry");
-  assign(["6900", "6902"], "Ornamentals");
-  assign(["7000", "7900", "9800", "9809"], "Unknown");
-  assign(["7100", "7109"], "Church");
-  assign(["7200", "8400"], "PrivateSchool");
-  assign(["7300"], "PrivateHospital");
-  assign(["7400", "7409"], "HomesForAged");
-  assign(["7500"], "NonProfitCharity");
-  assign(["7600"], "MortuaryCemetery");
-  assign(["7700", "7710", "7719", "7720"], "ClubsLodges");
-  assign(["7800"], "MedicalOffice");
-  assign(["8100"], "Military");
-  assign(["8200"], "ForestParkRecreation");
-  assign(["8300"], "PublicSchool");
-  assign(["8500"], "PublicHospital");
-  assign(["8600", "8700", "8800", "8900"], "GovernmentProperty");
-  assign(["9000", "9400", "9900"], "TransitionalProperty");
-  assign(["9010", "9700", "9710"], "ReferenceParcel");
-  assign(["9100"], "Utility");
-  assign(["9500"], "RiversLakes");
-  assign(["9910"], "Agricultural");
-
-  return map;
-})();
-
-/**
- * Extract the four-digit Pasco property use code from the classification label.
- * @param {string | null} classification
- * @returns {string | null}
- */
-function extractPropertyUseCode(classification) {
-  if (!classification) return null;
-  const match = classification.match(/\b(\d{4})\b/);
-  return match ? match[1] : null;
-}
-
-/**
- * Map a Pasco property use code into a Lexicon property usage enum.
- * @param {string} code
- * @returns {PropertyUsageType}
- */
-function mapPropertyUsageFromCode(code) {
-  const mapped = PROPERTY_USE_CODE_USAGE_MAP[code];
-  if (!mapped) {
-    throwEnumError(code, "Property", "property_usage_type");
-  }
-  return mapped;
-}
-
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const clean = String(txt).replace(/[$,\s]/g, "");
@@ -322,26 +141,1395 @@ function parsePhysicalAddress(addrRaw) {
     postal_code: zip || null,
   };
 }
-// Cooperative, Condominium, Modular, ManufacturedHousingMultiWide, Pud, Timeshare, 2Units, DetachedCondominium, Duplex, SingleFamily, MultipleFamily, 3Units, ManufacturedHousing, ManufacturedHousingSingleWide, 4Units, Townhouse, NonWarrantableCondo, VacantLand, Retirement, MiscellaneousResidential, ResidentialCommonElementsAreas, MobileHome, Apartment, MultiFamilyMoreThan10, MultiFamilyLessThan10
-function mapPropertyTypeFromText(txt) {
-  if (!txt) return null;
-  const t = txt.toLowerCase();
-  if (t.includes("single family")) return "SingleFamily";
-  if (t.includes("mobile home")) return "MobileHome";
-  if (t.includes("condominium")) return "Condominium";
-  if (t.includes("retirement")) return "Retirement";
-  if (t.includes("multi-family")) return "MultipleFamily";
-  if (t.includes("duplex")) return "Duplex";
-  if (t.includes("triplex") || t.includes("3 units")) return "3Units";
-  if (t.includes("4 units")) return "4Units";
-  if (t.includes("apartment")) return "Apartment";
-  if (t.includes("co-op")) return "Cooperative";
-  if (t.includes("vacant")) return "VacantLand";
-  if (t.includes("common area")) return "ResidentialCommonElementsAreas";
-  if (t.includes("mfr <10 units")) return "MultiFamilyLessThan10";
-  if (t.includes("mfr >10 units")) return "MultiFamilyMoreThan10";
-  
+
+/**
+ * @typedef {"LandParcel"|"Building"|"Unit"|"ManufacturedHome"} PropertyTypeEnum
+ */
+
+/**
+ * @typedef {"Residential"|"Commercial"|"Industrial"|"Agricultural"|"Recreational"|"Conservation"|"Retirement"|"ResidentialCommonElementsAreas"|"DrylandCropland"|"HayMeadow"|"CroplandClass2"|"CroplandClass3"|"TimberLand"|"GrazingLand"|"OrchardGroves"|"Poultry"|"Ornamentals"|"Church"|"PrivateSchool"|"PrivateHospital"|"HomesForAged"|"NonProfitCharity"|"MortuaryCemetery"|"ClubsLodges"|"SanitariumConvalescentHome"|"CulturalOrganization"|"Military"|"ForestParkRecreation"|"PublicSchool"|"PublicHospital"|"GovernmentProperty"|"RetailStore"|"DepartmentStore"|"Supermarket"|"ShoppingCenterRegional"|"ShoppingCenterCommunity"|"OfficeBuilding"|"MedicalOffice"|"TransportationTerminal"|"Restaurant"|"FinancialInstitution"|"ServiceStation"|"AutoSalesRepair"|"MobileHomePark"|"WholesaleOutlet"|"NurseryGreenhouse"|"AgriculturalPackingFacility"|"LivestockFacility"|"Aquaculture"|"Theater"|"Entertainment"|"Hotel"|"RaceTrack"|"GolfCourse"|"LightManufacturing"|"HeavyManufacturing"|"LumberYard"|"PackingPlant"|"Cannery"|"MineralProcessing"|"Warehouse"|"OpenStorage"|"Utility"|"RiversLakes"|"SewageDisposal"|"Railroad"|"TransitionalProperty"|"ReferenceParcel"|"VineyardWinery"|"DataCenter"|"TelecommunicationsFacility"|"SolarFarm"|"WindFarm"|"NativePasture"|"ImprovedPasture"|"Rangeland"|"PastureWithTimber"|"Unknown"} PropertyUsageTypeEnum
+ */
+
+/**
+ * @typedef {"Condominium"|"Cooperative"|"LifeEstate"|"Timeshare"|"OtherEstate"|"FeeSimple"|"Leasehold"|"RightOfWay"|"NonWarrantableCondo"|"SubsurfaceRights"|null} OwnershipEstateTypeEnum
+ */
+
+/**
+ * @typedef {"SingleFamilyDetached"|"SingleFamilySemiDetached"|"TownhouseRowhouse"|"Duplex"|"Triplex"|"Quadplex"|"MultiFamily5Plus"|"ApartmentUnit"|"Loft"|"ManufacturedHomeOnLand"|"ManufacturedHomeInPark"|"MultiFamilyMoreThan10"|"MultiFamilyLessThan10"|"MobileHome"|"ManufacturedHousingMultiWide"|"ManufacturedHousing"|"ManufacturedHousingSingleWide"|"Modular"|null} StructureFormEnum
+ */
+
+/**
+ * @typedef {"VacantLand"|"Improved"|"UnderConstruction"|null} BuildStatusEnum
+ */
+
+/**
+ * @typedef {Object} PropertyLexiconMapping
+ * @property {PropertyTypeEnum|null} property_type
+ * @property {PropertyUsageTypeEnum|null} property_usage_type
+ * @property {OwnershipEstateTypeEnum} ownership_estate_type
+ * @property {StructureFormEnum} structure_form
+ * @property {BuildStatusEnum} build_status
+ */
+
+/**
+ * Normalizes a classification label or code into a lookup key.
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeClassificationKey(value) {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "") return "";
+  return trimmed.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Registers one or more lookup keys to the supplied lexicon mapping.
+ * @param {string|null} code
+ * @param {string[]} labels
+ * @param {PropertyLexiconMapping} mapping
+ */
+function registerPropertyTypeMapping(code, labels, mapping) {
+  /** @type {Set<string>} */
+  const candidateKeys = new Set();
+  if (code) {
+    const digits = code.replace(/\D/g, "");
+    if (digits) {
+      const trimmed = digits.replace(/^0+/, "") || "0";
+      const baseTwo = trimmed.length >= 2 ? trimmed.slice(-2) : trimmed.padStart(2, "0");
+      candidateKeys.add(baseTwo);
+      candidateKeys.add(trimmed);
+      candidateKeys.add(digits);
+      candidateKeys.add(digits.padStart(5, "0"));
+    }
+  }
+  labels.forEach((label) => {
+    if (!label) return;
+    candidateKeys.add(label);
+    candidateKeys.add(label.replace(/^\s*\d+\s*/, ""));
+  });
+  candidateKeys.forEach((rawKey) => {
+    const normalized = normalizeClassificationKey(rawKey);
+    if (normalized) {
+      PROPERTY_TYPE_MAPPINGS.set(normalized, mapping);
+    }
+  });
+}
+
+/** @type {Map<string, PropertyLexiconMapping>} */
+const PROPERTY_TYPE_MAPPINGS = new Map();
+
+registerPropertyTypeMapping(
+  "00",
+  ["00 Vacant Residential", "Vacant Residential", "00000-Vacant Residential"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Residential",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "01",
+  ["01 Single Family", "Single Family", "00100-Single Family"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Residential",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "SingleFamilyDetached",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "02",
+  ["02 Mobile Homes", "Mobile Homes", "00200-Mobile Home"],
+  Object.freeze({
+    property_type: "MobileHome",
+    property_usage_type: "Residential",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "MobileHome",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "03",
+  [
+    "03 Multi-Family -10 units or more",
+    "Multi-Family -10 units or more",
+    "00300-Multifamily",
+    "Multi Family More Than 10 Units",
+    "Multifamily More Than 10 Units",
+  ],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Residential",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "MultiFamilyMoreThan10",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "04",
+  ["04 Condominium", "Condominium"],
+  Object.freeze({
+    property_type: "Unit",
+    property_usage_type: "Residential",
+    ownership_estate_type: "Condominium",
+    structure_form: "ApartmentUnit",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "05",
+  ["05 Cooperatives", "Cooperatives", "Cooperative"],
+  Object.freeze({
+    property_type: "Unit",
+    property_usage_type: "Residential",
+    ownership_estate_type: "Cooperative",
+    structure_form: "ApartmentUnit",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "06",
+  ["06 Retirement Homes not eligible for exemption", "Retirement Homes not eligible for exemption", "Retirement Homes"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Retirement",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "MultiFamily5Plus",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "07",
+  ["07 Miscellaneous Residential(migrant-boarding homes)fna Villa Homes", "Miscellaneous Residential", "Villa Homes"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Residential",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "MultiFamily5Plus",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "08",
+  ["08 Multi-Family -fewer than 10 units", "Multi-Family fewer than 10 units", "Multi-Family <10 Units"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Residential",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "MultiFamilyLessThan10",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "09",
+  ["09 Residential Common Elements/Areas", "Residential Common Elements", "Residential Common Areas"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "ResidentialCommonElementsAreas",
+    ownership_estate_type: "Condominium",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "10",
+  ["10 Vacant Commercial", "Vacant Commercial"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Commercial",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "11",
+  ["11 Retail Stores, One Story", "Retail Stores One Story", "Retail Store"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "RetailStore",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "12",
+  ["12 Stores, Office, SFR -mixed use", "Stores Office SFR mixed use", "Mixed Use"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "RetailStore",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "13",
+  ["13 Department Stores", "Department Stores"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "DepartmentStore",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "14",
+  ["14 Supermarkets", "Supermarkets"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Supermarket",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "15",
+  ["15 Shopping Centers Regional", "Shopping Centers Regional", "Regional Shopping Center"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "ShoppingCenterRegional",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "16",
+  ["16 Shopping Centers Community", "Shopping Centers Community", "Community Shopping Center"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "ShoppingCenterCommunity",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "17",
+  ["17 1 Story Office", "1 Story Office"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "OfficeBuilding",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "18",
+  ["18 Multi-Story Office", "Multi-Story Office"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "OfficeBuilding",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "19",
+  ["19 Professional Service Buildings", "Professional Service Buildings"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "OfficeBuilding",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "20",
+  ["20 Airports, bus terminals, piers marinas", "Airports bus terminals piers marinas"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "TransportationTerminal",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "21",
+  ["21 Restaurants, cafeterias", "Restaurants cafeterias", "Restaurant"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Restaurant",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "22",
+  ["22 Drive-In Restaurants", "Drive-In Restaurants"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Restaurant",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "23",
+  [
+    "23 Financial Institutions (banks,saving & loan,mortgage,credit co)",
+    "Financial Institutions",
+    "Banks Savings Loan Mortgage Credit",
+  ],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "FinancialInstitution",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "24",
+  ["24 Insurance Company Offices", "Insurance Company Offices"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "OfficeBuilding",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "25",
+  ["25 Service Shops Non-Automotive", "Service Shops Non-Automotive"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "RetailStore",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "26",
+  ["26 Service Stations", "Service Stations"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "ServiceStation",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "27",
+  ["27 Auto Sales, Service, etc.", "Auto Sales Service"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "AutoSalesRepair",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "28",
+  ["28 Rental MH/RV Parks, parking lots (commercial or patron)", "Rental MH RV Parks", "Mobile Home Parks"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "MobileHomePark",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "29",
+  ["29 Wholesale manufacturing outlets, produce houses", "Wholesale manufacturing outlets", "Produce Houses"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "WholesaleOutlet",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "30",
+  ["30 Florist, Greenhouses", "Florist Greenhouses", "Florist and Greenhouses"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "NurseryGreenhouse",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "31",
+  ["31 Theaters Drive-In, open stadiums", "Theaters Drive-In", "Open Stadiums"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Theater",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "32",
+  ["32 Theaters auditoriums enclosed", "Theaters auditoriums enclosed", "Enclosed Theaters"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Theater",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "33",
+  ["33 Night Clubs, Bars, lounges", "Night Clubs Bars Lounges"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Entertainment",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "34",
+  ["34 Bowling Alleys, skating rinks, pool halls, enclosed arenas", "Bowling Alleys", "Skating Rinks", "Enclosed Arenas"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Entertainment",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "35",
+  ["35 Tourist Attractions, fairgrounds (privately owned)", "Tourist Attractions", "Fairgrounds"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Entertainment",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "36",
+  ["36 Camps", "Camps"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Recreational",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "37",
+  ["37 Race Tracks", "Race Tracks"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "RaceTrack",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "38",
+  ["38 Golf Courses, driving ranges", "Golf Courses", "Driving Ranges"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GolfCourse",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "39",
+  ["39 Hotels, Motels", "Hotels", "Motels"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Hotel",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "40",
+  ["40 Vacant Industrial", "Vacant Industrial"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Industrial",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "41",
+  ["41 Light Manufacturing", "Light Manufacturing"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "LightManufacturing",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "42",
+  ["42 Heavy Industrial", "Heavy Industrial"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "HeavyManufacturing",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "43",
+  ["43 Lumber Yards, sawmills", "Lumber Yards", "Sawmills"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "LumberYard",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "44",
+  ["44 Packing Plants", "Packing Plants"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "PackingPlant",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "45",
+  ["45 Breweries, Wineries, distilleries, canneries", "Breweries", "Wineries", "Distilleries", "Canneries"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "VineyardWinery",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "46",
+  ["46 Food Processing", "Food Processing"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Cannery",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "47",
+  ["47 Mineral Processing", "Mineral Processing"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "MineralProcessing",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "48",
+  ["48 Warehousing (Block or Metal)", "Warehousing", "Warehouse"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Warehouse",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "49",
+  ["49 Open Storage, junk yards, fuel storage", "Open Storage", "Junk Yards", "Fuel Storage"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "OpenStorage",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "50",
+  ["50 Improved agricultural rural homesite", "Improved agricultural rural homesite"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Agricultural",
+    ownership_estate_type: "FeeSimple",
+    structure_form: "SingleFamilyDetached",
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "51",
+  ["51 Cropland Class I", "Cropland Class I"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "DrylandCropland",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "52",
+  ["52 Cropland Class II", "Cropland Class II"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "CroplandClass2",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "53",
+  ["53 Cropland Class III", "Cropland Class III"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "CroplandClass3",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "54",
+  ["54 Timber - Site Index I", "Timber Site Index I"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TimberLand",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "55",
+  ["55 Timber - Site Index II", "Timber Site Index II"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TimberLand",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "56",
+  ["56 Timber - Site Index III", "Timber Site Index III"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TimberLand",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "57",
+  ["57 Timber - Site Index IV", "Timber Site Index IV"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TimberLand",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "58",
+  ["58 Timber - Site Index V", "Timber Site Index V"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TimberLand",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "59",
+  ["59 Timber - Not Classified by site index to Pines", "Timber Not Classified", "Timberland"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TimberLand",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "60",
+  ["60 Grazing Land Class I", "Grazing Land Class I"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "ImprovedPasture",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "61",
+  ["61 Grazing Land Class II", "Grazing Land Class II"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "ImprovedPasture",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "62",
+  ["62 Grazing Land Class III", "Grazing Land Class III"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "NativePasture",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "63",
+  ["63 Grazing Land Class IV", "Grazing Land Class IV"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "NativePasture",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "64",
+  ["64 Grazing Land Class V", "Grazing Land Class V"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Rangeland",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "65",
+  ["65 Grazing Land Class VI", "Grazing Land Class VI"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Rangeland",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "66",
+  ["66 Orchard Groves", "Orchard Groves"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "OrchardGroves",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "67",
+  ["67 Poultry, Bees, etc.", "Poultry Bees"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Poultry",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "68",
+  ["68 Dairies, Feed Lots", "Dairies Feed Lots"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "LivestockFacility",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "69",
+  ["69 Ornamentals", "Ornamentals"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Ornamentals",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "70",
+  ["70 Vacant Institutional", "Vacant Institutional"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "71",
+  ["71 Churches", "Churches"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Church",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "72",
+  ["72 Schools, Colleges, Private", "Private Schools Colleges"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "PrivateSchool",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "73",
+  ["73 Hospitals, Private", "Private Hospitals"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "PrivateHospital",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "74",
+  ["74 Homes for the Aged", "Homes for the Aged"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "HomesForAged",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "75",
+  ["75 Orphanages, other non-profit or charitable services", "Orphanages", "Non Profit Charitable Services"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "NonProfitCharity",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "76",
+  ["76 Mortuaries, Cemeteries, crematoriums", "Mortuaries", "Cemeteries", "Crematoriums"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "MortuaryCemetery",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "77",
+  ["77 Clubs, Lodges, Union Halls", "Clubs", "Lodges", "Union Halls"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "ClubsLodges",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "78",
+  ["78 Out Patient Clinics, Sanitariums, convalescent, rest homes", "Out Patient Clinics", "Sanitariums", "Convalescent Homes"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "SanitariumConvalescentHome",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "79",
+  ["79 Cultural organizations, facilities", "Cultural organizations", "Cultural facilities"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "CulturalOrganization",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "80",
+  ["80 Vacant Governmental (municipal,counties,state,federal,dot,swfwmd)", "Vacant Governmental"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "81",
+  ["81 Military", "Military"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Military",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "82",
+  ["82 Forests, Parks, recreational areas", "Forests Parks recreational areas"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "ForestParkRecreation",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "83",
+  ["83 Schools, Public", "Public Schools"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "PublicSchool",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "84",
+  ["84 Colleges Public", "Public Colleges"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "PublicSchool",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "85",
+  ["85 Hospitals Public", "Public Hospitals"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "PublicHospital",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "86",
+  ["86 Other County", "Other County"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "87",
+  ["87 Other State", "Other State"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "88",
+  ["88 Other Federal", "Other Federal"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "89",
+  ["89 Other Municipal", "Other Municipal"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "90",
+  ["90 Leasehold Interests (government owned non government lessee)", "Leasehold Interests"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "Leasehold",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "91",
+  ["91 Utilities", "Utilities"],
+  Object.freeze({
+    property_type: "Building",
+    property_usage_type: "Utility",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "92",
+  ["92 Mining lands, petroleum or gas lands", "Mining lands", "Petroleum or gas lands"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "MineralProcessing",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "93",
+  ["93 Subsurface rights", "Subsurface rights"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Unknown",
+    ownership_estate_type: "SubsurfaceRights",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "94",
+  ["94 Right-of-Way, Streets, Ditch", "Right-of-Way", "Streets", "Ditch"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "GovernmentProperty",
+    ownership_estate_type: "RightOfWay",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "95",
+  ["95 Rivers and Lakes, Submerged Lands", "Rivers and Lakes", "Submerged Lands"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "RiversLakes",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "96",
+  ["96 Sewage Disposal, Waste Lands, Swamp", "Sewage Disposal", "Waste Lands", "Swamp"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "SewageDisposal",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "97",
+  ["97 Outdoor Rec./Parkland, High-Water Recharge", "Outdoor Recreation Parkland", "High-Water Recharge"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Recreational",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "98",
+  ["98 Centrally Assessed Railroad", "Centrally Assessed Railroad"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "Railroad",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "Improved",
+  }),
+);
+
+registerPropertyTypeMapping(
+  "99",
+  ["99 Non-AG (Over 20 Acres)", "Non-AG Over 20 Acres"],
+  Object.freeze({
+    property_type: "LandParcel",
+    property_usage_type: "TransitionalProperty",
+    ownership_estate_type: "FeeSimple",
+    structure_form: null,
+    build_status: "VacantLand",
+  }),
+);
+
+/**
+ * Builds a sequence of normalized lookup keys for a raw classification value.
+ * @param {string|null|undefined} raw
+ * @returns {string[]}
+ */
+function buildClassificationLookupKeys(raw) {
+  if (raw == null) return [];
+  const trimmed = String(raw).trim();
+  if (trimmed === "") return [];
+  /** @type {Set<string>} */
+  const keys = new Set();
+  keys.add(trimmed);
+  const digitsMatch = trimmed.match(/\d+/);
+  if (digitsMatch) {
+    const digits = digitsMatch[0];
+    const trimmedDigits = digits.replace(/^0+/, "") || "0";
+    const twoDigit = trimmedDigits.length >= 2 ? trimmedDigits.slice(0, 2) : trimmedDigits.padStart(2, "0");
+    keys.add(twoDigit);
+    keys.add(trimmedDigits);
+    keys.add(digits);
+    keys.add(digits.padStart(5, "0"));
+  }
+  trimmed
+    .split(/[-–—]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach((part) => keys.add(part));
+  const withoutLeadingDigits = trimmed.replace(/^\s*\d+[^\w]*/, "").trim();
+  if (withoutLeadingDigits) keys.add(withoutLeadingDigits);
+  return Array.from(keys)
+    .map(normalizeClassificationKey)
+    .filter(Boolean);
+}
+
+/**
+ * Resolves the lexicon mapping for a given property classification string.
+ * @param {string|null|undefined} rawClassification
+ * @returns {PropertyLexiconMapping|null}
+ */
+function resolvePropertyLexiconMapping(rawClassification) {
+  const keys = buildClassificationLookupKeys(rawClassification);
+  for (const key of keys) {
+    const mapping = PROPERTY_TYPE_MAPPINGS.get(key);
+    if (mapping) return mapping;
+  }
   return null;
+}
+
+/**
+ * Determines number_of_units_type based on the resolved structure form.
+ * @param {StructureFormEnum} structureForm
+ * @returns {"One"|"Two"|"Three"|"Four"|"TwoToFour"|"OneToFour"|null}
+ */
+function deriveNumberOfUnitsType(structureForm) {
+  switch (structureForm) {
+    case "SingleFamilyDetached":
+    case "SingleFamilySemiDetached":
+    case "TownhouseRowhouse":
+    case "ManufacturedHomeOnLand":
+    case "ManufacturedHomeInPark":
+    case "ManufacturedHousing":
+    case "ManufacturedHousingSingleWide":
+    case "ManufacturedHousingMultiWide":
+    case "MobileHome":
+    case "Modular":
+      return "One";
+    case "Duplex":
+      return "Two";
+    case "Triplex":
+      return "Three";
+    case "Quadplex":
+      return "Four";
+    case "MultiFamilyLessThan10":
+      return "TwoToFour";
+    case "MultiFamilyMoreThan10":
+    case "MultiFamily5Plus":
+    case "ApartmentUnit":
+    case "Loft":
+      return null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Converts the number_of_units_type to a numeric value when possible.
+ * @param {"One"|"Two"|"Three"|"Four"|"TwoToFour"|"OneToFour"|null} unitsType
+ * @returns {number|null}
+ */
+function deriveNumberOfUnits(unitsType) {
+  switch (unitsType) {
+    case "One":
+      return 1;
+    case "Two":
+      return 2;
+    case "Three":
+      return 3;
+    case "Four":
+      return 4;
+    default:
+      return null;
+  }
 }
 
 function extractSubdivision(legalDesc) {
@@ -412,18 +1600,38 @@ function main() {
   // PROPERTY
   const classification =
     textOrNull($("#lblDORClass")) || textOrNull($("#lblBuildingUse"));
-  const propertyUseCode = extractPropertyUseCode(classification);
-  const property_usage_type = propertyUseCode
-    ? mapPropertyUsageFromCode(propertyUseCode)
-    : null;
-  let property_type = mapPropertyTypeFromText(classification);
+  const propertyMapping = resolvePropertyLexiconMapping(classification);
+  if (classification && !propertyMapping) {
+    throwEnumError(classification, "Property", "property_usage_type");
+  }
+  const property_type =
+    (propertyMapping && propertyMapping.property_type) ||
+    propSeed.property_type ||
+    null;
+  const property_usage_type =
+    (propertyMapping && propertyMapping.property_usage_type) ||
+    propSeed.property_usage_type ||
+    null;
+  const ownership_estate_type =
+    (propertyMapping && propertyMapping.ownership_estate_type) ||
+    propSeed.ownership_estate_type ||
+    null;
+  const structure_form =
+    (propertyMapping && propertyMapping.structure_form) ||
+    propSeed.structure_form ||
+    null;
+  const build_status =
+    (propertyMapping && propertyMapping.build_status) ||
+    propSeed.build_status ||
+    null;
 
-  let number_of_units_type = null;
-  if (property_type === "SingleFamily") number_of_units_type = "One";
-  else if (property_type === "Duplex") number_of_units_type = "Two";
-  else if (property_type === "3Units") number_of_units_type = "Three";
-  else if (property_type === "4Units") number_of_units_type = "Four";
-  else number_of_units_type = "OneToFour";
+  const number_of_units_type =
+    deriveNumberOfUnitsType(structure_form) ||
+    propSeed.number_of_units_type ||
+    null;
+  const number_of_units =
+    deriveNumberOfUnits(number_of_units_type) ||
+    (propSeed.number_of_units || null);
 
   const yearBuilt = toIntOrNull(textOrNull($("#lblBuildingYearBuilt")));
 
@@ -454,14 +1662,17 @@ function main() {
   const property = {
     parcel_identifier: parcelId,
     property_type,
+    property_usage_type,
+    ownership_estate_type,
+    structure_form,
+    build_status,
     property_structure_built_year: yearBuilt || null,
     number_of_units_type,
-    property_usage_type,
     livable_floor_area: livableSqft ? String(livableSqft) : null,
     property_legal_description_text: legalDesc || null,
     subdivision: subdivision || null,
     zoning: zoning || null,
-    number_of_units: number_of_units_type ? 1 : null,
+    number_of_units,
     area_under_air: null,
     property_effective_built_year: null,
     total_area: null,
