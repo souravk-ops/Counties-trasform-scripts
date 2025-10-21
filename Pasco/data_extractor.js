@@ -54,6 +54,35 @@ function parseCurrencyToNumber(txt) {
   return n;
 }
 
+/**
+ * @typedef {Object} SalesRow
+ * @property {string} monthYear Raw month/year string as shown in the sales table (e.g., "2/2023").
+ * @property {string | null} deedUrl Absolute URL for the deed document when present; otherwise null.
+ * @property {string} deedTypeTxt Normalized deed type string taken from the sales table.
+ * @property {number | null} amount Parsed currency amount for the sale; null when extraction fails.
+ */
+
+/**
+ * Parse a month/year cell value (e.g., "2/2023") into an ISO-8601 calendar date string.
+ * When parsing succeeds the date represents the first day of the month in UTC (YYYY-MM-01).
+ *
+ * @param {string | null | undefined} value Raw text extracted from the PASCO sales table month/year column.
+ * @returns {string | null} ISO date string on success; null when parsing fails validation.
+ */
+function parseMonthYearToIsoDate(value) {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim();
+  if (candidate === "") return null;
+  const match = candidate.match(/^(\d{1,2})\s*\/\s*(\d{4})$/);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const year = Number(match[2]);
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (!Number.isInteger(year) || year < 1000) return null;
+  const isoMonth = String(month).padStart(2, "0");
+  return `${year}-${isoMonth}-01`;
+}
+
 function textOrNull(el) {
   if (!el || el.length === 0) return null;
   const t = el.text().trim();
@@ -1906,57 +1935,98 @@ function main() {
     }
   }
 
-  function cleanCityName(city) {
-    return city
-      .replace(/\b(?:UNIT|SUITE|STE|APT|APARTMENT|BLDG|BUILDING|ROOM|FL|FLOOR)\s*[A-Z0-9\-]*\b/gi, '')
+  /**
+   * Removes unit-related suffixes from a city name and normalizes whitespace.
+   * @param {string|null|undefined} cityInput
+   * @returns {string|null}
+   */
+  function cleanCityName(cityInput) {
+    if (cityInput == null) return null;
+    const normalizedCity = String(cityInput)
+      .replace(
+        /\b(?:UNIT|SUITE|STE|APT|APARTMENT|BLDG|BUILDING|ROOM|FL|FLOOR)\s*[A-Z0-9\-]*\b/gi,
+        "",
+      )
+      .replace(/\s+/g, " ")
       .trim();
-  }
-  
-  
-  
-  function getZip5(code) {
-    return code.substring(0, 5);
+    return normalizedCity === "" ? null : normalizedCity;
   }
 
-  function parseStreetDirection(streetName) {
-    const directions = ['N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW'];
-    const parts = streetName.trim().split(/\s+/);
-  
+  /**
+   * Returns the first five characters of a postal code when available.
+   * @param {string|null|undefined} codeInput
+   * @returns {string|null}
+   */
+  function getZip5(codeInput) {
+    if (codeInput == null) return null;
+    const trimmedCode = String(codeInput).trim();
+    if (trimmedCode === "") return null;
+    return trimmedCode.substring(0, 5) || null;
+  }
+
+  /**
+   * @typedef {Object} StreetDirectionParts
+   * @property {string|null} street_name
+   * @property {string|null} street_pre_directional_text
+   * @property {string|null} street_post_directional_text
+   */
+
+  /**
+   * Parses a street name to identify pre/post directional components.
+   * @param {string|null|undefined} streetNameInput
+   * @returns {StreetDirectionParts}
+   */
+  function parseStreetDirection(streetNameInput) {
+    /** @type {StreetDirectionParts} */
+    const emptyResult = {
+      street_name: null,
+      street_pre_directional_text: null,
+      street_post_directional_text: null,
+    };
+    if (streetNameInput == null) return emptyResult;
+    const trimmedName = String(streetNameInput).trim();
+    if (trimmedName === "") return emptyResult;
+
+    const directions = ["N", "S", "E", "W", "NE", "NW", "SE", "SW"];
+    const parts = trimmedName.split(/\s+/);
+
     let street_pre_directional_text = null;
     let street_post_directional_text = null;
-  
-    if (directions.includes(parts[0].toUpperCase())) {
+
+    if (parts.length > 0 && directions.includes(parts[0].toUpperCase())) {
       street_pre_directional_text = parts[0].toUpperCase();
       parts.shift();
     }
-  
-    if (directions.includes(parts[parts.length - 1].toUpperCase())) {
+
+    if (
+      parts.length > 0 &&
+      directions.includes(parts[parts.length - 1].toUpperCase())
+    ) {
       street_post_directional_text = parts[parts.length - 1].toUpperCase();
       parts.pop();
     }
-  
-    for (let i = 1; i < parts.length - 1; i++) {
+
+    for (let i = 1; i < parts.length - 1; i += 1) {
       if (directions.includes(parts[i].toUpperCase())) {
         street_post_directional_text = parts[i].toUpperCase();
         parts.splice(i, 1);
         break;
       }
     }
-  
-    let street_name = parts.join(' ');
 
-    if (street_name == 'HILL-N-DALE' || street_name == 'hill-n-dale') {
-      street_name = 'HILL-AND-DALE'
+    let street_name = parts.join(" ");
+    if (/^hill-?n-?dale$/i.test(street_name)) {
+      street_name = "HILL-AND-DALE";
     }
-  
+
     return {
-      street_name,
+      street_name: street_name === "" ? null : street_name,
       street_pre_directional_text,
-      street_post_directional_text
+      street_post_directional_text,
     };
   }
-  
-  const parsed_streetname = parseStreetDirection(parsedAddr.street_name)
+
+  const parsed_streetname = parseStreetDirection(parsedAddr.street_name);
   const address = {
     street_number: parsedAddr.street_number || null,
     street_name: parsed_streetname.street_name || null,
@@ -2343,6 +2413,7 @@ function main() {
     }
 
     // SALES extraction to construct relationships later
+    /** @type {SalesRow[]} */
     const salesRows = [];
     $("#tblSaleLines tr").each((i, tr) => {
       if (i === 0) return; // header
@@ -2413,8 +2484,14 @@ function main() {
 
       // SALES: only create sales when amount is a positive currency (>0)
       if (typeof row.amount === "number" && row.amount > 0) {
+        const ownershipTransferDate = parseMonthYearToIsoDate(row.monthYear);
+        if (!ownershipTransferDate) {
+          throw new Error(
+            `Unable to parse ownership transfer month/year "${row.monthYear}".`,
+          );
+        }
         const sale = {
-          ownership_transfer_date: null, // month/year only; keep null
+          ownership_transfer_date: ownershipTransferDate,
           purchase_price_amount: row.amount,
         };
         const saleName = `sales_${saleIdx}.json`;
@@ -2512,6 +2589,7 @@ function main() {
   // SALES without owner relationships already handled above. If no ownersData, still produce sales/deeds/files
   if (!(ownersData && ownersData[ownersKey])) {
     // Build sales basic if not already: extract and write
+    /** @type {SalesRow[]} */
     const salesRows = [];
     $("#tblSaleLines tr").each((i, tr) => {
       if (i === 0) return; // header
@@ -2569,8 +2647,9 @@ function main() {
         fileIdx++;
       }
       if (typeof row.amount === "number" && row.amount > 0) {
+        const ownershipTransferDate = parseMonthYearToIsoDate(row.monthYear) || null;
         const sale = {
-          ownership_transfer_date: null,
+          ownership_transfer_date: ownershipTransferDate,
           purchase_price_amount: row.amount,
         };
         const saleName = `sales_${saleIdx}.json`;
