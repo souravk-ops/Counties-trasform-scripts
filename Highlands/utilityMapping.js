@@ -5,6 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
+// Add the ensureDir function here
+function ensureDir(p) {
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
+
 function loadHtml() {
   const htmlPath = path.resolve("input.html");
   const html = fs.readFileSync(htmlPath, "utf8");
@@ -29,9 +34,10 @@ function getElementsMap($) {
   let table;
   $("table").each((i, el) => {
     const ths = $(el).find("thead th");
+    // Check for "Element" in the first header cell
     if (ths.length && $(ths[0]).text().trim() === "Element") {
       table = el;
-      return false;
+      return false; // Stop iterating once the table is found
     }
   });
   const map = {};
@@ -80,7 +86,7 @@ function buildUtility($) {
     electrical_wiring_type: null,
     electrical_wiring_type_other_description: null,
     heating_system_type: heating || null,
-    hvac_condensing_unit_present: "Unknown",
+    hvac_condensing_unit_present: "Unknown", // Default to "Unknown" as per schema if not found
     hvac_unit_condition: null,
     hvac_unit_issues: null,
     plumbing_system_type: null,
@@ -104,7 +110,12 @@ function main() {
   const { id, utility } = buildUtility($);
   const out = {};
   out[`property_${id}`] = utility;
-  const outPath = path.resolve("owners", "utilities_data.json");
+
+  // Ensure the 'owners' directory exists before writing the file
+  const ownersDirPath = path.resolve("owners");
+  ensureDir(ownersDirPath);
+
+  const outPath = path.resolve(ownersDirPath, "utilities_data.json");
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
 }
 

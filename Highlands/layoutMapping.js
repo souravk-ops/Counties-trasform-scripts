@@ -5,6 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
+// Add the ensureDir function here
+function ensureDir(p) {
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
+
 function loadHtml() {
   const htmlPath = path.resolve("input.html");
   const html = fs.readFileSync(htmlPath, "utf8");
@@ -29,9 +34,10 @@ function getElementsMap($) {
   let table;
   $("table").each((i, el) => {
     const ths = $(el).find("thead th");
+    // Check for "Element" in the first header cell
     if (ths.length && $(ths[0]).text().trim() === "Element") {
       table = el;
-      return false;
+      return false; // Stop iterating once the table is found
     }
   });
   const map = {};
@@ -133,7 +139,12 @@ function main() {
   const layouts = buildLayouts($);
   const out = {};
   out[`property_${id}`] = { layouts };
-  const outPath = path.resolve("owners", "layout_data.json");
+
+  // Ensure the 'owners' directory exists before writing the file
+  const ownersDirPath = path.resolve("owners");
+  ensureDir(ownersDirPath);
+
+  const outPath = path.resolve(ownersDirPath, "layout_data.json");
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
 }
 

@@ -1,9 +1,11 @@
-// Structure extractor: reads input.html, parses with cheerio, writes owners/structure_data.json
-// Requirements: Use only cheerio for HTML parsing. Output must follow the provided schema keys and types.
-
 const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
+
+// Add the ensureDir function here if it's not already in this file
+function ensureDir(p) {
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
 
 function loadHtml() {
   const htmlPath = path.resolve("input.html");
@@ -220,7 +222,12 @@ function main() {
   const { id, structure } = buildStructure($, html);
   const out = {};
   out[`property_${id}`] = structure;
-  const outPath = path.resolve("owners", "structure_data.json");
+
+  // Ensure the 'owners' directory exists before writing the file
+  const ownersDirPath = path.resolve("owners");
+  ensureDir(ownersDirPath);
+
+  const outPath = path.resolve(ownersDirPath, "structure_data.json");
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
 }
 

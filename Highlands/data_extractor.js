@@ -134,120 +134,736 @@ function extractDorCode($) {
         label = t;
       }
     }
-  });
+});
   return { code, label };
 }
 
 function mapDorToPropertyType(dorCode) {
   const map = {
-    "00": "VacantLand",
-    "01": "SingleFamily",
-    "02": "MobileHome",
-    "03": "MultiFamilyMoreThan10",
-    "04": "Condominium",
-    "05": "Cooperative",
-    "06": "Retirement",
-    "07": "MiscellaneousResidential",
-    "08": "MultiFamilyLessThan10",
-    "09": "CommonElementsArea",
-    "10": "VacantCommercial",
-    "11": "RetailStore",
-    "12": "MixedUse",
-    "13": "DepartmentStore",
-    "14": "Supermarket",
-    "15": "ShoppingCenterRegional",
-    "16": "ShoppingCenterCommunity",
-    "17": "OfficeBuildingOneStory",
-    "18": "OfficeBuildingMultiStory",
-    "19": "ProfessionalBuilding",
-    "20": "AirportBusTerminal",
-    "21": "RestaurantCafe",
-    "22": "DriveInRestaurant",
-    "23": "FinancialInstitution",
-    "24": "InsuranceCompanyOffice",
-    "25": "RepairServiceNonAuto",
-    "26": "ServiceStation",
-    "27": "VehicleSalesServiceRent",
-    "28": "ParkingLotMobileHomePark",
-    "29": "WholesaleOutletProduct",
-    "30": "FloristGreenhouse",
-    "31": "DriveInTheaterOpenStadium",
-    "32": "EnclosedTheaterAuditorium",
-    "33": "NightclubBar",
-    "34": "BowlingAlleySkatingRinkPoolHall",
-    "35": "TouristAttractionPermanent",
-    "36": "Camp",
-    "37": "RaceTrack",
-    "38": "GolfCourse",
-    "39": "HotelMotel",
-    "40": "VacantIndustrial",
-    "41": "LightManufacturing",
-    "42": "HeavyManufacturing",
-    "43": "LumberYard",
-    "44": "PackingPlant",
-    "45": "CanneryBottler",
-    "46": "OtherFoodProcessing",
-    "47": "MineralProcessing",
-    "48": "WarehouseStorageDistribution",
-    "49": "OpenStorage",
-    "50": "ImprovedAgriculture",
-    "51": "CroplandSoilCap1",
-    "52": "CroplandSoilCap2",
-    "53": "CroplandSoilCap3",
-    "54": "Timberland90Plus",
-    "55": "Timberland80_89",
-    "56": "Timberland70_79",
-    "57": "Timberland60_69",
-    "58": "Timberland50_59",
-    "59": "TimberlandNonClassified",
-    "60": "GrazingSoilCap1",
-    "61": "GrazingSoilCap2",
-    "62": "GrazingSoilCap3",
-    "63": "GrazingSoilCap4",
-    "64": "GrazingSoilCap5",
-    "65": "GrazingSoilCap6",
-    "66": "GrovesOrchards",
-    "67": "PoultryBeesFish",
-    "68": "DairiesFeedLots",
-    "69": "OrnamentalsMisc",
-    "70": "VacantInstitutional",
-    "71": "Church",
-    "72": "PrivateSchool",
-    "73": "PrivateHospital",
-    "74": "HomeForTheAged",
-    "75": "NonProfitService",
-    "76": "MortuaryCemetery",
-    "77": "ClubLodgeHall",
-    "78": "RestHome",
-    "79": "CulturalGroup",
-    "80": "VacantGovernmental",
-    "81": "Military",
-    "82": "ForestParkRecreation",
-    "83": "PublicSchool",
-    "84": "College",
-    "85": "Hospital",
-    "86": "County",
-    "87": "State",
-    "88": "Federal",
-    "89": "Municipal",
-    "90": "LeaseholdInterest",
-    "91": "Utility",
-    "92": "Mining",
-    "93": "SubSurfaceRights",
-    "94": "RightOfWay",
-    "95": "RiverAndLake",
-    "96": "WastelandDump",
-    "97": "RecreationAndParkLand",
-    "9801": "CentrallyAssessed",
-    "9802": "CentrallyAssessedActiveRoW",
-    "99": "NonAgriculturalAcreage",
+    "00": {
+      property_type: "VacantLand",
+      property_usage_type: "TransitionalProperty",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "01": {
+      property_type: "SingleFamily",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: "SingleFamilyDetached",
+    },
+    "02": {
+      property_type: "MobileHome",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: "MobileHome",
+    },
+    "03": {
+      property_type: "MultiFamilyMoreThan10",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: "MultiFamilyMoreThan10",
+    },
+    "04": {
+      property_type: "Condominium",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "Condominium",
+      structure_form: "ApartmentUnit",
+    },
+    "05": {
+      property_type: "Cooperative",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "Cooperative",
+      structure_form: "ApartmentUnit",
+    },
+    "06": {
+      property_type: "Retirement",
+      property_usage_type: "Retirement",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "07": {
+      property_type: "MiscellaneousResidential",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "08": {
+      property_type: "MultiFamilyLessThan10",
+      property_usage_type: "Residential",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: "MultiFamilyLessThan10",
+    },
+    "09": {
+      property_type: "ResidentialCommonElementsAreas",
+      property_usage_type: "ResidentialCommonElementsAreas",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "10": {
+      property_type: "VacantLand",
+      property_usage_type: "Commercial",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "11": {
+      property_type: "Building",
+      property_usage_type: "RetailStore",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "12": {
+      property_type: "Building",
+      property_usage_type: "Commercial",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "13": {
+      property_type: "Building",
+      property_usage_type: "DepartmentStore",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "14": {
+      property_type: "Building",
+      property_usage_type: "Supermarket",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "15": {
+      property_type: "Building",
+      property_usage_type: "ShoppingCenterRegional",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "16": {
+      property_type: "Building",
+      property_usage_type: "ShoppingCenterCommunity",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "17": {
+      property_type: "Building",
+      property_usage_type: "OfficeBuilding",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "18": {
+      property_type: "Building",
+      property_usage_type: "OfficeBuilding",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "19": {
+      property_type: "Building",
+      property_usage_type: "OfficeBuilding",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "20": {
+      property_type: "Building",
+      property_usage_type: "TransportationTerminal",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "21": {
+      property_type: "Building",
+      property_usage_type: "Restaurant",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "22": {
+      property_type: "Building",
+      property_usage_type: "Restaurant",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "23": {
+      property_type: "Building",
+      property_usage_type: "FinancialInstitution",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "24": {
+      property_type: "Building",
+      property_usage_type: "FinancialInstitution",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "25": {
+      property_type: "Building",
+      property_usage_type: "Commercial",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "26": {
+      property_type: "Building",
+      property_usage_type: "ServiceStation",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "27": {
+      property_type: "Building",
+      property_usage_type: "AutoSalesRepair",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "28": {
+      property_type: "LandParcel",
+      property_usage_type: "MobileHomePark",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "29": {
+      property_type: "Building",
+      property_usage_type: "WholesaleOutlet",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "30": {
+      property_type: "Building",
+      property_usage_type: "Ornamentals",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "31": {
+      property_type: "Building",
+      property_usage_type: "Theater",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "32": {
+      property_type: "Building",
+      property_usage_type: "Theater",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "33": {
+      property_type: "Building",
+      property_usage_type: "Entertainment",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "34": {
+      property_type: "Building",
+      property_usage_type: "Entertainment",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "35": {
+      property_type: "Building",
+      property_usage_type: "Entertainment",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "36": {
+      property_type: "Building",
+      property_usage_type: "Recreational",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "37": {
+      property_type: "Building",
+      property_usage_type: "Entertainment",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "38": {
+      property_type: "Building",
+      property_usage_type: "GolfCourse",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "39": {
+      property_type: "Building",
+      property_usage_type: "Hotel",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "40": {
+      property_type: "VacantLand",
+      property_usage_type: "Industrial",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "41": {
+      property_type: "Building",
+      property_usage_type: "LightManufacturing",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "42": {
+      property_type: "Building",
+      property_usage_type: "HeavyManufacturing",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "43": {
+      property_type: "Building",
+      property_usage_type: "LumberYard",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "44": {
+      property_type: "Building",
+      property_usage_type: "PackingPlant",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "45": {
+      property_type: "Building",
+      property_usage_type: "Cannery",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "46": {
+      property_type: "Building",
+      property_usage_type: "LightManufacturing",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "47": {
+      property_type: "Building",
+      property_usage_type: "MineralProcessing",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "48": {
+      property_type: "Building",
+      property_usage_type: "Warehouse",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "49": {
+      property_type: "LandParcel",
+      property_usage_type: "OpenStorage",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "50": {
+      property_type: "Building",
+      property_usage_type: "Agricultural",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "51": {
+      property_type: "VacantLand",
+      property_usage_type: "DrylandCropland",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "52": {
+      property_type: "VacantLand",
+      property_usage_type: "DrylandCropland",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "53": {
+      property_type: "VacantLand",
+      property_usage_type: "DrylandCropland",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "54": {
+      property_type: "VacantLand",
+      property_usage_type: "TimberLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "55": {
+      property_type: "VacantLand",
+      property_usage_type: "TimberLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "56": {
+      property_type: "VacantLand",
+      property_usage_type: "TimberLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "57": {
+      property_type: "VacantLand",
+      property_usage_type: "TimberLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "58": {
+      property_type: "VacantLand",
+      property_usage_type: "TimberLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "59": {
+      property_type: "VacantLand",
+      property_usage_type: "TimberLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "60": {
+      property_type: "VacantLand",
+      property_usage_type: "GrazingLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "61": {
+      property_type: "VacantLand",
+      property_usage_type: "GrazingLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "62": {
+      property_type: "VacantLand",
+      property_usage_type: "GrazingLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "63": {
+      property_type: "VacantLand",
+      property_usage_type: "GrazingLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "64": {
+      property_type: "VacantLand",
+      property_usage_type: "GrazingLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "65": {
+      property_type: "VacantLand",
+      property_usage_type: "GrazingLand",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "66": {
+      property_type: "VacantLand",
+      property_usage_type: "OrchardGroves",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "67": {
+      property_type: "VacantLand",
+      property_usage_type: "Poultry",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "68": {
+      property_type: "VacantLand",
+      property_usage_type: "Agricultural",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "69": {
+      property_type: "VacantLand",
+      property_usage_type: "Ornamentals",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "70": {
+      property_type: "VacantLand",
+      property_usage_type: "GovernmentProperty",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "71": {
+      property_type: "Building",
+      property_usage_type: "Church",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "72": {
+      property_type: "Building",
+      property_usage_type: "PrivateSchool",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "73": {
+      property_type: "Building",
+      property_usage_type: "PrivateHospital",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "74": {
+      property_type: "Retirement",
+      property_usage_type: "Retirement",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "75": {
+      property_type: "Building",
+      property_usage_type: "NonProfitCharity",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "76": {
+      property_type: "Building",
+      property_usage_type: "MortuaryCemetery",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "77": {
+      property_type: "LandParcel",
+      property_usage_type: "Unknown",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "78": {
+      property_type: "Retirement",
+      property_usage_type: "Retirement",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "79": {
+      property_type: "Building",
+      property_usage_type: "CulturalOrganization",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "80": {
+      property_type: "VacantLand",
+      property_usage_type: "GovernmentProperty",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "81": {
+      property_type: "Building",
+      property_usage_type: "Military",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "82": {
+      property_type: "LandParcel",
+      property_usage_type: "ForestParkRecreation",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "83": {
+      property_type: "Building",
+      property_usage_type: "PublicSchool",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "84": {
+      property_type: "Building",
+      property_usage_type: "CulturalOrganization",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "85": {
+      property_type: "Building",
+      property_usage_type: "PublicHospital",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "86": {
+      property_type: "Building",
+      property_usage_type: "GovernmentProperty",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "87": {
+      property_type: "Building",
+      property_usage_type: "GovernmentProperty",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "88": {
+      property_type: "Building",
+      property_usage_type: "GovernmentProperty",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "89": {
+      property_type: "Building",
+      property_usage_type: "GovernmentProperty",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "90": {
+      property_type: "VacantLand",
+      property_usage_type: "Unknown",
+      build_status: null,
+      ownership_estate_type: "Leasehold",
+      structure_form: null,
+    },
+    "91": {
+      property_type: "LandParcel",
+      property_usage_type: "Utility",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "92": {
+      property_type: "Building",
+      property_usage_type: "MineralProcessing",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "93": {
+      property_type: "VacantLand",
+      property_usage_type: "Unknown",
+      build_status: "VacantLand",
+      ownership_estate_type: "SubsurfaceRights",
+      structure_form: null,
+    },
+    "94": {
+      property_type: "VacantLand",
+      property_usage_type: "Unknown",
+      build_status: "VacantLand",
+      ownership_estate_type: "RightOfWay",
+      structure_form: null,
+    },
+    "95": {
+      property_type: "LandParcel",
+      property_usage_type: "RiversLakes",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "96": {
+      property_type: "LandParcel",
+      property_usage_type: "TransitionalProperty",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "97": {
+      property_type: "LandParcel",
+      property_usage_type: "ForestParkRecreation",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "9801": {
+      property_type: "Building",
+      property_usage_type: "Utility",
+      build_status: "Improved",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
+    "9802": {
+      property_type: "VacantLand",
+      property_usage_type: "TransportationTerminal",
+      build_status: "VacantLand",
+      ownership_estate_type: "RightOfWay",
+      structure_form: null,
+    },
+    "99": {
+      property_type: "VacantLand",
+      property_usage_type: "TransitionalProperty",
+      build_status: "VacantLand",
+      ownership_estate_type: "FeeSimple",
+      structure_form: null,
+    },
   };
   return map[dorCode] || null;
 }
 
+// Modified extractTopAddressBlock to be more specific
 function extractTopAddressBlock($) {
-  const p = $("div.row").find("p").first();
+  // Find the div.row that contains the parcel H2, then look for the next div.row
+  // which should contain the address paragraph.
+  const parcelH2 = $('h2:contains("Parcel")').first();
+  if (!parcelH2.length) return [];
+
+  const addressRow = parcelH2.closest('.row').nextAll('.row').first();
+  if (!addressRow.length) return [];
+
+  const p = addressRow.find("p").first();
   if (!p || !p.length) return [];
+
   const html = p.html() || "";
   const normalized = html.replace(/<br\s*\/?>/gi, "\n");
   const lines = normalized
@@ -261,6 +877,7 @@ function extractTopAddressBlock($) {
     .filter((l) => l && l !== "/>");
   return lines;
 }
+
 
 function parseFullAddressParts(fullAddress) {
   const s = ((full_address) =>
@@ -299,16 +916,7 @@ function mapStreetSuffix(raw) {
     // Add more common suffixes if needed
   };
   if (map[up]) return map[up];
-  // Only throw error if it's a known suffix that's not mapped, otherwise return null
-  // for cases where the last token isn't a suffix.
-  // For now, we'll keep the error to catch unhandled cases.
-  throw new Error(
-    JSON.stringify({
-      type: "error",
-      message: `Unknown enum value ${raw}.`,
-      path: "address.street_suffix_type",
-    }),
-  );
+  return null; // Return null for unmapped suffixes instead of throwing an error
 }
 
 function parseCityStateZip(line) {
@@ -328,7 +936,7 @@ function parseCityStateZip(line) {
 function parseStreetLine(line) {
   if (!line) return null;
   const tokens = line.trim().split(/\s+/);
-  if (tokens.length < 2) return null;
+  if (tokens.length < 1) return null;
 
   let street_number = null;
   let street_pre_directional_text = null;
@@ -337,7 +945,7 @@ function parseStreetLine(line) {
   let street_post_directional_text = null;
 
   // Attempt to parse street number
-  if (tokens[0].match(/^\d+$/)) {
+  if (tokens.length > 0 && tokens[0].match(/^\d+$/)) {
     street_number = tokens.shift();
   }
 
@@ -364,20 +972,10 @@ function parseStreetLine(line) {
   // Attempt to parse street suffix from the end of remaining tokens
   if (tokens.length > 0) {
     const lastToken = tokens[tokens.length - 1];
-    try {
-      street_suffix_type = mapStreetSuffix(lastToken);
-      if (street_suffix_type) {
-        tokens.pop(); // Remove suffix if successfully mapped
-      } else {
-        // If mapStreetSuffix throws an error, it means it's an unhandled suffix,
-        // so we'll treat it as part of the street name for now.
-        // Or, if it returns null, it's not a suffix.
-        street_name_tokens.push(lastToken);
-      }
-    } catch (e) {
-      // If mapStreetSuffix throws an error, it's an unknown suffix,
-      // so we'll treat it as part of the street name.
-      street_name_tokens.push(lastToken);
+    const mappedSuffix = mapStreetSuffix(lastToken);
+    if (mappedSuffix) {
+      street_suffix_type = mappedSuffix;
+      tokens.pop(); // Remove suffix if successfully mapped
     }
   }
 
@@ -476,9 +1074,9 @@ function main() {
   const propertyBuiltYear = aybYears.length ? Math.min(...aybYears) : null;
   const unitsTotal = extractUnitsTotal($);
   const dor = extractDorCode($);
-  const propertyType = dor.code ? mapDorToPropertyType(dor.code) : null;
+  const propertyTypeMapping = dor.code ? mapDorToPropertyType(dor.code) : null;
 
-  if (!propertyType)
+  if (!propertyTypeMapping)
     throw new Error(
       JSON.stringify({
         type: "error",
@@ -493,19 +1091,27 @@ function main() {
     livable_floor_area: null,
     number_of_units: unitsTotal || null,
     number_of_units_type: null,
+    ownership_estate_type: propertyTypeMapping.ownership_estate_type,
     parcel_identifier: parcelIdentifier || (seed && seed.parcel_id) || "",
     property_effective_built_year: null,
     property_legal_description_text: legalDesc || null,
     property_structure_built_year: propertyBuiltYear || null,
-    property_type: propertyType,
+    property_type: propertyTypeMapping.property_type,
+    property_usage_type: propertyTypeMapping.property_usage_type,
+    build_status: propertyTypeMapping.build_status,
+    structure_form: propertyTypeMapping.structure_form,
     subdivision: null,
     total_area: null,
     zoning: zoning || null,
+    request_identifier: null, // Added as per schema
+    source_http_request: { // Added as per schema
+      method: "GET",
+      url: seed.url || "http://example.com/property_data" // Use URL from seed.json
+    }
   };
   writeJson(path.join("data", "property.json"), property);
 
   // Address
-  const lines = extractTopAddressBlock($);
   const address = {
     block: null,
     city_name: null,
@@ -534,77 +1140,60 @@ function main() {
     unit_identifier: null,
     source_http_request: { // Added as per schema
       method: "GET",
-      url: "http://example.com/address_data" // Placeholder, replace with actual source if available
+      url: seed.url || "http://example.com/address_data" // Use URL from seed.json
     }
   };
 
+  let htmlAddressExtracted = false;
+
+  // Attempt to extract address from the HTML first
+  const lines = extractTopAddressBlock($);
   if (lines.length >= 2) {
     const street = parseStreetLine(lines[0]);
     const csz = parseCityStateZip(lines[1]);
-    if (street) {
+
+    if (street && csz) { // Only consider HTML extraction successful if both street and csz are found
       address.street_number = street.street_number;
       address.street_name = street.street_name;
       address.street_suffix_type = street.street_suffix_type;
       address.street_pre_directional_text = street.street_pre_directional_text;
       address.street_post_directional_text = street.street_post_directional_text;
-    }
-    if (csz) {
+
       address.city_name = csz.city;
       address.state_code = csz.state;
       address.postal_code = csz.zip;
       address.plus_four_postal_code = csz.plus4;
+      htmlAddressExtracted = true;
     }
   }
-  if (!address.city_name || !address.state_code || !address.postal_code) {
-    const pText = $("div.row")
-      .find("p")
-      .first()
-      .text()
-      .replace(/\s+/g, " ")
-      .trim();
-    const m = pText.match(/([A-Z \-']+),\s*([A-Z]{2})\s*(\d{5})(?:-(\d{4}))?/i);
-    if (m) {
-      address.city_name = m[1].toUpperCase();
-      address.state_code = m[2].toUpperCase();
-      address.postal_code = m[3];
-      address.plus_four_postal_code =
-        address.plus_four_postal_code || m[4] || null;
-    }
-  }
-  if (
-    !address.city_name ||
-    !address.state_code ||
-    !address.postal_code ||
-    !address.street_number ||
-    !address.street_suffix_type ||
-    !address.street_name
-  ) {
-    const parts = parseFullAddressParts(unnormalized.full_address || "");
+
+  // Fallback to unnormalized_address.json if HTML extraction was not fully successful
+  if (!htmlAddressExtracted) {
+    const fullAddressFromUnnormalized = unnormalized.full_address || "";
+    const parts = parseFullAddressParts(fullAddressFromUnnormalized);
     if (parts) {
       const { streetPart, city, state, zip, plus4 } = parts;
-      if (!address.city_name) address.city_name = (city || "").toUpperCase();
-      if (!address.state_code) address.state_code = state;
-      if (!address.postal_code) address.postal_code = zip;
-      if (!address.plus_four_postal_code) address.plus_four_postal_code = plus4;
-      if (
-        !address.street_number ||
-        !address.street_suffix_type ||
-        !address.street_name ||
-        !address.street_pre_directional_text ||
-        !address.street_post_directional_text
-      ) {
-        const streetParsed = parseStreetLine(streetPart);
-        if (streetParsed) {
-          if (!address.street_number) address.street_number = streetParsed.street_number;
-          if (!address.street_name) address.street_name = streetParsed.street_name;
-          if (!address.street_suffix_type) address.street_suffix_type = streetParsed.street_suffix_type;
-          if (!address.street_pre_directional_text) address.street_pre_directional_text = streetParsed.street_pre_directional_text;
-          if (!address.street_post_directional_text) address.street_post_directional_text = streetParsed.street_post_directional_text;
-        }
+
+      // Fill in address components from unnormalized data
+      address.city_name = (city || "").toUpperCase();
+      address.state_code = state;
+      address.postal_code = zip;
+      address.plus_four_postal_code = plus4;
+
+      const streetParsed = parseStreetLine(streetPart);
+      if (streetParsed) {
+        address.street_number = streetParsed.street_number;
+        address.street_name = streetParsed.street_name;
+        address.street_suffix_type = streetParsed.street_suffix_type;
+        address.street_pre_directional_text = streetParsed.street_pre_directional_text;
+        address.street_post_directional_text = streetParsed.street_post_directional_text;
       }
     }
   }
-  lines.forEach((line) => {
+
+  // Further parsing for lot, block, section, township, range (these can come from other sections)
+  // This part should be independent of the primary address extraction
+  lines.forEach((line) => { // Re-use lines from extractTopAddressBlock for lot if it's there
     const m = line.match(/\bLT\s+(\w+)/i);
     if (m) address.lot = m[1];
   });
@@ -620,12 +1209,14 @@ function main() {
       address.range = m[3];
     }
   }
-  if (address.city_name !== null) { // Only check if it's not already null
+
+  // Trim city_name if it exists
+  if (address.city_name !== null) {
     const trimmedCityName = address.city_name.trim();
     if (trimmedCityName === "") {
       address.city_name = null;
     } else {
-      address.city_name = trimmedCityName; // Ensure it's trimmed if not empty
+      address.city_name = trimmedCityName;
     }
   }
   writeJson(path.join("data", "address.json"), address);
@@ -666,11 +1257,15 @@ function main() {
   const totalBuildingVal = parseCurrencyToNumber(
     valueSummary["Total Building Value"],
   );
+  const totalXFVal = parseCurrencyToNumber(valueSummary["Total XF Value"]); // Added XF Value
   const totalLandVal = parseCurrencyToNumber(valueSummary["Total Land Value"]);
+  const totalLandAgriVal = parseCurrencyToNumber(valueSummary["Total Land value - Agri."]); // Added Land value - Agri.
+  const totalClassifiedUseVal = parseCurrencyToNumber(valueSummary["Total Classified Use Value"]); // Added Classified Use Value
   const totalJustVal = parseCurrencyToNumber(valueSummary["Total Just Value"]);
   const totalAssessed = parseCurrencyToNumber(
     taxableSummary["Total Assessed (Capped) Value"],
   );
+  const totalExemptions = parseCurrencyToNumber(taxableSummary["Total Exemptions"]); // Added Total Exemptions
   const totalTaxable = parseCurrencyToNumber(
     taxableSummary["Total Taxable Value"],
   );
@@ -686,7 +1281,7 @@ function main() {
     period_start_date: null,
     yearly_tax_amount: null,
     first_year_building_on_tax_roll: null,
-    first_year_on_tax_roll: null,
+    first_year_on_tax_roll: null
   };
   writeJson(path.join("data", "tax_1.json"), tax);
 
