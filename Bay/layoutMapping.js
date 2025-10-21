@@ -10,6 +10,14 @@ function readHtml(filepath) {
   return cheerio.load(html);
 }
 
+function readJSON(p) {
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (e) {
+    return null;
+  }
+}
+
 const PARCEL_SELECTOR = "#ctlBodyPane_ctl00_ctl01_dynamicSummaryData_rptrDynamicColumns_ctl00_pnlSingleValue";
 const BUILDING_SECTION_TITLE = "Buildings";
 
@@ -44,7 +52,10 @@ function collectBuildings($) {
       $(div)
         .find("table tbody tr")
         .each((__, tr) => {
-          const label = textTrim($(tr).find("th strong").first().text());
+          let label = textTrim($(tr).find("td strong").first().text());
+          if (!label || !label.trim()) {
+            label = textTrim($(tr).find("th strong").first().text());
+          }
           const value = textTrim($(tr).find("td span").first().text());
           if (label) map[label] = value;
         });
@@ -60,7 +71,10 @@ function collectBuildings($) {
       $(div)
         .find("table tbody tr")
         .each((__, tr) => {
-          const label = textTrim($(tr).find("th strong").first().text());
+          let label = textTrim($(tr).find("td strong").first().text());
+          if (!label || !label.trim()) {
+            label = textTrim($(tr).find("th strong").first().text());
+          }
           const value = textTrim($(tr).find("td span").first().text());
           if (label) map[label] = value;
         });
@@ -129,7 +143,6 @@ function buildLayoutsFromBuildings(buildings) {
     totalBeds += toInt(b["Bedrooms"]);
     totalBaths += toInt(b["Bathrooms"]);
   });
-
   const layouts = [];
   let idx = 1;
   for (let i = 0; i < totalBeds; i++) {
@@ -145,6 +158,16 @@ function main() {
   const inputPath = path.resolve("input.html");
   const $ = readHtml(inputPath);
   const parcelId = getParcelId($);
+
+  const propertySeed = readJSON("property_seed.json");
+  if (propertySeed.request_identifier != parcelId.replaceAll("-","")) {
+    throw {
+      type: "error",
+      message: `Request identifier and parcel id don't match.`,
+      path: "property.request_identifier",
+    };
+  }
+  
   if (!parcelId) throw new Error("Parcel ID not found");
   const buildings = collectBuildings($);
   const layouts = buildLayoutsFromBuildings(buildings);
