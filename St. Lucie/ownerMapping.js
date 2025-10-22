@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path"); // Add path module
 const cheerio = require("cheerio");
 
 // Load input HTML
@@ -261,9 +262,15 @@ result[`property_${propertyId}`] = {
   invalid_owners: invalid,
 };
 
+// --- MODIFIED SECTION ---
+const outputDir = path.join(process.cwd(), "owners"); // Define output directory
+if (!fs.existsSync(outputDir)) { // Check if directory exists
+  fs.mkdirSync(outputDir, { recursive: true }); // Create it if it doesn't
+}
+
 // Write to file and print
 fs.writeFileSync(
-  "owners/owner_data.json",
+  path.join(outputDir, "owner_data.json"), // Use path.join for the full path
   JSON.stringify(result, null, 2),
   "utf8",
 );
