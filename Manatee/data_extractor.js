@@ -1995,6 +1995,55 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
 }
 
+function parseCurrencyToNumber(txt) {
+  if (txt == null) return null;
+  const s = String(txt).trim();
+  if (s === "") return null;
+  const n = Number(s.replace(/[$,]/g, ""));
+  if (isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
+function writeTaxes(input) {
+  const valuation = input && input.Tax && input.Tax.response;
+  const cols = valuation.cols || [];
+  let idx = {};
+  valuation.cols.forEach((c, i) => {
+    idx[c.title] = i;
+  });
+  if (!idx.hasOwnProperty("Tax Year") || !idx.hasOwnProperty("Non-School Assessed Value") || !idx.hasOwnProperty("County Taxable Value")) {
+    return; // Check for Mandatory properties
+  }
+  valuation.rows.forEach((v, i) => {
+    const taxYear = parseInt(v[idx["Tax Year"]], 10);
+    const assessedValue = parseCurrencyToNumber(v[idx["Non-School Assessed Value"]]);
+    const taxableValue = parseCurrencyToNumber(v[idx["County Taxable Value"]]);
+    let marketValue = null;
+    let landValue = null;
+    if (taxYear === null || assessedValue === null || taxableValue === null) {
+      return;
+    }
+    if (idx.hasOwnProperty("Just/Market Value")) {
+      marketValue = parseCurrencyToNumber(v[idx["Just/Market Value"]]);
+    }
+    if (idx.hasOwnProperty("Land Value")) {
+      landValue = parseCurrencyToNumber(v[idx["Land Value"]]);
+    }
+    const taxObj = {
+      tax_year: taxYear,
+      property_assessed_value_amount: assessedValue,
+      property_market_value_amount: marketValue,
+      property_building_amount: null,
+      property_land_amount: landValue,
+      property_taxable_value_amount: taxableValue,
+      monthly_tax_amount: null,
+      period_end_date: null,
+      period_start_date: null,
+    };
+    writeJSON(path.join("data", `tax_${taxYear}.json`), taxObj);
+  });
+}
+
 async function main() {
   const input = await readJsonSafe("input.json");
   let unnorm = null;
@@ -2281,6 +2330,7 @@ async function main() {
       i++;
     }
   }
+  writeTaxes(input);
 
   // Utilities extraction from owners/utilities_data.json
   if (utilitiesData) {
