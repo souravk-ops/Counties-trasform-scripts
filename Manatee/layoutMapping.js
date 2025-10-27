@@ -80,84 +80,116 @@ function sumFromBuildings(input) {
 }
 
 function buildLayouts(input) {
-  // const ownersHtml = input?.OwnersAndGeneralInformation?.response || "";
-  // let totalLivable = null;
-  // let totalUnderRoof = null;
-  // if (cheerio && ownersHtml) {
-  //   const $ = cheerio.load(ownersHtml);
-  //   const text = $.text();
-  //   const m = text.match(
-  //     /(\d[\d,]*)\s*SqFt Under Roof\s*\/\s*(\d[\d,]*)\s*SqFt Living/i,
-  //   );
-  //   if (m) {
-  //     totalUnderRoof = toInt(m[1]);
-  //     totalLivable = toInt(m[2]);
-  //   }
-  // }
-  // if (totalLivable == null || totalUnderRoof == null) {
-  //   const s = sumFromBuildings(input);
-  //   totalUnderRoof = totalUnderRoof ?? s.underRoof;
-  //   totalLivable = totalLivable ?? s.livBus;
-  // }
-
-  // Pool present? From features rows with COMMERCIAL POOL
-  // const features = input?.Features?.response?.rows || [];
-  // const hasPool = features.some(
-  //   (r) =>
-  //     Array.isArray(r) &&
-  //     String(r[3] || "")
-  //       .toUpperCase()
-  //       .includes("COMMERCIAL POOL"),
-  // );
-
-  const layouts = [];
-  // let idx = 1;
-  // layouts.push({
-  //   space_type: "Living Area",
-  //   space_index: idx++,
-  //   flooring_material_type: null,
-  //   size_square_feet: totalLivable,
-  //   floor_level: null,
-  //   has_windows: null,
-  //   window_design_type: null,
-  //   window_material_type: null,
-  //   window_treatment_type: null,
-  //   is_finished: true,
-  //   furnished: null,
-  //   paint_condition: null,
-  //   flooring_wear: null,
-  //   clutter_level: null,
-  //   visible_damage: null,
-  //   countertop_material: null,
-  //   cabinet_style: null,
-  //   fixture_finish_quality: null,
-  //   design_style: null,
-  //   natural_light_quality: null,
-  //   decor_elements: null,
-  //   pool_type: hasPool ? "BuiltIn" : null,
-  //   pool_equipment: hasPool ? "Standard" : null,
-  //   spa_type: null,
-  //   safety_features: null,
-  //   view_type: null,
-  //   lighting_features: null,
-  //   condition_issues: null,
-  //   is_exterior: false,
-  //   pool_condition: hasPool ? "Unknown" : null,
-  //   pool_surface_type: hasPool ? "Unknown" : null,
-  //   pool_water_quality: hasPool ? "Unknown" : null,
-  //   adjustable_area_sq_ft: null,
-  //   area_under_air_sq_ft: totalLivable,
-  //   bathroom_renovation_date: null,
-  //   building_number: null,
-  //   kitchen_renovation_date: null,
-  //   heated_area_sq_ft: totalLivable,
-  //   installation_date: null,
-  //   livable_area_sq_ft: totalLivable,
-  //   pool_installation_date: null,
-  //   spa_installation_date: null,
-  //   story_type: null,
-  //   total_area_sq_ft: totalUnderRoof,
-  // });
+  const buildings = input && input.Buildings && input.Buildings.response;
+  let layouts = [];
+  if (buildings && Array.isArray(buildings.rows) && buildings.rows.length > 0) {
+    // Determine indexes from cols
+    const cols = buildings.cols || [];
+    let idx = {};
+    buildings.cols.forEach((c, i) => {
+      idx[c.title] = i;
+    });
+    lIdx = 1;
+    buildings.rows.forEach((building, bidx) => {
+      layouts.push({
+        building_number: (bidx + 1),
+        space_type: "Building",
+        space_index: lIdx++,
+        flooring_material_type: null,
+        size_square_feet: null,
+        floor_level: null,
+        has_windows: null,
+        window_design_type: null,
+        window_material_type: null,
+        window_treatment_type: null,
+        is_finished: true,
+        furnished: null,
+        paint_condition: null,
+        flooring_wear: null,
+        clutter_level: null,
+        visible_damage: null,
+        countertop_material: null,
+        cabinet_style: null,
+        fixture_finish_quality: null,
+        design_style: null,
+        natural_light_quality: null,
+        decor_elements: null,
+        pool_type: null,
+        pool_equipment: null,
+        spa_type: null,
+        safety_features: null,
+        view_type: null,
+        lighting_features: null,
+        condition_issues: null,
+        is_exterior: false,
+        pool_condition: null,
+        pool_surface_type: null,
+        pool_water_quality: null,
+        adjustable_area_sq_ft: null,
+        area_under_air_sq_ft: null,
+        bathroom_renovation_date: null,
+        kitchen_renovation_date: null,
+        heated_area_sq_ft: null,
+        installation_date: null,
+        livable_area_sq_ft: (building[idx.LivBus] ? Number(building[idx.LivBus]) : null),
+        pool_installation_date: null,
+        spa_installation_date: null,
+        story_type: null,
+        total_area_sq_ft: (building[idx.UnRoof] ? Number(building[idx.UnRoof]) : null),
+      });
+      const numberOfFloors = (building[idx.Stories] ? Number(building[idx.Stories]) : null);
+      if (numberOfFloors) {
+        for (let floorIdx = 0; floorIdx < numberOfFloors; floorIdx++) {
+          layouts.push({
+            building_number: (bidx + 1),
+            space_type: "Floor",
+            space_index: lIdx++,
+            flooring_material_type: null,
+            size_square_feet: null,
+            floor_level: (floorIdx + 1),
+            has_windows: null,
+            window_design_type: null,
+            window_material_type: null,
+            window_treatment_type: null,
+            is_finished: true,
+            furnished: null,
+            paint_condition: null,
+            flooring_wear: null,
+            clutter_level: null,
+            visible_damage: null,
+            countertop_material: null,
+            cabinet_style: null,
+            fixture_finish_quality: null,
+            design_style: null,
+            natural_light_quality: null,
+            decor_elements: null,
+            pool_type: null,
+            pool_equipment: null,
+            spa_type: null,
+            safety_features: null,
+            view_type: null,
+            lighting_features: null,
+            condition_issues: null,
+            is_exterior: false,
+            pool_condition: null,
+            pool_surface_type: null,
+            pool_water_quality: null,
+            adjustable_area_sq_ft: null,
+            area_under_air_sq_ft: null,
+            bathroom_renovation_date: null,
+            kitchen_renovation_date: null,
+            heated_area_sq_ft: null,
+            installation_date: null,
+            livable_area_sq_ft: null,
+            pool_installation_date: null,
+            spa_installation_date: null,
+            story_type: null,
+            total_area_sq_ft: null,
+          });
+        }
+      }
+    });
+  }
 
   return layouts;
 }

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-const fsp = require("fs").promises;
 const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
@@ -1624,23 +1623,23 @@ const propertyTypeMapping = [
 ]
 
 
-async function readJsonSafe(p) {
+function readJsonSafe(p) {
   try {
-    const raw = await fsp.readFile(p, "utf-8");
+    const raw = fs.readFileSync(p, "utf-8");
     return JSON.parse(raw);
   } catch (e) {
     return null;
   }
 }
 
-async function ensureDir(dir) {
-  await fsp.mkdir(dir, { recursive: true });
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-async function writeOut(filePath, obj) {
+function writeOut(filePath, obj) {
   const outPath = path.join("data", filePath);
-  await ensureDir(path.dirname(outPath));
-  await fsp.writeFile(outPath, JSON.stringify(obj, null, 2), "utf-8");
+  ensureDir(path.dirname(outPath));
+  fs.writeFileSync(outPath, JSON.stringify(obj, null, 2), "utf8");
 }
 
 function isMultiRequest(input) {
@@ -1659,202 +1658,50 @@ function sumNumbers(arr) {
   return arr.reduce((acc, v) => acc + (Number(v) || 0), 0);
 }
 
-function uniqueCount(arr) {
-  return new Set(arr).size;
-}
-
 function extractSecTwpRng(value) {
   const m = value.trim().match(/^(\d+)-(\w+)-(\w+)$/);
   if (!m) return { section: null, township: null, range: null };
   return { section: m[1], township: m[2], range: m[3] };
 }
 
-function normalizeSuffix(s) {
-  if (!s) return null;
-  const map = {
-    ALY: "Aly",
-    AVE: "Ave",
-    AV: "Ave",
-    BLVD: "Blvd",
-    BND: "Bnd",
-    CIR: "Cir",
-    CIRS: "Cirs",
-    CRK: "Crk",
-    CT: "Ct",
-    CTR: "Ctr",
-    CTRS: "Ctrs",
-    CV: "Cv",
-    CYN: "Cyn",
-    DR: "Dr",
-    DRS: "Drs",
-    EXPY: "Expy",
-    FWY: "Fwy",
-    GRN: "Grn",
-    GRNS: "Grns",
-    GRV: "Grv",
-    GRVS: "Grvs",
-    HWY: "Hwy",
-    HL: "Hl",
-    HLS: "Hls",
-    HOLW: "Holw",
-    JCT: "Jct",
-    JCTS: "Jcts",
-    LN: "Ln",
-    LOOP: "Loop",
-    MALL: "Mall",
-    MDW: "Mdw",
-    MDWS: "Mdws",
-    MEWS: "Mews",
-    ML: "Ml",
-    MNRS: "Mnrs",
-    MT: "Mt",
-    MTN: "Mtn",
-    MTNS: "Mtns",
-    OPAS: "Opas",
-    ORCH: "Orch",
-    OVAL: "Oval",
-    PARK: "Park",
-    PASS: "Pass",
-    PATH: "Path",
-    PIKE: "Pike",
-    PL: "Pl",
-    PLN: "Pln",
-    PLNS: "Plns",
-    PLZ: "Plz",
-    PT: "Pt",
-    PTS: "Pts",
-    PNE: "Pne",
-    PNES: "Pnes",
-    RADL: "Radl",
-    RD: "Rd",
-    RDG: "Rdg",
-    RDGS: "Rdgs",
-    RIV: "Riv",
-    ROW: "Row",
-    RTE: "Rte",
-    RUN: "Run",
-    SHL: "Shl",
-    SHLS: "Shls",
-    SHR: "Shr",
-    SHRS: "Shrs",
-    SMT: "Smt",
-    SQ: "Sq",
-    SQS: "Sqs",
-    ST: "St",
-    STA: "Sta",
-    STRA: "Stra",
-    STRM: "Strm",
-    TER: "Ter",
-    TPKE: "Tpke",
-    TRL: "Trl",
-    TRCE: "Trce",
-    UN: "Un",
-    VIS: "Vis",
-    VLY: "Vly",
-    VLYS: "Vlys",
-    VIA: "Via",
-    VL: "Vl",
-    VLGS: "Vlgs",
-    VWS: "Vws",
-    WALK: "Walk",
-    WALL: "Wall",
-    WAY: "Way",
-  };
-  const key = s.toUpperCase().trim();
-  if (map[key]) return map[key];
-  return null;
-}
-
-function isNumeric(value) {
-    return /^-?\d+$/.test(value);
-}
-
-async function attemptWriteAddress(unnorm, secTwpRng) {
-  if (unnorm && unnorm.unnormalized_address) {
-    full = unnorm.unnormalized_address.trim();
-  } else if(unnorm && unnorm.full_address) {
-    full = unnorm.full_address.trim();
-  }
-  if (!full) return;
-  let city = null;
-  let zip = null;
-  const fullAddressParts = (full || "").split(",");
-  if (fullAddressParts.length >= 3 && fullAddressParts[2]) {
-    state_and_pin = fullAddressParts[2].split(/\s+/);
-    if (state_and_pin.length >= 1 && state_and_pin[state_and_pin.length - 1] && state_and_pin[state_and_pin.length - 1].trim().match(/^\d{5}$/)) {
-      zip = state_and_pin[state_and_pin.length - 1].trim();
-      city = fullAddressParts[1].trim();
-    }
-  }
-  const parts = (fullAddressParts[0] || "").split(/\s+/);
-  let street_number = null;
-  if (parts && parts.length > 1) {
-    street_number_candidate = parts[0];
-    if ((street_number_candidate || "") && isNumeric(street_number_candidate)) {
-      street_number = parts.shift() || null;
-    }
-  }
-  let suffix = null;
-  if (parts && parts.length > 1) {
-    suffix_candidate = parts[parts.length - 1];
-    if (normalizeSuffix(suffix_candidate)) {
-      suffix = parts.pop() || null;
-    }
-  }
-  let street_name = parts.join(" ") || null;
-  if (street_name) {
-    street_name = street_name.replace(/\b(E|N|NE|NW|S|SE|SW|W)\b/g, "");
-  }
-  // const m = full.match(
-  //   /^(\d+)\s+([^,]+),\s*([^,]+),\s*([A-Z]{2})\s*(\d{5})(?:-(\d{4}))?$/i,
-  // );
-  // if (!m) return;
-  // const [, streetNumber, streetRest, city, state, zip, plus4] = m;
-
-  // let street_name = streetRest.trim();
-  // let route_number = null;
-  // let street_suffix_type = null;
-  // const m2 = streetRest.trim().match(/^([A-Za-z]+)\s+(\d+)$/);
-  // if (m2) {
-  //   street_name = m2[1].toUpperCase();
-  //   route_number = m2[2];
-  //   if (street_name === "HWY" || street_name === "HIGHWAY")
-  //     street_suffix_type = "Hwy";
-  // }
-  const city_name = city ? city.toUpperCase() : null;
-  // const state_code = state.toUpperCase();
-  const postal_code = zip;
-  // const plus_four_postal_code = plus4 || null;
-
-  // Per evaluator expectation, set county_name from input jurisdiction
+function extractAddress(overallDetails, unnorm) {
+  let hasOwnerMailingAddress = false;
   const inputCounty = (unnorm.county_jurisdiction || "").trim();
   const county_name = inputCounty || null;
-
-  const address = {
-    city_name,
-    country_code: "US",
-    county_name,
-    latitude: unnorm && unnorm.latitude ? unnorm.latitude : null,
-    longitude: unnorm && unnorm.longitude ? unnorm.longitude : null,
-    plus_four_postal_code: null,
-    postal_code,
-    state_code: "FL",
-    street_name: street_name,
-    street_post_directional_text: null,
-    street_pre_directional_text: null,
-    street_number: street_number,
-    street_suffix_type: normalizeSuffix(suffix),
-    unit_identifier: null,
-    route_number: null,
-    township: secTwpRng && secTwpRng.township ? secTwpRng.township : null,
-    range: secTwpRng && secTwpRng.range ? secTwpRng.range : null,
-    section: secTwpRng && secTwpRng.section ? secTwpRng.section : null,
-    block: null,
-    lot: null,
-    municipality_name: null,
-    // unnormalized_address: full,
-  };
-  await writeOut("address.json", address);
+  const secTwpRngRawValue = overallDetails["Sec/Twp/Rge"];
+  let secTwpRng = null;
+  if (secTwpRngRawValue) {
+    secTwpRng = extractSecTwpRng(secTwpRngRawValue);
+  }
+  const mailingAddress = overallDetails["Mailing Address"];
+  const siteAddress = overallDetails["Situs Address"];
+  if (mailingAddress) {
+    const mailingAddressObj = {
+      county_name: null,
+      latitude: null,
+      longitude: null,
+      unnormalized_address: mailingAddress,
+    };
+    writeOut("mailing_address.json", mailingAddressObj);
+    hasOwnerMailingAddress = true;
+  }
+  if (siteAddress) {
+    const addressObj = {
+      county_name,
+      latitude: unnorm && unnorm.latitude ? unnorm.latitude : null,
+      longitude: unnorm && unnorm.longitude ? unnorm.longitude : null,
+      township: secTwpRng && secTwpRng.township ? secTwpRng.township : null,
+      range: secTwpRng && secTwpRng.range ? secTwpRng.range : null,
+      section: secTwpRng && secTwpRng.section ? secTwpRng.section : null,
+      unnormalized_address: siteAddress,
+    };
+    writeOut("address.json", addressObj);
+    writeOut("property_has_address.json", {
+                to: { "/": `./address.json` },
+                from: { "/": `./property.json` },
+              });
+  }
+  return hasOwnerMailingAddress;
 }
 
 const propertyTypeByUseCode = propertyTypeMapping.reduce((lookup, entry) => {
@@ -2045,54 +1892,52 @@ function writeTaxes(input) {
   });
 }
 
-async function main() {
-  const input = await readJsonSafe("input.json");
-  let unnorm = null;
-  let address = await readJsonSafe("address.json");
-  if (!address) {
-    unnorm = await readJsonSafe("unnormalized_address.json");
+function main() {
+  const input = readJsonSafe("input.json");
+  let unnorm = readJsonSafe("address.json");
+  if (!unnorm) {
+    unnorm = readJsonSafe("unnormalized_address.json");
   }
-  let parcel = await readJsonSafe("parcel.json");
+  let parcel = readJsonSafe("parcel.json");
   if (!parcel) {
-    parcel = await readJsonSafe("property_seed.json");
+    parcel = readJsonSafe("property_seed.json");
     parcel.parcel_identifier = parcel.parcel_id;
   }
-  const ownersData = await readJsonSafe(path.join("owners", "owner_data.json"));
-  const utilitiesData = await readJsonSafe(
+  const ownersData = readJsonSafe(path.join("owners", "owner_data.json"));
+  const utilitiesData = readJsonSafe(
     path.join("owners", "utilities_data.json"),
   );
-  const layoutData = await readJsonSafe(
+  const layoutData = readJsonSafe(
     path.join("owners", "layout_data.json"),
   );
-  const structureData = await readJsonSafe(
+  const structureData = readJsonSafe(
     path.join("owners", "structure_data.json"),
   );
   const html = input?.OwnersAndGeneralInformation?.response || "";
   const $ = cheerio.load(html);
   const overallDetails = parseOverallDetails($);
-
-  await ensureDir("data");
+  ensureDir("data");
+  let hasOwnerMailingAddress = extractAddress(overallDetails, unnorm);
 
   const multi = isMultiRequest(input);
 
   // Extract Address: use unnormalized variant if available; per schema, address supports source_http_request
-  if (address) {
-    const secTwpRngValue = overallDetails["Sec/Twp/Rge"];
-    let secTwpRng = null;
-    if (secTwpRngValue) {
-      secTwpRng = extractSecTwpRng(secTwpRngValue);
-    }
-    await attemptWriteAddress(address, secTwpRng);
-    // await writeOut("address.json", addrOut);
-  } else if (unnorm) {
-    const secTwpRngValue = overallDetails["Sec/Twp/Rge"];
-    let secTwpRng = null;
-    if (secTwpRngValue) {
-      secTwpRng = extractSecTwpRng(secTwpRngValue);
-    }
-    await attemptWriteAddress(unnorm, secTwpRng);
-  }
-
+  // if (address) {
+  //   const secTwpRngValue = overallDetails["Sec/Twp/Rge"];
+  //   let secTwpRng = null;
+  //   if (secTwpRngValue) {
+  //     secTwpRng = extractSecTwpRng(secTwpRngValue);
+  //   }
+  //   attemptWriteAddress(address, secTwpRng);
+  //   // writeOut("address.json", addrOut);
+  // } else if (unnorm) {
+  //   const secTwpRngValue = overallDetails["Sec/Twp/Rge"];
+  //   let secTwpRng = null;
+  //   if (secTwpRngValue) {
+  //     secTwpRng = extractSecTwpRng(secTwpRngValue);
+  //   }
+  //   attemptWriteAddress(unnorm, secTwpRng);
+  // }
   // Property extraction from Buildings (and parcel)
   const buildings = input && input.Buildings && input.Buildings.response;
   // NOTE: property schema does NOT allow source_http_request field, so we will not include it here
@@ -2210,7 +2055,7 @@ async function main() {
   propertyOut.structure_form = propertyMapping.structure_form,
   propertyOut.property_usage_type = propertyMapping.property_usage_type,
 
-  await writeOut("property.json", propertyOut);
+  writeOut("property.json", propertyOut);
 
   // Lot extraction from Features
   // const features = input && input.Features && input.Features.response;
@@ -2235,16 +2080,20 @@ async function main() {
   //     site_lighting_installation_date: null,
   //     site_lighting_type: null,
   //   };
-  //   await writeOut("lot.json", lotOut);
+  //   writeOut("lot.json", lotOut);
   // }
 
   const key =
       parcel && parcel.parcel_identifier
         ? `property_${parcel.parcel_identifier}`
         : null;
+  let struct = null;
+  if (structureData) {
+    struct = key && structureData[key] ? structureData[key] : null;
+  }
   const s = structureData[key];
-  if (!s) return;
-  await writeOut("structure.json", s);
+  // if (!s) return;
+  // writeOut("structure.json", s);
 
   // Sales extraction (none if no rows)
   const sales = input && input.Sales && input.Sales.response;
@@ -2279,7 +2128,7 @@ async function main() {
         i++;
         continue;
       }
-      await writeOut(`sales_${i}.json`, out);
+      writeOut(`sales_${i}.json`, out);
       let book = bookIdx >= 0 ? row[bookIdx] || null : null;
       let page = pageIdx >= 0 ? row[pageIdx] || null : null;
       let instrType = instrTypeIdx >= 0 ? row[instrTypeIdx] || null : null;
@@ -2287,12 +2136,12 @@ async function main() {
       let instrNumber = instrNumberIdx >= 0 ? row[instrNumberIdx] || null : null;
       let deedType = mapInstrumentToDeedType(instrType);
       const deed = { deed_type: deedType };
-      await writeOut(`deed_${i}.json`, deed);
+      writeOut(`deed_${i}.json`, deed);
       const relSalesDeed = {
         to: { "/": `./sales_${i}.json` },
         from: { "/": `./deed_${i}.json` },
       };
-      await writeOut(`relationship_sales_deed_${i}.json`, relSalesDeed);
+      writeOut(`relationship_sales_deed_${i}.json`, relSalesDeed);
       let link = null;
       if(instrNumber) {
         link = `https://records.manateeclerk.com/OfficialRecords/Search/InstrumentNumber?instrumentNumber=${instrNumber}`;
@@ -2303,12 +2152,12 @@ async function main() {
           name: `Deed ${instrNumber}`,
           original_url: link,
         };
-        await writeOut(`file_${i}.json`, file);
+        writeOut(`file_${i}.json`, file);
         const relDeedFile = {
           to: { "/": `./deed_${i}.json` },
           from: { "/": `./file_${i}.json` },
         };
-        await writeOut(`relationship_deed_file_${i}.json`, relDeedFile);
+        writeOut(`relationship_deed_file_${i}.json`, relDeedFile);
       } else if(book && page) {
         link = `https://records.manateeclerk.com/OfficialRecords/Search/InstrumentBookPage/${book}/${page}`;
         const file = {
@@ -2318,12 +2167,12 @@ async function main() {
           name: `Deed ${book}/${page}`,
           original_url: link,
         };
-        await writeOut(`file_${i}.json`, file);
+        writeOut(`file_${i}.json`, file);
         const relDeedFile = {
           to: { "/": `./deed_${i}.json` },
           from: { "/": `./file_${i}.json` },
         };
-        await writeOut(`relationship_deed_file_${i}.json`, relDeedFile);
+        writeOut(`relationship_deed_file_${i}.json`, relDeedFile);
       }
       if (grantee && ownership_transfer_date) {
         salesOwnerMapping[ownership_transfer_date] = grantee;
@@ -2334,68 +2183,10 @@ async function main() {
   writeTaxes(input);
 
   // Utilities extraction from owners/utilities_data.json
+  let util = null;
   if (utilitiesData) {
     
-    const util = key && utilitiesData[key] ? utilitiesData[key] : null;
-    if (util) {
-      const utilOut = {
-        cooling_system_type: util.cooling_system_type ?? null,
-        heating_system_type: util.heating_system_type ?? null,
-        public_utility_type: util.public_utility_type ?? null,
-        sewer_type: util.sewer_type ?? null,
-        water_source_type: util.water_source_type ?? null,
-        plumbing_system_type: util.plumbing_system_type ?? null,
-        plumbing_system_type_other_description:
-          util.plumbing_system_type_other_description ?? null,
-        electrical_panel_capacity: util.electrical_panel_capacity ?? null,
-        electrical_panel_installation_date:
-          util.electrical_panel_installation_date ?? null,
-        electrical_rewire_date: util.electrical_rewire_date ?? null,
-        electrical_wiring_type: util.electrical_wiring_type ?? null,
-        hvac_condensing_unit_present: util.hvac_condensing_unit_present ?? null,
-        electrical_wiring_type_other_description:
-          util.electrical_wiring_type_other_description ?? null,
-        solar_panel_present: util.solar_panel_present ?? null,
-        solar_panel_type: util.solar_panel_type ?? null,
-        solar_panel_type_other_description:
-          util.solar_panel_type_other_description ?? null,
-        smart_home_features: util.smart_home_features ?? null,
-        smart_home_features_other_description:
-          util.smart_home_features_other_description ?? null,
-        hvac_unit_condition: util.hvac_unit_condition ?? null,
-        solar_inverter_visible: util.solar_inverter_visible ?? null,
-        hvac_unit_issues: util.hvac_unit_issues ?? null,
-
-        // Optional fields
-        hvac_capacity_kw: util.hvac_capacity_kw ?? null,
-        hvac_capacity_tons: util.hvac_capacity_tons ?? null,
-        hvac_equipment_component: util.hvac_equipment_component ?? null,
-        hvac_equipment_manufacturer: util.hvac_equipment_manufacturer ?? null,
-        hvac_equipment_model: util.hvac_equipment_model ?? null,
-        hvac_installation_date: util.hvac_installation_date ?? null,
-        hvac_seer_rating: util.hvac_seer_rating ?? null,
-        hvac_system_configuration: util.hvac_system_configuration ?? null,
-        plumbing_fixture_count: util.plumbing_fixture_count ?? null,
-        plumbing_fixture_quality: util.plumbing_fixture_quality ?? null,
-        plumbing_fixture_type_primary:
-          util.plumbing_fixture_type_primary ?? null,
-        plumbing_system_installation_date:
-          util.plumbing_system_installation_date ?? null,
-        sewer_connection_date: util.sewer_connection_date ?? null,
-        solar_installation_date: util.solar_installation_date ?? null,
-        solar_inverter_installation_date:
-          util.solar_inverter_installation_date ?? null,
-        solar_inverter_manufacturer: util.solar_inverter_manufacturer ?? null,
-        solar_inverter_model: util.solar_inverter_model ?? null,
-        water_connection_date: util.water_connection_date ?? null,
-        water_heater_installation_date:
-          util.water_heater_installation_date ?? null,
-        water_heater_manufacturer: util.water_heater_manufacturer ?? null,
-        water_heater_model: util.water_heater_model ?? null,
-        well_installation_date: util.well_installation_date ?? null,
-      };
-      await writeOut("utility.json", utilOut);
-    }
+    util = key && utilitiesData[key] ? utilitiesData[key] : null;
   }
 
   // Layout extraction from owners/layout_data.json
@@ -2457,7 +2248,25 @@ async function main() {
         story_type: l.story_type ?? null,
         total_area_sq_ft: l.total_area_sq_ft ?? null,
       };
-      await writeOut(`layout_${idx}.json`, layoutOut);
+      writeOut(`layout_${idx}.json`, layoutOut);
+      if (util && l.space_type === "Building") {
+        if (l.building_number && l.building_number.toString() in util) {
+          writeOut(`utility_${idx}.json`, util[l.building_number.toString()]);
+          writeOut(`layout_to_utility_${idx}.json`, {
+                    to: { "/": `utility_${idx}.json` },
+                    from: { "/": `layout_${idx}.json` },
+          },);
+        }
+      }
+      if (struct && l.space_type === "Building") {
+        if (l.building_number && l.building_number.toString() in struct) {
+          writeOut(`structure_${idx}.json`, struct[l.building_number.toString()]);
+          writeOut(`layout_to_structure_${idx}.json`, {
+                    to: { "/": `structure_${idx}.json` },
+                    from: { "/": `layout_${idx}.json` },
+          },);
+        }
+      }
       idx++;
     }
   }
@@ -2513,7 +2322,7 @@ async function main() {
         });
         let loopIdx = 1;
         for (const p of people) {
-          await writeOut(`person_${loopIdx++}.json`, p);
+          writeOut(`person_${loopIdx++}.json`, p);
         }
         const companyNames = new Set();
         Object.values(ownersByDate).forEach((arr) => {
@@ -2528,7 +2337,7 @@ async function main() {
         }));
         loopIdx = 1;
         for (const c of companies) {
-          await writeOut(`company_${loopIdx++}.json`, c);
+          writeOut(`company_${loopIdx++}.json`, c);
         }
         loopIdx = 1;
         for (const [date, owner] of Object.entries(salesOwnerMapping)) {
@@ -2571,54 +2380,61 @@ async function main() {
             });
           loopIdx++;
         };
-        const currentOwner = ownersByDate["current"] || [];
-        relPersonCounter = 0;
-        relCompanyCounter = 0;
-        currentOwner
-        .filter((o) => o.type === "person")
-        .forEach((o) => {
-          const pIdx = findPersonIndexByName(o.first_name, o.last_name);
-          if (pIdx) {
-            relPersonCounter++;
-            writeJSON(
-              path.join(
-                "data",
-                `relationship_person_to_property_${relPersonCounter}.json`,
-              ),
-              {
-                from: { "/": `./person_${pIdx}.json` },
-                to: { "/": `./property.json` },
-              },
-            );
-          }
-        });
-        currentOwner
-        .filter((o) => o.type === "company")
-        .forEach((o) => {
-          const cIdx = findCompanyIndexByName(o.name);
-          if (cIdx) {
-            relCompanyCounter++;
-            writeJSON(
-              path.join(
-                "data",
-                `relationship_company_to_property_${relCompanyCounter}.json`,
-              ),
-              {
-                from: { "/": `./company_${cIdx}.json` },
-                to: { "/": `./property.json` },
-              },
-            );
-          }
-        });
+        if (hasOwnerMailingAddress) {
+          const currentOwner = ownersByDate["current"] || [];
+          relPersonCounter = 0;
+          relCompanyCounter = 0;
+          currentOwner
+          .filter((o) => o.type === "person")
+          .forEach((o) => {
+            const pIdx = findPersonIndexByName(o.first_name, o.last_name);
+            if (pIdx) {
+              relPersonCounter++;
+              writeJSON(
+                path.join(
+                  "data",
+                  `relationship_person_has_mailing_address_${relPersonCounter}.json`,
+                ),
+                {
+                  from: { "/": `./person_${pIdx}.json` },
+                  to: { "/": `./mailing_address.json` },
+                },
+              );
+            }
+          });
+          currentOwner
+          .filter((o) => o.type === "company")
+          .forEach((o) => {
+            const cIdx = findCompanyIndexByName(o.name);
+            if (cIdx) {
+              relCompanyCounter++;
+              writeJSON(
+                path.join(
+                  "data",
+                  `relationship_company_has_mailing_address_${relCompanyCounter}.json`,
+                ),
+                {
+                  from: { "/": `./company_${cIdx}.json` },
+                  to: { "/": `./mailing_address.json` },
+                },
+              );
+            }
+          });
+        }
     }
   }
 }
 
-main().catch(async (err) => {
-  if (err && err._structured) {
-    console.error(JSON.stringify(err._structured));
-  } else {
-    console.error(err && err.message ? err.message : String(err));
+if (require.main === module) {
+  try {
+    main();
+    console.log("Extraction complete.");
+  } catch (e) {
+    if (e && e.type === "error") {
+      console.error(JSON.stringify(e._structured));
+    } else {
+      console.error(e && e.message ? e.message : String(e));
+    }
+    process.exit(1);
   }
-  process.exit(1);
-});
+}
