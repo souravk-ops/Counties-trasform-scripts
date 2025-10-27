@@ -2138,8 +2138,8 @@ function main() {
       const deed = { deed_type: deedType };
       writeOut(`deed_${i}.json`, deed);
       const relSalesDeed = {
-        to: { "/": `./sales_${i}.json` },
-        from: { "/": `./deed_${i}.json` },
+        from: { "/": `./sales_${i}.json` },
+        to: { "/": `./deed_${i}.json` },
       };
       writeOut(`relationship_sales_deed_${i}.json`, relSalesDeed);
       let link = null;
@@ -2154,8 +2154,8 @@ function main() {
         };
         writeOut(`file_${i}.json`, file);
         const relDeedFile = {
-          to: { "/": `./deed_${i}.json` },
-          from: { "/": `./file_${i}.json` },
+          from: { "/": `./deed_${i}.json` },
+          to: { "/": `./file_${i}.json` },
         };
         writeOut(`relationship_deed_file_${i}.json`, relDeedFile);
       } else if(book && page) {
@@ -2169,8 +2169,8 @@ function main() {
         };
         writeOut(`file_${i}.json`, file);
         const relDeedFile = {
-          to: { "/": `./deed_${i}.json` },
-          from: { "/": `./file_${i}.json` },
+          from: { "/": `./deed_${i}.json` },
+          to: { "/": `./file_${i}.json` },
         };
         writeOut(`relationship_deed_file_${i}.json`, relDeedFile);
       }
