@@ -1696,7 +1696,7 @@ function extractAddress(overallDetails, unnorm) {
       unnormalized_address: siteAddress,
     };
     writeOut("address.json", addressObj);
-    writeOut("property_has_address.json", {
+    writeOut("relationship_property_has_address.json", {
                 to: { "/": `./address.json` },
                 from: { "/": `./property.json` },
               });
