@@ -2207,7 +2207,7 @@ function main() {
         space_index: l.space_index ?? null,
         flooring_material_type: l.flooring_material_type ?? null,
         size_square_feet: l.size_square_feet ?? null,
-        floor_level: l.floor_level ?? null,
+        floor_number: l.floor_number ?? null,
         has_windows: l.has_windows ?? null,
         window_design_type: l.window_design_type ?? null,
         window_material_type: l.window_material_type ?? null,
