@@ -1801,7 +1801,7 @@ function mapInstrumentToDeedType(instr) {
   if (u == "CD") return "Correction Deed";
   if (u == "QC") return "Quitclaim Deed";
   if (u == "SW") return "Special Warranty Deed";
-  return null;
+  return "Miscellaneous";
   // throw {
   //   type: "error",
   //   message: `Unknown enum value ${instr}.`,
@@ -2258,16 +2258,16 @@ function main() {
         const building_number = l.building_number;
         const building_layout_number = layoutBuildingMap[building_number.toString()];
         writeOut(`relationship_layout_${building_layout_number}_to_layout_${idx}.json`, {
-                  to: { "/": `layout_${idx}.json` },
-                  from: { "/": `layout_${building_layout_number}.json` },
+                  to: { "/": `./layout_${idx}.json` },
+                  from: { "/": `./layout_${building_layout_number}.json` },
         },);
       }
       if (util && l.space_type === "Building") {
         if (l.building_number && l.building_number.toString() in util) {
           writeOut(`utility_${idx}.json`, util[l.building_number.toString()]);
           writeOut(`relationship_layout_to_utility_${idx}.json`, {
-                    to: { "/": `utility_${idx}.json` },
-                    from: { "/": `layout_${idx}.json` },
+                    to: { "/": `./utility_${idx}.json` },
+                    from: { "/": `./layout_${idx}.json` },
           },);
         }
       }
@@ -2275,8 +2275,8 @@ function main() {
         if (l.building_number && l.building_number.toString() in struct) {
           writeOut(`structure_${idx}.json`, struct[l.building_number.toString()]);
           writeOut(`relationship_layout_to_structure_${idx}.json`, {
-                    to: { "/": `structure_${idx}.json` },
-                    from: { "/": `layout_${idx}.json` },
+                    to: { "/": `./structure_${idx}.json` },
+                    from: { "/": `./layout_${idx}.json` },
           },);
         }
       }
