@@ -1,3 +1,6 @@
+// Layout mapping script
+// Reads input.html, parses with cheerio, outputs layouts JSON per schema
+
 const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
@@ -19,6 +22,61 @@ function getPrimeKey($, html) {
     }
   });
   return key || "unknown";
+}
+
+function getLabelCount($, label) {
+  // Find a <b> whose exact text (trimmed) equals label (with trailing colon)
+  let count = 0;
+  const b = $("b")
+    .filter(
+      (i, el) => $(el).text().trim().toLowerCase() === label.toLowerCase(),
+    )
+    .first();
+  if (b.length) {
+    // The count is the immediate text node after the <b> inside the same TD
+    const node = b.get(0).nextSibling;
+    if (node && node.nodeValue) {
+      const num = parseInt(String(node.nodeValue).trim(), 10);
+      if (!Number.isNaN(num)) count = num;
+    } else {
+      // Fallback: search the parent td text
+      const txt = b.parent().text();
+      const m = txt.match(
+        new RegExp(
+          label.replace(/[-/\\^$*+?.()|[\]{}]/g, (r) => r),
+          "i",
+        ),
+      );
+      if (m) {
+        const numMatch = txt
+          .replace(m[0], "")
+          .trim()
+          .match(/^(\d+)/);
+        if (numMatch) {
+          const n = parseInt(numMatch[1], 10);
+          if (!Number.isNaN(n)) count = n;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+function extractBathCounts($) {
+  const fourFixture = getLabelCount($, "4 Fixture Baths:");
+  const threeFixture = getLabelCount($, "3 Fixture Baths:");
+  const twoFixture = getLabelCount($, "2 Fixture Baths:");
+  return { fourFixture, threeFixture, twoFixture };
+}
+
+
+function extractBedrooms($) {
+  return getLabelCount($, "Bedrooms:");
+}
+
+
+function extractKitchens($) {
+  return getLabelCount($, "Kitchens:");
 }
 
 function defaultLayout(space_index, space_type, size) {
@@ -55,6 +113,7 @@ function defaultLayout(space_index, space_type, size) {
     pool_condition: null,
     pool_surface_type: null,
     pool_water_quality: null,
+
     adjustable_area_sq_ft: null,
     area_under_air_sq_ft: null,
     bathroom_renovation_date: null,
@@ -67,161 +126,77 @@ function defaultLayout(space_index, space_type, size) {
   };
 }
 
-// ✅ New function to extract counts and calculate bathrooms
-// replace your existing extractCounts with this
-function extractCounts($) {
-  // find candidate table(s) that contain the bedroom/bath labels
-  const candidateTables = $("table").filter((i, el) => {
-    const txt = $(el).text();
-    // relaxed check: look for the word 'Bedrooms' and 'Fixture' somewhere in the table
-    return /Bedrooms/i.test(txt) && /Fixture/i.test(txt);
-  });
- 
-  if (!candidateTables.length) {
-    console.warn("No candidate table found for bedrooms/baths");
-    return { bedrooms: 0, fourFixture: 0, threeFixture: 0, twoFixture: 0, extraFixtures: 0, totalBathrooms: 0 };
-  }
- 
-  // prefer the first matching table that actually contains <b> labels like "Bedrooms:"
-  let table = candidateTables.first();
- 
-  // map to hold extracted values
-  const values = {
-    Bedrooms: 0,
-    '4 Fixture Baths': 0,
-    '3 Fixture Baths': 0,
-    '2 Fixture Baths': 0,
-    'Extra Fixtures': 0
-  };
- 
-  // Try DOM-based extraction first: look for <b> labels and read the adjacent text/node
-  table.find('b').each((i, el) => {
-    const label = $(el).text().replace(/[:\u00A0]/g, '').trim(); // remove colon / NBSP
-    if (!label) return;
- 
-    // Get the raw text AFTER this <b> inside the same parent cell
-    // Strategy: look at nextSibling text node, then next element, then parent cell text minus label
-    let valText = '';
- 
-    // 1) next text node / sibling node
-    const nextNode = el.nextSibling;
-    if (nextNode && nextNode.nodeType === 3) { // text node
-      valText = $(nextNode).text ? $(nextNode).text().trim() : (nextNode.nodeValue || '').trim();
-    }
- 
-    // 2) if empty, try next element sibling's text
-    if (!valText) {
-      const nextEl = $(el).next();
-      if (nextEl && nextEl.length) valText = nextEl.text().trim();
-    }
- 
-    // 3) if still empty, fallback to parent's text minus the label text
-    if (!valText) {
-      const parentText = $(el).parent().text().replace($(el).text(), '').trim();
-      valText = parentText.split(/\s+/)[0] || '';
-    }
- 
-    // 4) final cleanup: take the first number-looking token
-    const m = valText.match(/(-?\d+(\.\d+)?)/);
-    const num = m ? parseFloat(m[1]) : 0;
- 
-    // normalize some label variants
-    let key = label;
-    if (/^Bedrooms?/i.test(label)) key = 'Bedrooms';
-    else if (/^4\s*Fixture/i.test(label)) key = '4 Fixture Baths';
-    else if (/^3\s*Fixture/i.test(label)) key = '3 Fixture Baths';
-    else if (/^2\s*Fixture/i.test(label)) key = '2 Fixture Baths';
-    else if (/^Extra\s*Fixtures?/i.test(label)) key = 'Extra Fixtures';
- 
-    if (values.hasOwnProperty(key)) values[key] = num;
-  });
- 
-  // If DOM extraction found nothing, try a forgiving regex over the table HTML/text as a fallback
-  const tableText = table.text();
-  if (Object.values(values).every(v => v === 0)) {
-    // permissive regexes: allow optional colon, NBSP, linebreaks, etc.
-    const regexes = {
-      Bedrooms: /Bedrooms[:\s\u00A0]*([0-9]+)/i,
-      '4 Fixture Baths': /4\s*Fixture(?:s)?\s*Baths?[:\s\u00A0]*([0-9]+)/i,
-      '3 Fixture Baths': /3\s*Fixture(?:s)?\s*Baths?[:\s\u00A0]*([0-9]+)/i,
-      '2 Fixture Baths': /2\s*Fixture(?:s)?\s*Baths?[:\s\u00A0]*([0-9]+)/i,
-      'Extra Fixtures': /Extra\s*Fixtures?[:\s\u00A0]*([0-9]+)/i
-    };
-    for (const k in regexes) {
-      const mm = tableText.match(regexes[k]);
-      if (mm) values[k] = parseInt(mm[1], 10) || 0;
-    }
-  }
- 
-  // Final assign to variables with safe numeric values
-  const bedrooms = parseInt(values['Bedrooms'] || 0, 10);
-  const fourFixture = parseInt(values['4 Fixture Baths'] || 0, 10);
-  const threeFixture = parseInt(values['3 Fixture Baths'] || 0, 10);
-  const twoFixture = parseInt(values['2 Fixture Baths'] || 0, 10);
-  const extraFixtures = parseInt(values['Extra Fixtures'] || 0, 10);
- 
-  // Calculation:
-  // - treat 4- and 3- fixture counts as full baths (1.0 each)
-  // - treat 2-fixture as half baths (0.5)
-  // - extraFixtures are usually additional plumbing fixtures (leave them separate)
-  const fullBaths = fourFixture + threeFixture;
-  const halfBaths = twoFixture;
-  const totalBathrooms = fullBaths + (halfBaths * 0.5);
- 
-  return { bedrooms, fourFixture, threeFixture, twoFixture, extraFixtures, totalBathrooms };
-}
- 
-
-// ✅ Updated buildLayouts to include summary
 function buildLayouts($) {
   const layouts = [];
-  const { bedrooms, fourFixture, threeFixture, twoFixture, totalBathrooms } = extractCounts($);
 
+  const { fourFixture, threeFixture, twoFixture } = extractBathCounts($);
+  console.log(
+    `Extracted baths -> 4fx:${fourFixture}, 3fx:${threeFixture}, 2fx:${twoFixture}`,
+  );
   let idx = 1;
-
-  // Add bedrooms
-  for (let i = 0; i < bedrooms; i++) {
-    layouts.push(defaultLayout(idx++, "Bedroom", null));
-  }
-
-  // Add bathrooms
   for (let i = 0; i < fourFixture; i++) {
     layouts.push(defaultLayout(idx++, "Full Bathroom", null));
   }
   for (let i = 0; i < threeFixture; i++) {
-    layouts.push(defaultLayout(idx++, "Full Bathroom", null));
+    layouts.push(defaultLayout(idx++, "Three-Quarter Bathroom", null));
   }
   for (let i = 0; i < twoFixture; i++) {
     layouts.push(defaultLayout(idx++, "Half Bathroom / Powder Room", null));
+  }
+
+  const kitchens = extractKitchens($);
+  console.log(`Extracted kitchens -> ${kitchens}`);
+  for (let i = 0; i < kitchens; i++) {
+    layouts.push(defaultLayout(idx++, "Kitchen", null));
+  }
+
+  
+  const bedroomCount = extractBedrooms($);
+
+  for (let i = 0; i < bedroomCount; i++) {
+  layouts.push(defaultLayout(idx++, "Bedroom", null));
+  }
+  
+  
+  if (bedroomCount === 0 && (fourFixture + threeFixture + twoFixture) > 0) {
+    console.log("No bedrooms found, but bathrooms exist. Adding placeholder bedroom.");
+    layouts.push(defaultLayout(idx++, "Bedroom", null));
+  }
+
+  const hasLodge =
+    $("td").filter((i, el) => /M77 CLUB\/HALL\/LODGE/i.test($(el).text()))
+      .length > 0;
+  if (hasLodge) {
+    layouts.push(defaultLayout(idx++, "Great Room", null));
   }
 
   if (layouts.length === 0) {
     layouts.push(defaultLayout(idx++, "Living Area", null));
   }
 
-  return { layouts, summary: { number_of_bedrooms: bedrooms, number_of_bathrooms: totalBathrooms } };
+  return layouts;
 }
 
-// ✅ Main function
 (function main() {
   const inputPath = path.join(process.cwd(), "input.html");
   const html = fs.readFileSync(inputPath, "utf8");
   const $ = cheerio.load(html);
-  const id = getPrimeKey($, html);
 
-  const { layouts, summary } = buildLayouts($);
+  const id = getPrimeKey($, html);
+  const layouts = buildLayouts($);
 
   const outObj = {};
-  outObj[`property_${id}`] = { layouts, summary };
+  outObj[`property_${id}`] = { layouts };
 
   const ownersDir = path.join(process.cwd(), "owners");
   const dataDir = path.join(process.cwd(), "data");
   ensureDir(ownersDir);
   ensureDir(dataDir);
 
+  const ownersOut = path.join(ownersDir, "layout_data.json");
+  const dataOut = path.join(dataDir, "layout_data.json");
   const json = JSON.stringify(outObj, null, 2);
-  fs.writeFileSync(path.join(ownersDir, "layout_data.json"), json);
-  fs.writeFileSync(path.join(dataDir, "layout_data.json"), json);
-
+  fs.writeFileSync(ownersOut, json);
+  fs.writeFileSync(dataOut, json);
   console.log(`Wrote layout data for property_${id} to owners/ and data/`);
 })();

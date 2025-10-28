@@ -25,30 +25,6 @@ function getYearBuilt($) {
   return year;
 }
 
-function extractPC($) {
-  const bodyText = $("body").text();
-  const m = bodyText.match(/PC:\s*(\d{2})/);
-  return m ? m[1] : null;
-}
-
-const STRUCTURE_FORM_MAP = {
-  "01": "SingleFamilyDetached",
-  "02": "ManufacturedHomeInPark",
-  "03": "MultiFamilyMoreThan10",
-  "04": "ApartmentUnit",
-  "05": "ApartmentUnit",
-  "06": "MultiFamilyMoreThan10",
-  "07": "MultiFamilyMoreThan10",
-  "08": "MultiFamilyLessThan10",
-  "74": "MultiFamilyMoreThan10",
-};
-
-function mapStructureFormFromPC(pc) {
-  if (pc == null) return null;
-  const key = String(pc).padStart(2, "0");
-  return STRUCTURE_FORM_MAP[key] || null;
-}
-
 function getStoriesAndGFA($) {
   let stories = null;
   let gfa = null;
@@ -95,47 +71,20 @@ function mapExteriorMaterials(extStr) {
   return { primary, secondary: null };
 }
 
-function getCharacteristicValue($, label) {
-  let value = null;
-  $("td").each((i, td) => {
-    const txt = $(td).text().trim();
-    const regex = new RegExp(`${label}:\\s*(\\d+\\s*-\\s*[^\\n]+)`, "i");
-    const match = txt.match(regex);
-    if (match) {
-      value = match[1].trim();
-      return false;
-    }
-  });
-  return value;
-}
-
 function buildStructure($, html) {
   const primeKey = getPrimeKey($, html);
-  const pc = extractPC($);
-  const structureForm = mapStructureFormFromPC(pc);
   const yearBuilt = getYearBuilt($);
   const { stories, gfa } = getStoriesAndGFA($);
   const extStr = getExteriorWall($);
   const { primary: extPrimary, secondary: extSecondary } = mapExteriorMaterials(extStr);
 
-  // New extractions
-  const roofCover = getCharacteristicValue($, "Roof Cover");
-  const foundationType = getCharacteristicValue($, "Foundation");
-  const flooringMaterial = getCharacteristicValue($, "Floor Finish");
-  const wallFinish = getCharacteristicValue($, "Wall Finish");
-
   const data = {
-    property_structure_built_year: yearBuilt ?? null,
-    number_of_stories: stories ?? null,
-    finished_base_area: gfa ?? null,
-    exterior_wall_material_primary: extPrimary ?? null,
-    exterior_wall_material_secondary: extSecondary ?? null,
-    exterior_wall_condition: extPrimary ? "Fair" : null,
-    roof_covering_material: roofCover ?? null,
-    foundation_type: foundationType ?? null,
-    flooring_material_primary: flooringMaterial ?? null,
-    interior_wall_finish_primary: wallFinish ?? null,
-    structure_form: structureForm,
+    property_structure_built_year: yearBuilt || null,
+    number_of_stories: stories || null,
+    finished_base_area: gfa || null,
+    exterior_wall_material_primary: extPrimary || null,
+    exterior_wall_material_secondary: extSecondary || null,
+    exterior_wall_condition: extPrimary ? "Fair" : null
   };
 
   return { id: primeKey, data };
@@ -159,7 +108,3 @@ function buildStructure($, html) {
   fs.writeFileSync(path.join(dataDir, "structure_data.json"), JSON.stringify(outObj, null, 2));
   console.log(`Wrote structure data for property_${id} to owners/ and data/`);
 })();
-
-module.exports = {
-  buildStructure
-};
