@@ -78,23 +78,52 @@ function collectBuildings($) {
   return buildings;
 }
 
-function inferHVAC(buildings) {
-  let cooling_system_type = null;
-  let heating_system_type = null;
-
-  buildings.forEach((b) => {
-    const ac = (b["Air Conditioning"] || "").toUpperCase();
-    const heat = (b["Heat"] || "").toUpperCase();
-    if (ac.includes("CENTRAL")) cooling_system_type = "CentralAir";
-    if (heat.includes("AIR DUCTED") || heat.includes("CENTRAL"))
-      heating_system_type = "Central";
-  });
-
-  if (cooling_system_type === "CentralAir") {
-    hvac_system_configuration = "SplitSystem";
-    hvac_equipment_component = "CondenserAndAirHandler";
-    hvac_condensing_unit_present = "Yes";
+function mapAirConditioning(value) {
+  if (!value) {
+    return null;
   }
+  const acMapping = {
+    "CENTRAL": "CentralAir",
+    "WINDOW": "WindowAirConditioner",
+    "NONE": null,
+    "ENG SPLIT": null,
+    "ROOF TOP": null,
+    "ENG CENTRL": "CentralAir",
+    "ENG PACKGE": null,
+    "CHILL WTR": null
+  };
+  if (value in acMapping) {
+    return acMapping[value];
+  }
+  return null;
+}
+
+function mapHeating(value) {
+  if (!value || !value.trim()) {
+    return null;
+  }
+  const heatMapping = {
+    "AIR DUCTED": "Central",
+    "CONVECTION": null,
+    "NONE": null,
+    "RAD ELEC": "Electric",
+    "FORCED AIR": "Central",
+    "RAD WATER": null,
+    "HOT WATER": null,
+    "ENG F AIR": "Central",
+    "STEAM": "Gas"
+  };
+  if (value in heatMapping) {
+    return heatMapping[value];
+  }
+  return null;
+}
+
+function inferHVAC(building) {
+  const ac = (building["Air Conditioning"] || null);
+  const heat = (building["Heating Type"] || null);
+  const cooling_system_type = mapAirConditioning(ac);
+  const heating_system_type = mapHeating(heat);
 
   return {
     cooling_system_type,
@@ -103,8 +132,10 @@ function inferHVAC(buildings) {
 }
 
 function buildUtilityRecord($, buildings) {
-  const hvac = inferHVAC(buildings);
-  const rec = {
+  let utilities = {};
+  buildings.forEach((building, bIdx) => {
+    const hvac = inferHVAC(building);
+    const util = {
     cooling_system_type: hvac.cooling_system_type,
     heating_system_type: hvac.heating_system_type,
     public_utility_type: null,
@@ -146,8 +177,9 @@ function buildUtilityRecord($, buildings) {
     water_heater_model: null,
     well_installation_date: null,
   };
-
-  return rec;
+    utilities[(bIdx + 1).toString()] = util;
+  });
+  return utilities;
 }
 
 function main() {

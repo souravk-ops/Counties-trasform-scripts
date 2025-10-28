@@ -87,26 +87,29 @@ function collectBuildings($) {
 }
 
 function toInt(val) {
+  if (!val) {
+    return null;
+  }
   const n = Number(
     String(val || "")
       .replace(/[,]/g, "")
       .trim(),
   );
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
-function defaultLayout(space_type, idx) {
+function defaultLayout(space_type, building_number, space_index, heated_area_sq_ft, total_area_sq_ft, is_finished) {
   return {
-    space_type,
-    space_index: idx,
+    building_number: building_number,
+    space_type: space_type,
+    space_index: space_index,
     flooring_material_type: null,
     size_square_feet: null,
-    floor_level: null,
     has_windows: null,
     window_design_type: null,
     window_material_type: null,
     window_treatment_type: null,
-    is_finished: true,
+    is_finished: is_finished,
     furnished: null,
     paint_condition: null,
     flooring_wear: null,
@@ -129,28 +132,44 @@ function defaultLayout(space_type, idx) {
     pool_condition: null,
     pool_surface_type: null,
     pool_water_quality: null,
+    adjustable_area_sq_ft: null,
+    area_under_air_sq_ft: null,
     bathroom_renovation_date: null,
     kitchen_renovation_date: null,
-    flooring_installation_date: null,
+    heated_area_sq_ft: heated_area_sq_ft,
+    installation_date: null,
+    livable_area_sq_ft: null,
+    pool_installation_date: null,
+    spa_installation_date: null,
+    story_type: null,
+    total_area_sq_ft: total_area_sq_ft,
   };
 }
 
 function buildLayoutsFromBuildings(buildings) {
-  // Sum across all buildings
-  let totalBeds = 0;
-  let totalBaths = 0;
-  buildings.forEach((b) => {
-    totalBeds += toInt(b["Bedrooms"]);
-    totalBaths += toInt(b["Bathrooms"]);
-  });
+  let lIdx = 1;
   const layouts = [];
-  let idx = 1;
-  for (let i = 0; i < totalBeds; i++) {
-    layouts.push(defaultLayout("Bedroom", idx++));
-  }
-  for (let i = 0; i < totalBaths; i++) {
-    layouts.push(defaultLayout("Full Bathroom", idx++));
-  }
+  buildings.forEach((b, bIdx) => {
+    const numberOfBeds = toInt(b["Bedrooms"]);
+    const numberOfBaths = toInt(b["Baths"]);
+    const numberOfFloors = toInt(b["Stories"]);
+    layouts.push(defaultLayout("Building", (bIdx + 1), (bIdx + 1), toInt(b["Heated Area"]), toInt(b["Total Area"]), true));
+    if (numberOfBeds) {
+      for (let i = 0; i < numberOfBeds; i++) {
+        layouts.push(defaultLayout("Bedroom", (bIdx + 1), (i + 1), null, null, true));
+      }
+    }
+    if (numberOfBaths) {
+      for (let i = 0; i < numberOfBaths; i++) {
+        layouts.push(defaultLayout("Full Bathroom", (bIdx + 1), (i + 1), null, null, true));
+      }
+    }
+    if (numberOfFloors) {
+      for (let i = 0; i < numberOfFloors; i++) {
+        layouts.push(defaultLayout("Floor", (bIdx + 1), (i + 1), null, null, true));
+      }
+    }
+  });
   return layouts;
 }
 

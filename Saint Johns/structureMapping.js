@@ -141,23 +141,84 @@ function mapRoofCover(token) {
     return null;
   }
   const roofCoverMapping = {
-  "Composite Shingle": "Architectural Asphalt Shingle",
-  "Metal": "Metal Corrugated",
-  "Built Up": "Built-Up Roof",
-  "Clay Tile": "Clay Tile",
-  "Concrete Tile": "Concrete Tile",
-  "Wood Shingle": "Wood Shingle",
-  "Modular Metal": null,
-  "TPO Roofing": "TPO Membrane",
-  "Cement Fiber Shingle": null,
-  "Roll Composite": null,
-  "Corrugated Steel": "Metal Corrugated",
-  "Slate": null,
-  "Cedar Shanks": null,
-  "Copper": null
+    "Composite Shingle": "Architectural Asphalt Shingle",
+    "Metal": "Metal Corrugated",
+    "Built Up": "Built-Up Roof",
+    "Clay Tile": "Clay Tile",
+    "Concrete Tile": "Concrete Tile",
+    "Wood Shingle": "Wood Shingle",
+    "Modular Metal": null,
+    "TPO Roofing": "TPO Membrane",
+    "Cement Fiber Shingle": null,
+    "Roll Composite": null,
+    "Corrugated Steel": "Metal Corrugated",
+    "Slate": null,
+    "Cedar Shanks": null,
+    "Copper": null
   }
   if (token in roofCoverMapping) {
     return roofCoverMapping[token];
+  }
+  return null;
+}
+
+function mapRoofStructureAndDesign(token) {
+  if (!token) {
+    return [null, null];
+  }
+  const roofMapping = {
+    "Gable Hip": [null, "Combination"],
+    "Mansard": [null, "Mansard"],
+    "Shed": [null, "Shed"],
+    "Flat": [null, "Flat"],
+    "Wood Truss": ["Wood Truss", null],
+    "Rigid Frame": [null, null],
+    "Irregular": [null, null],
+    "Steel Frame": ["Steel Truss", null],
+    "Saw Tooth": [null, null],
+    "Gambrel": [null, "Gambrel"],
+    "Reinforced Concrete": [null, "Concrete Beam"],
+    "Prestressed Concrete": [null, "Concrete Beam"],
+    "Bow Trust": [null, null]
+  }
+  if (token in roofMapping) {
+    return roofMapping[token];
+  }
+  return [null, null];
+}
+
+function mapFloor(token) {
+  if (!token) {
+    return null;
+  }
+  const floorMapping = {
+    "Carpet": "Carpet",
+    "Hardwood": "Solid Hardwood",
+    "Ceramic Tile": "Ceramic Tile",
+    "Sheet Vinyl": "Sheet Vinyl",
+    "Concrete Finish": "Polished Concrete",
+    "Pine Wood": "Solid Hardwood",
+    "Vinyl Tile": null,
+    "Terrazzo": "Terrazzo",
+    "Wood Laminate": "Laminate",
+    "Asphalt Tile": null,
+    "Clay Tile": null,
+    "Marble": null,
+    "Saturnia": null,
+    "Concrete 6-8\"": "Polished Concrete",
+    "Minimum Plywood": null,
+    "Parquet": null,
+    "Hardtile": null,
+    "None": null,
+    "Epoxy Strp": "Epoxy Coating",
+    "Blank Field": null,
+    "Slate": null,
+    "Stone": "Natural Stone Tile",
+    "Vinyl Asbestos": null,
+    "Precast Concrete": null
+  }
+  if (token in floorMapping) {
+    return floorMapping[token];
   }
   return null;
 }
@@ -174,6 +235,8 @@ function buildStructureRecord($, buildings) {
     let exterior_wall_material_primary = null;
     let interior_wall_surface_material_primary = null;
     let roof_covering_material = null;
+    let roof_structure_design = [null, null];
+    let flooring_material_primary = null;
     if (b["Exterior Wall"]) {
       const exteriorWallTokens = b["Exterior Wall"].split(/[,;]/);
       for(let extToken of exteriorWallTokens) {
@@ -201,7 +264,30 @@ function buildStructureRecord($, buildings) {
         }
       }
     }
-    // TODO Roof Structure and Interior Flooring
+    if (b["Roof Structure"]) {
+      const roofTokens = b["Roof Structure"].split(/[,;]/);
+      for(let roofToken of roofTokens) {
+        let roof_structure_design_value = mapRoofStructureAndDesign(roofToken);
+        if (!roof_structure_design[0]) {
+          roof_structure_design[0] = roof_structure_design_value[0];
+        }
+        if (!roof_structure_design[1]) {
+          roof_structure_design[1] = roof_structure_design_value[1];
+        }
+        if (roof_structure_design[0] && roof_structure_design[1]) {
+          break;
+        }
+      }
+    }
+    if (b["Interior Flooring"]) {
+      const floorTokens = b["Interior Flooring"].split(/[,;]/);
+      for(let floorToken of floorTokens) {
+        flooring_material_primary = mapFloor(floorToken);
+        if (flooring_material_primary) {
+          break;
+        }
+      }
+    }
     const structure = {
       architectural_style_type: null,
       attachment_type: null,
@@ -224,7 +310,7 @@ function buildStructureRecord($, buildings) {
       finished_basement_area: null,
       finished_upper_story_area: null,
       flooring_condition: null,
-      flooring_material_primary: null,
+      flooring_material_primary: flooring_material_primary,
       flooring_material_secondary: null,
       foundation_condition: null,
       foundation_material: null,
@@ -248,9 +334,9 @@ function buildStructureRecord($, buildings) {
       roof_condition: null,
       roof_covering_material: roof_covering_material,
       roof_date: null,
-      roof_design_type: null,
+      roof_design_type: roof_structure_design[1],
       roof_material_type: null,
-      roof_structure_material: null,
+      roof_structure_material: roof_structure_design[0],
       roof_underlayment_type: null,
       secondary_framing_material: null,
       siding_installation_date: null,

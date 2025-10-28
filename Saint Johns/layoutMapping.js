@@ -136,7 +136,6 @@ function defaultLayout(space_type, building_number, space_index, area_under_air_
     space_index: space_index,
     flooring_material_type: null,
     size_square_feet: null,
-    floor_level: null,
     has_windows: null,
     window_design_type: null,
     window_material_type: null,
@@ -238,23 +237,24 @@ function buildLayoutsFromBuildings(buildings, buildingAllLayouts) {
   buildings.forEach((b, bIdx) => {
     const numberOfBeds = toInt(b["Bedrooms"]);
     const numberOfBaths = toInt(b["Baths"]);
-    layouts.push(defaultLayout("Building", (bIdx + 1), lIdx++, toInt(b["Conditioned Area"]), toInt(b["Actual Area"]), true));
+    layouts.push(defaultLayout("Building", (bIdx + 1), (bIdx + 1), toInt(b["Conditioned Area"]), toInt(b["Actual Area"]), true));
     if (numberOfBeds) {
       for (let i = 0; i < numberOfBeds; i++) {
-        layouts.push(defaultLayout("Bedroom", (bIdx + 1), lIdx++, null, null, true));
+        layouts.push(defaultLayout("Bedroom", (bIdx + 1), (i + 1), null, null, true));
       }
     }
     if (numberOfBaths) {
       for (let i = 0; i < numberOfBaths; i++) {
-        layouts.push(defaultLayout("Full Bathroom", (bIdx + 1), lIdx++, null, null, true));
+        layouts.push(defaultLayout("Full Bathroom", (bIdx + 1), (i + 1), null, null, true));
       }
     }
     if (bIdx < buildingAllLayouts.length) {
       const buildingLevelLayouts = buildingAllLayouts[bIdx];
+      let j = 1;
       buildingLevelLayouts.forEach((layout) => {
         const layoutType = mapLayoutType(layout.label);
         if (layoutType[0]) {
-          layouts.push(defaultLayout(layoutType[0], (bIdx + 1), lIdx++, null, toInt(layout.area), layoutType[1]));
+          layouts.push(defaultLayout(layoutType[0], (bIdx + 1), j++, null, toInt(layout.area), layoutType[1]));
         }
       });
     }

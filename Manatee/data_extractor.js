@@ -1677,7 +1677,6 @@ function extractAddress(overallDetails, unnorm) {
   const siteAddress = overallDetails["Situs Address"];
   if (mailingAddress) {
     const mailingAddressObj = {
-      county_name: null,
       latitude: null,
       longitude: null,
       unnormalized_address: mailingAddress,
@@ -1822,7 +1821,7 @@ function findPersonIndexByName(first, last) {
 }
 
 function findCompanyIndexByName(name) {
-  const tn = (name || "").trim();
+  const tn = (name || "").trim().toUpperCase();
   for (let i = 0; i < companies.length; i++) {
     if ((companies[i].name || "").trim() === tn) return i + 1;
   }
@@ -2091,7 +2090,6 @@ function main() {
   if (structureData) {
     struct = key && structureData[key] ? structureData[key] : null;
   }
-  const s = structureData[key];
   // if (!s) return;
   // writeOut("structure.json", s);
 
@@ -2207,7 +2205,6 @@ function main() {
         space_index: l.space_index ?? null,
         flooring_material_type: l.flooring_material_type ?? null,
         size_square_feet: l.size_square_feet ?? null,
-        floor_number: l.floor_number ?? null,
         has_windows: l.has_windows ?? null,
         window_design_type: l.window_design_type ?? null,
         window_material_type: l.window_material_type ?? null,
@@ -2341,7 +2338,7 @@ function main() {
         Object.values(ownersByDate).forEach((arr) => {
           (arr || []).forEach((o) => {
             if (o.type === "company" && (o.name || "").trim())
-              companyNames.add((o.name || "").trim());
+              companyNames.add((o.name || "").trim().toUpperCase());
           });
         });
         companies = Array.from(companyNames).map((n) => ({ 

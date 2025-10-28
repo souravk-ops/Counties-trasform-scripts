@@ -89,15 +89,13 @@ function buildLayouts(input) {
     buildings.cols.forEach((c, i) => {
       idx[c.title] = i;
     });
-    let lIdx = 1;
     buildings.rows.forEach((building, bidx) => {
       layouts.push({
         building_number: (bidx + 1),
         space_type: "Building",
-        space_index: lIdx++,
+        space_index: (bidx + 1),
         flooring_material_type: null,
         size_square_feet: null,
-        floor_number: null,
         has_windows: null,
         window_design_type: null,
         window_material_type: null,
@@ -143,10 +141,9 @@ function buildLayouts(input) {
           layouts.push({
             building_number: (bidx + 1),
             space_type: "Floor",
-            space_index: lIdx++,
+            space_index: (floorIdx + 1),
             flooring_material_type: null,
             size_square_feet: null,
-            floor_number: (floorIdx + 1),
             has_windows: null,
             window_design_type: null,
             window_material_type: null,

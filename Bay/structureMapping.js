@@ -78,192 +78,268 @@ function collectBuildings($) {
   return buildings;
 }
 
-function mapExteriorMaterials(tokens) {
-  const out = [];
-  tokens.forEach((tok) => {
-    const t = tok.toUpperCase().trim();
-    if (!t) return;
-    if (t.includes("BRK") || t.includes("BRICK")) out.push("Brick");
-    if (t.includes("CEDAR") || t.includes("WOOD")) out.push("Wood Siding");
-    if (t.includes("STUC")) out.push("Stucco");
-    if (t.includes("VINYL")) out.push("Vinyl Siding");
-    if (t.includes("BLOCK") || t.includes("CONCRETE")) out.push("Concrete Block");
-  });
-  return out;
+function mapExteriorWallPrimary(token) {
+  if (!token) {
+    return null;
+  }
+  const exteriorWallMapping = {
+    "VINYL": "Vinyl Siding",
+    "CONC BLOCK": "Concrete Block",
+    "PREFAB": null,
+    "AVERAGE": null,
+    "CEDAR": "Wood Siding",
+    "BD/BTN ABV": null,
+    "AL SIDING": "Metal Siding",
+    "PREFIN MTL": null,
+    "WALL BOARD": null,
+    "MINIMUM": null,
+    "ABOVE AVG.": null,
+    "COMMON BRK": "Brick",
+    "WD FR STUC": null,
+    "MOD METAL": "Metal Siding",
+    "SINGLE SID": null,
+    "WD ON PLY": null,
+    "ASB SHNGLE": null,
+    "LOG": "Log",
+    "BD/BAT AVG": null,
+    "STONE": "Manufactured Stone",
+    "CB STUCCO": "Stucco",
+    "BELOW AVG.": null,
+    "FACE BRICK": "Brick",
+    "CEMENT BRK": "Brick",
+    "NONE": null,
+    "CORG METAL": "Metal Siding",
+    "WD SHINGLE": null,
+    "PRECAST PN": "Precast Concrete",
+    "REINF CONC": "Concrete Block",
+    "GLASS THRM": null
+  }
+  if (token in exteriorWallMapping) {
+    return exteriorWallMapping[token];
+  }
+  return null;
 }
 
-function mapInteriorSurface(tokens) {
-  const out = [];
-  tokens.forEach((tok) => {
-    const t = tok.toUpperCase().trim();
-    if (t.includes("BRK") || t.includes("BRICK")) out.push("Exposed Brick");
-    if (t.includes("CEDAR") || t.includes("WOOD")) out.push("Wood Paneling");
-    if (t.includes("STEEL")) out.push("Metal Panels");
-    if (t.includes("BLOCK") || t.includes("CONCRETE")) out.push("Concrete");
-  });
-  return out;
+function mapInteriorWallPrimary(token) {
+  if (!token) {
+    return null;
+  }
+  const interiorWallMapping = {
+    "DRYWALL": "Drywall",
+    "PLYWOOD": null,
+    "CUST PANEL": null,
+    "WALL BD/WD": null,
+    "MINIMUM": null,
+    "PLASTER": "Plaster",
+    "NONE": null,
+    "DECORATIVE": null
+  }
+  if (token in interiorWallMapping) {
+    return interiorWallMapping[token];
+  }
+  return null;
 }
 
-function mapFlooring(tokens) {
-  const out = [];
-  tokens.forEach((tok) => {
-    const t = tok.toUpperCase().trim();
-    if (t.includes("CARPET")) out.push("Carpet");
-    if (t.includes("VINYL")) out.push("Sheet Vinyl");
-    if (t.includes("CERAMIC")) out.push("Ceramic Tile");
-    if (t.includes("LVP")) out.push("Luxury Vinyl Plank");
-    if (t.includes("LAMINATE")) out.push("Laminate");
-    if (t.includes("STONE")) out.push("Natural Stone Tile");
-  });
-  return out;
+function mapRoofCover(token) {
+  if (!token) {
+    return null;
+  }
+  const roofCoverMapping = {
+    "ENG SHINGL": "3-Tab Asphalt Shingle",
+    "MODULAR MT": null,
+    "COMP SHNGL": "Architectural Asphalt Shingle",
+    "MINIMUM": null,
+    "ROLL COMP": null,
+    "STAND SEAM": null,
+    "BUILT-UP": "Built-Up Roof",
+    "POLY TPO": "TPO Membrane",
+    "CLAY TILE": "Clay Tile",
+    "SYNTH METL": null,
+    "CEDAR SHAK": "Wood Shake",
+    "WD SHINGLE": "Wood Shingle",
+    "ASB SHINGL": null,
+    "CONC TILE": "Concrete Tile",
+    "CORG ASB": null
+  }
+  if (token in roofCoverMapping) {
+    return roofCoverMapping[token];
+  }
+  return null;
 }
 
-function parseNumber(val) {
-  if (val == null) return null;
-  const n = Number(String(val).replace(/[,]/g, "").trim());
-  return Number.isFinite(n) ? n : null;
+function mapFloor(token) {
+  if (!token) {
+    return null;
+  }
+  const floorMapping = {
+    "CARPET": "Carpet",
+    "SHT VINYL": "Sheet Vinyl",
+    "VINYL PLNK": "Luxury Vinyl Plank",
+    "CLAY TILE": null,
+    "PINE WOOD": null,
+    "CORK/VTILE": "Cork",
+    "HARDWOOD": "Solid Hardwood",
+    "PARQUET": null,
+    "MIN PLYWD": null,
+    "ASPH TILE": null,
+    "CONC FINSH": "Polished Concrete",
+    "TERRAZZO": "Terrazzo",
+    "NONE": null,
+    "VINYL ASB": "Sheet Vinyl",
+    "C ABOVE GD": null,
+    "PRECAST CN": null,
+    "HARDTILE": null,
+    "CUSTOM CON": null,
+    "EPOXY STRP": "Epoxy Coating",
+    "MARBLE": null,
+    "SLATE": null
+  }
+  if (token in floorMapping) {
+    return floorMapping[token];
+  }
+  return null;
+}
+
+function mapFrame(token) {
+  if (!token) {
+    return null;
+  }
+  const frameMapping = {
+    "STEEL": "Steel Frame",
+    "WOOD FRAME": "Wood Frame",
+    "NONE": null,
+    "FIREPROOF": null,
+    "MASONRY": "Masonry",
+    "REIN CONC": "Concrete Block",
+    "N/A": null,
+    "SPECIAL": null,
+  }
+  if (token in frameMapping) {
+    return frameMapping[token];
+  }
+  return null;
 }
 
 function buildStructureRecord($, buildings) {
-  // Defaults per schema requirements (all present, many null)
-  const rec = {
-    architectural_style_type: null,
-    attachment_type: null,
-    ceiling_condition: null,
-    ceiling_height_average: null,
-    ceiling_insulation_type: null,
-    ceiling_structure_material: null,
-    ceiling_surface_material: null,
-    exterior_door_installation_date: null,
-    exterior_door_material: null,
-    exterior_wall_condition: null,
-    exterior_wall_condition_primary: null,
-    exterior_wall_condition_secondary: null,
-    exterior_wall_insulation_type: null,
-    exterior_wall_insulation_type_primary: null,
-    exterior_wall_insulation_type_secondary: null,
-    exterior_wall_material_primary: null,
-    exterior_wall_material_secondary: null,
-    finished_base_area: null,
-    finished_basement_area: null,
-    finished_upper_story_area: null,
-    flooring_condition: null,
-    flooring_material_primary: null,
-    flooring_material_secondary: null,
-    foundation_condition: null,
-    foundation_material: null,
-    foundation_repair_date: null,
-    foundation_type: null,
-    foundation_waterproofing: null,
-    gutters_condition: null,
-    gutters_material: null,
-    interior_door_material: null,
-    interior_wall_condition: null,
-    interior_wall_finish_primary: null,
-    interior_wall_finish_secondary: null,
-    interior_wall_structure_material: null,
-    interior_wall_structure_material_primary: null,
-    interior_wall_structure_material_secondary: null,
-    interior_wall_surface_material_primary: null,
-    interior_wall_surface_material_secondary: null,
-    number_of_stories: null,
-    primary_framing_material: null,
-    roof_age_years: null,
-    roof_condition: null,
-    roof_covering_material: null,
-    roof_date: null,
-    roof_design_type: null,
-    roof_material_type: null,
-    roof_structure_material: null,
-    roof_underlayment_type: null,
-    secondary_framing_material: null,
-    siding_installation_date: null,
-    structural_damage_indicators: null,
-    subfloor_material: null,
-    unfinished_base_area: null,
-    unfinished_basement_area: null,
-    unfinished_upper_story_area: null,
-    window_frame_material: null,
-    window_glazing_type: null,
-    window_installation_date: null,
-    window_operation_type: null,
-    window_screen_material: null,
-  };
-
-  // Aggregate from buildings
-  const extTokens = [];
-  const intWallTokens = [];
-  const floorTokens = [];
-  const roofTokens = [];
-  const frameTokens = [];
-  const stories = [];
-
-  buildings.forEach((b) => {
-    if (b["Exterior Walls"])
-      extTokens.push(...b["Exterior Walls"].split(";").map((s) => s.trim()));
-    if (b["Interior Walls"])
-      intWallTokens.push(
-        ...b["Interior Walls"].split(";").map((s) => s.trim()),
-      );
-    if (b["Floor Cover"])
-      floorTokens.push(...b["Floor Cover"].split(";").map((s) => s.trim()));
-    if (b["Roof Cover"]) roofTokens.push(b["Roof Cover"]);
-    if (b["Frame Type"]) frameTokens.push(b["Frame Type"]);
-    if (b["Stories"]) {
-      const st = parseNumber(b["Stories"]);
-      if (st != null) stories.push(st);
+  let structures = {};
+  buildings.forEach((b, bIdx) => {
+    let exterior_wall_material_primary = null;
+    let interior_wall_surface_material_primary = null;
+    let roof_covering_material = null;
+    let flooring_material_primary = null;
+    let primary_framing_material = null;
+    if (b["Exterior Walls"]) {
+      const exteriorWallTokens = b["Exterior Walls"].split(/[,;]/);
+      for(let extToken of exteriorWallTokens) {
+        exterior_wall_material_primary = mapExteriorWallPrimary(extToken);
+        if (exterior_wall_material_primary) {
+          break;
+        }
+      }
     }
+    if (b["Interior Walls"]) {
+      const interiorWallTokens = b["Interior Walls"].split(/[,;]/);
+      for(let intToken of interiorWallTokens) {
+        interior_wall_surface_material_primary = mapInteriorWallPrimary(intToken);
+        if (interior_wall_surface_material_primary) {
+          break;
+        }
+      }
+    }
+    if (b["Roof Cover"]) {
+      const roofCoverTokens = b["Roof Cover"].split(/[,;]/);
+      for(let roofCoverToken of roofCoverTokens) {
+        roof_covering_material = mapRoofCover(roofCoverToken);
+        if (roof_covering_material) {
+          break;
+        }
+      }
+    }
+    if (b["Floor Cover"]) {
+      const floorTokens = b["Floor Cover"].split(/[,;]/);
+      for(let floorToken of floorTokens) {
+        flooring_material_primary = mapFloor(floorToken);
+        if (flooring_material_primary) {
+          break;
+        }
+      }
+    }
+    if (b["Frame Type"]) {
+      const frameTokens = b["Frame Type"].split(/[,;]/);
+      for(let frameToken of frameTokens) {
+        primary_framing_material = mapFrame(frameToken);
+        if (primary_framing_material) {
+          break;
+        }
+      }
+    }
+    const structure = {
+      architectural_style_type: null,
+      attachment_type: null,
+      ceiling_condition: null,
+      ceiling_height_average: null,
+      ceiling_insulation_type: null,
+      ceiling_structure_material: null,
+      ceiling_surface_material: null,
+      exterior_door_installation_date: null,
+      exterior_door_material: null,
+      exterior_wall_condition: null,
+      exterior_wall_condition_primary: null,
+      exterior_wall_condition_secondary: null,
+      exterior_wall_insulation_type: null,
+      exterior_wall_insulation_type_primary: null,
+      exterior_wall_insulation_type_secondary: null,
+      exterior_wall_material_primary: exterior_wall_material_primary,
+      exterior_wall_material_secondary: null,
+      finished_base_area: null,
+      finished_basement_area: null,
+      finished_upper_story_area: null,
+      flooring_condition: null,
+      flooring_material_primary: flooring_material_primary,
+      flooring_material_secondary: null,
+      foundation_condition: null,
+      foundation_material: null,
+      foundation_repair_date: null,
+      foundation_type: null,
+      foundation_waterproofing: null,
+      gutters_condition: null,
+      gutters_material: null,
+      interior_door_material: null,
+      interior_wall_condition: null,
+      interior_wall_finish_primary: null,
+      interior_wall_finish_secondary: null,
+      interior_wall_structure_material: null,
+      interior_wall_structure_material_primary: null,
+      interior_wall_structure_material_secondary: null,
+      interior_wall_surface_material_primary: interior_wall_surface_material_primary,
+      interior_wall_surface_material_secondary: null,
+      number_of_stories: null,
+      primary_framing_material: primary_framing_material,
+      roof_age_years: null,
+      roof_condition: null,
+      roof_covering_material: roof_covering_material,
+      roof_date: null,
+      roof_design_type: null,
+      roof_material_type: null,
+      roof_structure_material: null,
+      roof_underlayment_type: null,
+      secondary_framing_material: null,
+      siding_installation_date: null,
+      structural_damage_indicators: null,
+      subfloor_material: null,
+      unfinished_base_area: null,
+      unfinished_basement_area: null,
+      unfinished_upper_story_area: null,
+      window_frame_material: null,
+      window_glazing_type: null,
+      window_installation_date: null,
+      window_operation_type: null,
+      window_screen_material: null,
+    };
+    structures[(bIdx + 1).toString()] = structure;
   });
 
-  // Exterior materials
-  const ext = mapExteriorMaterials(extTokens);
-  if (ext.length) {
-    // Choose primary material as the most common/first detected
-    rec.exterior_wall_material_primary = ext[0] || null;
-  }
-
-  // Interior wall surface
-  const intSurf = mapInteriorSurface(intWallTokens);
-  if (intSurf.length) {
-    rec.interior_wall_surface_material_primary = intSurf[0] || null;
-  }
-
-  // Flooring
-  const floors = mapFlooring(floorTokens);
-  if (floors.length) {
-    rec.flooring_material_primary = floors[0] || null;
-  }
-
-  // Roof covering mapping
-  if (roofTokens.length) {
-    const u = roofTokens.join(" ").toUpperCase();
-    if (
-      u.includes("ENG SHINGL") ||
-      u.includes("ARCH") ||
-      u.includes("ARCHITECT") ||
-      u.includes("SHINGLE")
-    ) {
-      rec.roof_covering_material = "Architectural Asphalt Shingle";
-    }
-  }
-
-  // Framing
-  if (frameTokens.join(" ").toUpperCase().includes("WOOD")) {
-    rec.primary_framing_material = "Wood Frame";
-    // rec.interior_wall_structure_material = "Wood Frame";
-    // rec.interior_wall_structure_material_primary = "Wood Frame";
-  }
-
-  // Stories
-  if (stories.length) {
-    // Use max stories across buildings
-    rec.number_of_stories = Math.max(...stories);
-  }
-
-  // Subfloor unknown; if any heated area present and FL likely slab, but leave null to avoid assumption
-  // rec.subfloor_material = null;
-
-  return rec;
+  return structures;
 }
 
 function main() {
