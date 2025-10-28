@@ -1713,7 +1713,7 @@ function main() {
   const physicalAddrRaw = textOrNull($("#lblPhysicalAddress"));
   const parsedAddr =
     parsePhysicalAddress(
-      physicalAddrRaw || (addrSeed && addrSeed.full_address) || null,
+      physicalAddrRaw || null,
     ) || {};
 
   // county from seed if present

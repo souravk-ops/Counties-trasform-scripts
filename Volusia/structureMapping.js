@@ -60,9 +60,6 @@ function main() {
       }
     });
   }
-  if (!altkey) {
-    throw new Error("Alternate Key not found.");
-  }
 
   // Extract core building info
   const style = textOfNextSibling($, "Style") || "";

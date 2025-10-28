@@ -128,6 +128,291 @@ function extractWorkingTaxValues($) {
 }
 
 /**
+ * Layout payload written to the Elephant data directory.
+ * Mirrors the Layout schema fields that are populated by this script.
+ * @typedef {Object} LayoutPayload
+ * @property {string} space_type - Semantic classification of the space (Building, Floor, Bedroom, etc.).
+ * @property {number|null} space_index - Sequential index of the space within the exported layouts.
+ * @property {number|null} size_square_feet - Estimated area of the space in square feet.
+ * @property {number|null} total_area_sq_ft - Total enclosed area for building/floor level records.
+ * @property {number|null} livable_area_sq_ft - Heated livable area for building/floor level records.
+ * @property {string|null} floor_level - Textual label representing the floor level (e.g. `1st Floor`).
+ * @property {boolean|null} has_windows - Whether the space contains windows.
+ * @property {boolean|null} is_finished - Whether the space is finished.
+ * @property {boolean|null} is_exterior - Whether the space is exterior.
+ * @property {string|null} flooring_material_type - Flooring material descriptor if present.
+ * @property {string|null} window_design_type - Window design descriptor if present.
+ * @property {string|null} window_material_type - Window material descriptor if present.
+ * @property {string|null} window_treatment_type - Window treatment descriptor if present.
+ * @property {string|null} furnished - Furnishing descriptor if known.
+ * @property {string|null} paint_condition - Paint condition descriptor if available.
+ * @property {string|null} flooring_wear - Flooring wear descriptor if available.
+ * @property {string|null} clutter_level - Clutter descriptor if available.
+ * @property {string|null} visible_damage - Visible damage descriptor if available.
+ * @property {string|null} countertop_material - Countertop material descriptor if present.
+ * @property {string|null} cabinet_style - Cabinet style descriptor if present.
+ * @property {string|null} fixture_finish_quality - Fixture quality descriptor if present.
+ * @property {string|null} design_style - Design style descriptor if present.
+ * @property {string|null} natural_light_quality - Natural light descriptor if present.
+ * @property {string|null} decor_elements - Decor descriptor if present.
+ * @property {string|null} pool_type - Pool type descriptor if applicable.
+ * @property {string|null} pool_equipment - Pool equipment descriptor if applicable.
+ * @property {string|null} spa_type - Spa type descriptor if applicable.
+ * @property {string|null} safety_features - Safety features descriptor if applicable.
+ * @property {string|null} view_type - View descriptor if present.
+ * @property {string|null} lighting_features - Lighting descriptor if present.
+ * @property {string|null} condition_issues - Condition issues descriptor if present.
+ * @property {string|null} pool_condition - Pool condition descriptor if applicable.
+ * @property {string|null} pool_surface_type - Pool surface descriptor if applicable.
+ * @property {string|null} pool_water_quality - Pool water descriptor if applicable.
+ */
+
+/**
+ * Classification of layout record for relationship construction.
+ * @typedef {"building"|"floor"|"room"} LayoutRecordRole
+ */
+
+/**
+ * Metadata describing a layout file emitted by this script.
+ * @typedef {Object} LayoutRecord
+ * @property {LayoutPayload} payload - The JSON payload written to disk.
+ * @property {LayoutRecordRole} role - Role of the layout in the hierarchy.
+ * @property {string|null} floorKey - Normalized floor key used for hierarchy grouping.
+ * @property {string} fileName - Relative filename within the data directory.
+ * @property {string} recordId - Unique identifier used to build layout relationship edges.
+ * @property {string|null} parentId - Identifier of the parent layout record when applicable.
+ */
+
+/**
+ * Identify whether a layout record represents a building-level space.
+ * @param {LayoutRecord} record - Layout record to evaluate.
+ * @returns {boolean} True when the record payload is a building layout.
+ */
+function isBuildingLayoutRecord(record) {
+  if (!record || typeof record !== "object") return false;
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object") return false;
+  const type =
+    typeof payload.space_type === "string" ? payload.space_type.trim() : "";
+  return type.toLowerCase() === "building";
+}
+
+/**
+ * Remove files whose names satisfy the provided predicate.
+ * @param {string} directory - Directory that contains the relationship files.
+ * @param {(fileName: string) => boolean} matcher - Predicate identifying files for removal.
+ * @returns {void}
+ */
+function removeFilesByPredicate(directory, matcher) {
+  if (!fs.existsSync(directory)) return;
+  const entries = fs.readdirSync(directory, { encoding: "utf8" });
+  for (const entry of entries) {
+    if (matcher(entry)) {
+      const target = path.join(directory, entry);
+      if (fs.existsSync(target)) {
+        fs.unlinkSync(target);
+      }
+    }
+  }
+}
+
+/** @type {Map<string, Map<string, { fileName: string, isCanonical: boolean }>>} */
+const relationshipRegistry = new Map();
+
+/**
+ * Write a relationship JSON file with canonical Elephant structure while avoiding duplicate edges.
+ * @param {string} directory - Directory to emit the relationship file.
+ * @param {string} targetName - File name to write inside the directory.
+ * @param {string} fromRef - Relative pointer to the `from` entity JSON (e.g. `./property.json`).
+ * @param {string} toRef - Relative pointer to the `to` entity JSON (e.g. `./layout_1.json`).
+ * @returns {void}
+ */
+function writeRelationshipFile(directory, targetName, fromRef, toRef) {
+  const resolvedDirectory = path.resolve(directory);
+  let directoryRegistry = relationshipRegistry.get(resolvedDirectory);
+  if (!directoryRegistry) {
+    directoryRegistry = new Map();
+    relationshipRegistry.set(resolvedDirectory, directoryRegistry);
+  }
+
+  const signature = `${fromRef}->${toRef}`;
+  const isCanonical = !/_\d+\.json$/.test(targetName);
+  const relationshipBody = {
+    from: { "/": fromRef },
+    to: { "/": toRef },
+  };
+  const targetPath = path.join(directory, targetName);
+  let existingRecord = directoryRegistry.get(signature);
+  if (existingRecord) {
+    const existingPath = path.join(directory, existingRecord.fileName);
+    if (!fs.existsSync(existingPath)) {
+      directoryRegistry.delete(signature);
+      existingRecord = undefined;
+    }
+  }
+
+  if (!existingRecord) {
+    directoryRegistry.set(signature, { fileName: targetName, isCanonical });
+    writeJSON(targetPath, relationshipBody);
+    return;
+  }
+
+  if (isCanonical) {
+    if (!existingRecord.isCanonical) {
+      const priorPath = path.join(directory, existingRecord.fileName);
+      if (fs.existsSync(priorPath)) {
+        fs.unlinkSync(priorPath);
+      }
+    }
+    directoryRegistry.set(signature, { fileName: targetName, isCanonical: true });
+    writeJSON(targetPath, relationshipBody);
+    return;
+  }
+
+  if (existingRecord.isCanonical) {
+    return;
+  }
+
+  if (existingRecord.fileName !== targetName) {
+    return;
+  }
+
+  writeJSON(targetPath, relationshipBody);
+}
+
+/**
+ * Convert a numeric-like string into an integer or null when unsuitable.
+ * @param {string|null|undefined} rawValue - Raw textual value that may contain digits.
+ * @returns {number|null} Parsed integer or null when conversion fails.
+ */
+function toIntegerOrNull(rawValue) {
+  if (rawValue == null) return null;
+  const numericText = String(rawValue).replace(/[^0-9]/g, "");
+  if (numericText.length === 0) return null;
+  const parsed = Number.parseInt(numericText, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Normalize a floor label into a key suitable for grouping hierarchy relationships.
+ * @param {string|null|undefined} floorLabel - Raw floor label (e.g. `1st Floor`).
+ * @returns {string|null} Canonical key used to identify matching floors.
+ */
+function normalizeFloorKey(floorLabel) {
+  if (floorLabel == null) return null;
+  const trimmed = String(floorLabel).trim();
+  if (trimmed.length === 0) return null;
+  const numericMatch = trimmed.match(/(\d+)/);
+  if (numericMatch) {
+    return numericMatch[1];
+  }
+  return trimmed.toLowerCase();
+}
+
+/**
+ * Determine a numeric sort key for floor ordering.
+ * Floors with numeric identifiers are ordered ascending; others fall back to lexical order.
+ * @param {string} floorKey - Normalized floor key generated by {@link normalizeFloorKey}.
+ * @returns {number} Sort key for ordering floors.
+ */
+function floorSortValue(floorKey) {
+  const numericMatch = floorKey.match(/^\d+$/);
+  if (numericMatch) {
+    return Number.parseInt(numericMatch[0], 10);
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Construct the base payload for a building-level layout entry.
+ * @param {number|null} totalAreaSqFt - Total enclosed building area in square feet.
+ * @param {number|null} livableAreaSqFt - Livable (heated) area in square feet.
+ * @returns {LayoutPayload} Building layout payload with placeholder space index (set later).
+ */
+function createBuildingLayoutPayload(totalAreaSqFt, livableAreaSqFt) {
+  return {
+    space_type: "Building",
+    space_index: null,
+    size_square_feet: totalAreaSqFt,
+    total_area_sq_ft: totalAreaSqFt,
+    livable_area_sq_ft: livableAreaSqFt,
+    floor_level: null,
+    has_windows: null,
+    is_finished: true,
+    is_exterior: false,
+    flooring_material_type: null,
+    window_design_type: null,
+    window_material_type: null,
+    window_treatment_type: null,
+    furnished: null,
+    paint_condition: null,
+    flooring_wear: null,
+    clutter_level: null,
+    visible_damage: null,
+    countertop_material: null,
+    cabinet_style: null,
+    fixture_finish_quality: null,
+    design_style: null,
+    natural_light_quality: null,
+    decor_elements: null,
+    pool_type: null,
+    pool_equipment: null,
+    spa_type: null,
+    safety_features: null,
+    view_type: null,
+    lighting_features: null,
+    condition_issues: null,
+    pool_condition: null,
+    pool_surface_type: null,
+    pool_water_quality: null,
+  };
+}
+
+/**
+ * Build a floor-level layout payload used when explicit floor hierarchy is available.
+ * @param {string} floorLabel - Human readable floor label (e.g. `1st Floor` or `Basement`).
+ * @returns {LayoutPayload} Floor layout payload with unset space index (populated later).
+ */
+function createFloorLayoutPayload(floorLabel) {
+  return {
+    space_type: "Floor",
+    space_index: null,
+    size_square_feet: null,
+    total_area_sq_ft: null,
+    livable_area_sq_ft: null,
+    floor_level: floorLabel,
+    has_windows: null,
+    is_finished: null,
+    is_exterior: null,
+    flooring_material_type: null,
+    window_design_type: null,
+    window_material_type: null,
+    window_treatment_type: null,
+    furnished: null,
+    paint_condition: null,
+    flooring_wear: null,
+    clutter_level: null,
+    visible_damage: null,
+    countertop_material: null,
+    cabinet_style: null,
+    fixture_finish_quality: null,
+    design_style: null,
+    natural_light_quality: null,
+    decor_elements: null,
+    pool_type: null,
+    pool_equipment: null,
+    spa_type: null,
+    safety_features: null,
+    view_type: null,
+    lighting_features: null,
+    condition_issues: null,
+    pool_condition: null,
+    pool_surface_type: null,
+    pool_water_quality: null,
+  };
+}
+
+/**
  * @typedef {"LandParcel"|"Building"|"Unit"|"ManufacturedHome"} LexiconPropertyType
  */
 
@@ -206,7 +491,7 @@ const PROPERTY_USE_MAPPINGS = {
       "Mobile Homes",
       "Manufactured Home",
     ],
-    propertyType: "MobileHome",
+    propertyType: "ManufacturedHome",
     propertyUsageType: "Residential",
     ownershipEstateType: "FeeSimple",
     structureForm: "MobileHome",
@@ -1646,6 +1931,13 @@ function main() {
     seed.parcel_id ||
     ""
   ).replace(/[^0-9]/g, "");
+  const altKeyInput = $("input#altkey").attr("value");
+  const altKeyFromLabel = extractTopValue("Alternate Key:");
+  const altKey = (
+    altKeyInput && /\d/.test(altKeyInput)
+      ? altKeyInput
+      : altKeyFromLabel || ""
+  ).replace(/[^0-9]/g, "");
 
   // Address components: prefer unnormalized_address.full_address
   const fullAddr = extractTopValue("Physical Address:");
@@ -1658,9 +1950,31 @@ function main() {
     plus4 = null,
     street_pre_directional_text = null,
     street_post_directional_text = null;
+  /** @type {string|null} */
+  let unit_identifier = null;
 
+  /**
+   * @typedef {Object} ParsedStreetBody
+   * @property {string|null} streetName
+   * @property {string|null} suffix
+   * @property {string|null} preDir
+   * @property {string|null} postDir
+   * @property {string|null} unit_identifier
+   */
+
+  /**
+   * @param {string|null} streetBody
+   * @returns {ParsedStreetBody}
+   */
   function parseStreetBodyForComponents(streetBody) {
-    if (!streetBody) return { streetName: null, suffix: null, preDir: null, postDir: null , unit_identifier: null};
+    if (!streetBody)
+      return {
+        streetName: null,
+        suffix: null,
+        preDir: null,
+        postDir: null,
+        unit_identifier: null,
+      };
     const DIRS = new Set(["E", "N", "NE", "NW", "S", "SE", "SW", "W"]);
     const suffixMap = {
       DR: "Dr",
@@ -1909,7 +2223,13 @@ function main() {
       .filter(Boolean);
 
     if (tokens.length === 0) {
-      return { streetName: null, suffix: null, preDir: null, postDir: null, unit_identifier: null };
+      return {
+        streetName: null,
+        suffix: null,
+        preDir: null,
+        postDir: null,
+        unit_identifier: null,
+      };
     }
 
 
@@ -1970,12 +2290,54 @@ function main() {
       const isEdge = idx === 0 || idx === tokens.length - 1;
       return !(isDir && !isEdge);
     });
-    
-
-
     const streetName = filteredTokens.join(" ").trim() || null;
-    return { streetName, suffix, preDir, postDir , unit_identifier};
+    return { streetName, suffix, preDir, postDir, unit_identifier };
   }
+
+  /**
+   * @typedef {Object} CityStateZipComponents
+   * @property {string|null} city - Parsed city name or null if unavailable.
+   * @property {string|null} state - Two-character state code when present.
+   * @property {string|null} postalCode - Five digit ZIP code if detected.
+   * @property {string|null} plus4 - Optional ZIP+4 extension when supplied.
+   */
+
+  /**
+   * Parse a comma-delimited address segment into city, state and postal code parts.
+   *
+   * @param {string} segment - Raw address text taken from the second or third comma-separated section.
+   * @returns {CityStateZipComponents} Parsed city/state/ZIP components with null defaults.
+   */
+  const parseCityStateZipSegment = (segment) => {
+    const trimmedSegment = typeof segment === "string" ? segment.trim() : "";
+    if (!trimmedSegment) {
+      return { city: null, state: null, postalCode: null, plus4: null };
+    }
+
+    const withStateMatch = trimmedSegment.match(
+      /^([A-Z\s\-'.&]+?)\s+([A-Z]{2})\s*(\d{5})(?:-(\d{4}))?$/,
+    );
+    if (withStateMatch) {
+      return {
+        city: withStateMatch[1].trim() || null,
+        state: withStateMatch[2],
+        postalCode: withStateMatch[3],
+        plus4: withStateMatch[4] || null,
+      };
+    }
+
+    const cityZipMatch = trimmedSegment.match(/^([A-Z\s\-'.&]+?)\s+(\d{5})(?:-(\d{4}))?$/);
+    if (cityZipMatch) {
+      return {
+        city: cityZipMatch[1].trim() || null,
+        state: null,
+        postalCode: cityZipMatch[2],
+        plus4: cityZipMatch[3] || null,
+      };
+    }
+
+    return { city: trimmedSegment || null, state: null, postalCode: null, plus4: null };
+  };
 
   if (fullAddr) {
     const m = fullAddr.match(
@@ -2009,13 +2371,24 @@ function main() {
         street_name = parsed.streetName || null;
         street_pre_directional_text = parsed.preDir || null;
         street_post_directional_text = parsed.postDir || null;
+        unit_identifier = parsed.unit_identifier || null;
       }
-      city_name = cityPart || null;
+      const parsedCitySegment = parseCityStateZipSegment(cityPart);
+      city_name = parsedCitySegment.city;
+      if (parsedCitySegment.state) {
+        state_code = parsedCitySegment.state;
+      }
+      if (parsedCitySegment.postalCode) {
+        postal_code = parsedCitySegment.postalCode;
+      }
+      if (parsedCitySegment.plus4) {
+        plus4 = parsedCitySegment.plus4;
+      }
       const m2 = stateZip.match(/^([A-Z]{2})\s*(\d{5})(?:-(\d{4}))?$/);
       if (m2) {
         state_code = m2[1];
         postal_code = m2[2];
-        plus4 = m2[3] || null;
+        plus4 = m2[3] || plus4 || null;
       }
     }
   }
@@ -2308,6 +2681,13 @@ function main() {
     return null;
   }
 
+  removeFilesByPredicate(dataDir, (fileName) =>
+    /^relationship_sales_deed(_\d+)?\.json$/.test(fileName),
+  );
+  removeFilesByPredicate(dataDir, (fileName) =>
+    /^relationship_deed_file(_\d+)?\.json$/.test(fileName),
+  );
+
   salesRows.forEach((row, idx) => {
     const i = idx + 1;
     const sale = {
@@ -2344,27 +2724,19 @@ function main() {
     writeJSON(path.join(dataDir, `file_${i}.json`), fileObj);
 
     // relationships for this triple (numbered)
-    writeJSON(path.join(dataDir, `relationship_sales_deed_${i}.json`), {
-      to: { "/": `./sales_${i}.json` },
-      from: { "/": `./deed_${i}.json` },
-    });
-    writeJSON(path.join(dataDir, `relationship_deed_file_${i}.json`), {
-      to: { "/": `./deed_${i}.json` },
-      from: { "/": `./file_${i}.json` },
-    });
+    writeRelationshipFile(
+      dataDir,
+      `relationship_sales_deed_${i}.json`,
+      `./sales_${i}.json`,
+      `./deed_${i}.json`,
+    );
+    writeRelationshipFile(
+      dataDir,
+      `relationship_deed_file_${i}.json`,
+      `./deed_${i}.json`,
+      `./file_${i}.json`,
+    );
   });
-
-  // Also create canonical relationship files for the most recent entry (index 1)
-  if (salesRows.length > 0) {
-    writeJSON(path.join(dataDir, "relationship_sales_deed.json"), {
-      to: { "/": `./sales_1.json` },
-      from: { "/": `./deed_1.json` },
-    });
-    writeJSON(path.join(dataDir, "relationship_deed_file.json"), {
-      to: { "/": `./deed_1.json` },
-      from: { "/": `./file_1.json` },
-    });
-  }
 
   // Structure from HTML only (limited mapping)
   const styleTxt = getNextTextAfterStrong($, "Style:") || null;
@@ -2464,13 +2836,299 @@ function main() {
   }
 
   // Layouts from owners/layout_data.json
-  const layoutKey = `property_${seed.request_identifier || parcelId}`;
-  const layoutCandidate = layoutData[layoutKey];
-  if (layoutCandidate && Array.isArray(layoutCandidate.layouts)) {
-    layoutCandidate.layouts.forEach((lay, idx) => {
-      writeJSON(path.join(dataDir, `layout_${idx + 1}.json`), lay);
+  /** @type {readonly string[]} */
+  const layoutKeyCandidates = Array.from(
+    new Set(
+      [
+        seed.request_identifier,
+        seed.parcel_id,
+        altKey,
+        parcelId,
+      ]
+        .filter((val) => typeof val === "string" && val.length > 0)
+        .map((val) => String(val)),
+    ),
+  );
+  /** @type {{layouts?: unknown; building_layouts?: unknown}|null} */
+  let layoutCandidate = null;
+  for (const candidateValue of layoutKeyCandidates) {
+    const candidateKey = `property_${candidateValue}`;
+    if (
+      Object.prototype.hasOwnProperty.call(layoutData, candidateKey) &&
+      layoutData[candidateKey] &&
+      typeof layoutData[candidateKey] === "object"
+    ) {
+      layoutCandidate = layoutData[candidateKey];
+      break;
+    }
+  }
+  const layoutArray =
+    layoutCandidate &&
+    "layouts" in layoutCandidate &&
+    Array.isArray(layoutCandidate.layouts)
+      ? layoutCandidate.layouts
+      : [];
+  const buildingGroupArray =
+    layoutCandidate &&
+    "building_layouts" in layoutCandidate &&
+    Array.isArray(layoutCandidate.building_layouts)
+      ? layoutCandidate.building_layouts
+      : [];
+
+  /** @type {LayoutRecord[]} */
+  const layoutRecords = [];
+
+  if (buildingGroupArray.length > 0) {
+    buildingGroupArray.forEach((group, groupIdx) => {
+      if (!group || typeof group !== "object") return;
+      const buildingId = `building-${groupIdx + 1}`;
+      /** @type {LayoutPayload} */
+      const buildingPayload =
+        group.building_layout && typeof group.building_layout === "object"
+          ? { ...group.building_layout }
+          : createBuildingLayoutPayload(
+              toIntegerOrNull(totalArea),
+              toIntegerOrNull(sfla),
+            );
+      buildingPayload.space_type = "Building";
+      layoutRecords.push({
+        payload: buildingPayload,
+        role: "building",
+        floorKey: null,
+        fileName: "",
+        recordId: buildingId,
+        parentId: null,
+      });
+
+      if (
+        group.interior_layouts &&
+        Array.isArray(group.interior_layouts)
+      ) {
+        group.interior_layouts.forEach((layoutEntry, layoutIdx) => {
+          if (!layoutEntry || typeof layoutEntry !== "object") return;
+          /** @type {LayoutPayload} */
+          const payload = { ...layoutEntry };
+          const normalizedFloorKey =
+            typeof payload.floor_level === "string"
+              ? normalizeFloorKey(payload.floor_level)
+              : null;
+          layoutRecords.push({
+            payload,
+            role: "room",
+            floorKey: normalizedFloorKey,
+            fileName: "",
+            recordId: `${buildingId}-room-${layoutIdx + 1}`,
+            parentId: buildingId,
+          });
+        });
+      }
     });
   }
+
+  if (layoutRecords.length === 0) {
+    const numericTotalArea = toIntegerOrNull(totalArea);
+    const numericLivableArea = toIntegerOrNull(sfla);
+    const shouldCreateBuildingLayout =
+      property_type !== "LandParcel" ||
+      (Array.isArray(layoutArray) && layoutArray.length > 0);
+
+    /** @type {LayoutRecord|null} */
+    let fallbackBuildingRecord = null;
+    if (shouldCreateBuildingLayout) {
+      fallbackBuildingRecord = {
+        payload: createBuildingLayoutPayload(
+          numericTotalArea,
+          numericLivableArea,
+        ),
+        role: "building",
+        floorKey: null,
+        fileName: "",
+        recordId: "building-1",
+        parentId: null,
+      };
+      layoutRecords.push(fallbackBuildingRecord);
+    }
+
+    /** @type {Array<{key: string; label: string}>} */
+    const detectedFloors = [];
+    const seenFloorKeys = new Set();
+    /** @type {Array<{payload: LayoutPayload; floorKey: string|null}>} */
+    const pendingRooms = [];
+
+    if (Array.isArray(layoutArray)) {
+      layoutArray.forEach((layoutEntry) => {
+        if (!layoutEntry || typeof layoutEntry !== "object") return;
+        /** @type {LayoutPayload} */
+        const payload = { ...layoutEntry };
+        payload.space_index = null;
+        const floorLevel =
+          typeof payload.floor_level === "string"
+            ? payload.floor_level
+            : null;
+        const normalizedFloorKey = normalizeFloorKey(floorLevel);
+        if (normalizedFloorKey && !seenFloorKeys.has(normalizedFloorKey)) {
+          seenFloorKeys.add(normalizedFloorKey);
+          detectedFloors.push({
+            key: normalizedFloorKey,
+            label: floorLevel || normalizedFloorKey,
+          });
+        }
+        pendingRooms.push({
+          payload,
+          floorKey: normalizedFloorKey,
+        });
+      });
+    }
+
+    /** @type {LayoutRecord[]} */
+    const floorRecords = [];
+    const fallbackBuildingId =
+      fallbackBuildingRecord?.recordId ?? "building-1";
+
+    if (detectedFloors.length > 1 && fallbackBuildingRecord) {
+      detectedFloors
+        .sort((a, b) => {
+          const delta = floorSortValue(a.key) - floorSortValue(b.key);
+          if (delta !== 0) return delta;
+          return a.label.localeCompare(b.label);
+        })
+        .forEach((floorDescriptor, floorIdx) => {
+          floorRecords.push({
+            payload: createFloorLayoutPayload(floorDescriptor.label),
+            role: "floor",
+            floorKey: floorDescriptor.key,
+            fileName: "",
+            recordId: `${fallbackBuildingId}-floor-${floorIdx + 1}`,
+            parentId: fallbackBuildingId,
+          });
+        });
+    }
+
+    layoutRecords.push(...floorRecords);
+
+    const floorRecordByKey = new Map();
+    floorRecords.forEach((record) => {
+      if (record.floorKey) {
+        floorRecordByKey.set(record.floorKey, record);
+      }
+    });
+
+    let roomCounter = 1;
+    pendingRooms.forEach(({ payload, floorKey }) => {
+      const parentRecord =
+        floorKey && floorRecordByKey.has(floorKey)
+          ? floorRecordByKey.get(floorKey)
+          : fallbackBuildingRecord;
+      if (!parentRecord) return;
+      layoutRecords.push({
+        payload,
+        role: "room",
+        floorKey,
+        fileName: "",
+        recordId: `${parentRecord.recordId}-room-${roomCounter++}`,
+        parentId: parentRecord.recordId,
+      });
+    });
+  }
+
+  removeFilesByPredicate(dataDir, (fileName) => /^layout_\d+\.json$/.test(fileName));
+
+  let layoutFileCounter = 0;
+  const layoutRecordById = new Map();
+  layoutRecords.forEach((record) => {
+    layoutFileCounter += 1;
+    record.payload.space_index = layoutFileCounter;
+    record.fileName = `layout_${layoutFileCounter}.json`;
+    layoutRecordById.set(record.recordId, record);
+    writeJSON(path.join(dataDir, record.fileName), record.payload);
+  });
+
+  const layoutRelationshipPrefixes = [
+    /^relationship_property_layout(_\d+)?\.json$/,
+    /^relationship_layout_layout(_\d+)?\.json$/,
+    /^relationship_property_structure(_\d+)?\.json$/,
+    /^relationship_property_utility(_\d+)?\.json$/,
+    /^relationship_layout_structure(_\d+)?\.json$/,
+    /^relationship_layout_utility(_\d+)?\.json$/,
+  ];
+  layoutRelationshipPrefixes.forEach((pattern) => {
+    removeFilesByPredicate(dataDir, (fileName) => pattern.test(fileName));
+  });
+
+  const buildingRecordsWritten = layoutRecords.filter((record) =>
+    isBuildingLayoutRecord(record),
+  );
+
+  const structurePath = path.join(dataDir, "structure.json");
+  if (buildingRecordsWritten.length > 0) {
+    buildingRecordsWritten.forEach((record, idx) => {
+      const ordinal = idx + 1;
+      const buildingRef = `./${record.fileName}`;
+      const relationshipName = `relationship_property_layout_${ordinal}.json`;
+      writeRelationshipFile(
+        dataDir,
+        relationshipName,
+        "./property.json",
+        buildingRef,
+      );
+    });
+  }
+
+  if (buildingRecordsWritten.length > 0 && fs.existsSync(structurePath)) {
+    buildingRecordsWritten.forEach((record, idx) => {
+      const ordinal = idx + 1;
+      const buildingRef = `./${record.fileName}`;
+      const relationshipName = `relationship_layout_structure_${ordinal}.json`;
+      writeRelationshipFile(
+        dataDir,
+        relationshipName,
+        buildingRef,
+        "./structure.json",
+      );
+    });
+  }
+
+  const utilityPath = path.join(dataDir, "utility.json");
+  if (buildingRecordsWritten.length > 0 && fs.existsSync(utilityPath)) {
+    buildingRecordsWritten.forEach((record, idx) => {
+      const ordinal = idx + 1;
+      const buildingRef = `./${record.fileName}`;
+      const relationshipName = `relationship_layout_utility_${ordinal}.json`;
+      writeRelationshipFile(
+        dataDir,
+        relationshipName,
+        buildingRef,
+        "./utility.json",
+      );
+    });
+  }
+
+  let hierarchyCounter = 0;
+  layoutRecords.forEach((record) => {
+    if (!record.parentId) return;
+    const parentRecord = layoutRecordById.get(record.parentId);
+    if (!parentRecord) return;
+    hierarchyCounter += 1;
+    const relationshipName = `relationship_layout_layout_${hierarchyCounter}.json`;
+    writeRelationshipFile(
+      dataDir,
+      relationshipName,
+      `./${parentRecord.fileName}`,
+      `./${record.fileName}`,
+    );
+  });
+
+  const ownershipRelationshipCleanupAlways = [
+    /^relationship_person_.*_property\.json$/,
+    /^relationship_company_.*_property\.json$/,
+    /^relationship_sales_person.*\.json$/,
+    /^relationship_sales_company.*\.json$/,
+    /^relationship_sales_history_person(_\d+)?\.json$/,
+    /^relationship_sales_history_company(_\d+)?\.json$/,
+  ];
+  ownershipRelationshipCleanupAlways.forEach((pattern) => {
+    removeFilesByPredicate(dataDir, (fileName) => pattern.test(fileName));
+  });
 
   // Owners from owners/owner_data.json
   const ownersKey = `property_${seed.parcel_id}`;
@@ -2482,7 +3140,6 @@ function main() {
   ) {
     const currentOwners = ownerObj.owners_by_date.current;
     const name_regex = /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
-    // currentOwners.forEach((o, idx) => {
     for (let idx = 0; idx < currentOwners.length; idx++) {
       const o = currentOwners[idx];
       if (o.type === "person") {
@@ -2505,23 +3162,67 @@ function main() {
         const company = { name: o.name || null };
         writeJSON(path.join(dataDir, `company_${idx + 1}.json`), company);
       }
-    };
-    // Link current owner to the most recent sale
-    if (
-      currentOwners.length > 0 &&
-      fs.existsSync(path.join(dataDir, "sales_1.json"))
-    ) {
-      if (currentOwners[0].type === "person") {
-        writeJSON(path.join(dataDir, "relationship_sales_person.json"), {
-          to: { "/": "./person_1.json" },
-          from: { "/": "./sales_1.json" },
-        });
-      } else if (currentOwners[0].type === "company") {
-        writeJSON(path.join(dataDir, "relationship_sales_company.json"), {
-          to: { "/": "./company_1.json" },
-          from: { "/": "./sales_1.json" },
-        });
-      }
+    }
+
+    const deprecatedOwnerRelationshipPatterns = [
+      /^relationship_person_.*_property\.json$/,
+      /^relationship_company_.*_property\.json$/,
+    ];
+    deprecatedOwnerRelationshipPatterns.forEach((pattern) => {
+      removeFilesByPredicate(dataDir, (fileName) => pattern.test(fileName));
+    });
+
+    const saleFilePath = path.join(dataDir, "sales_1.json");
+    if (fs.existsSync(saleFilePath)) {
+      const ownershipRelationshipCleanup = [
+        /^relationship_sales_person.*\.json$/,
+        /^relationship_sales_company.*\.json$/,
+        /^relationship_sales_history_person(_\d+)?\.json$/,
+        /^relationship_sales_history_company(_\d+)?\.json$/,
+      ];
+      ownershipRelationshipCleanup.forEach((pattern) => {
+        removeFilesByPredicate(dataDir, (fileName) => pattern.test(fileName));
+      });
+
+      let personRelationshipCounter = 0;
+      let companyRelationshipCounter = 0;
+
+      currentOwners.forEach((owner, ownerIndex) => {
+        if (owner.type !== "person" && owner.type !== "company") return;
+        const ownerFileName =
+          owner.type === "person"
+            ? `person_${ownerIndex + 1}.json`
+            : `company_${ownerIndex + 1}.json`;
+        const ownerFilePath = path.join(dataDir, ownerFileName);
+        if (!fs.existsSync(ownerFilePath)) return;
+
+        if (owner.type === "person") {
+          personRelationshipCounter += 1;
+          const indexedName = `relationship_sales_history_person_${personRelationshipCounter}.json`;
+          writeRelationshipFile(
+            dataDir,
+            indexedName,
+            "./sales_1.json",
+            `./${ownerFileName}`,
+          );
+        } else if (owner.type === "company") {
+          companyRelationshipCounter += 1;
+          const indexedName = `relationship_sales_history_company_${companyRelationshipCounter}.json`;
+          writeRelationshipFile(
+            dataDir,
+            indexedName,
+            "./sales_1.json",
+            `./${ownerFileName}`,
+          );
+        }
+      });
+    } else {
+      removeFilesByPredicate(dataDir, (fileName) =>
+        /^relationship_sales_history_person(_\d+)?\.json$/.test(fileName),
+      );
+      removeFilesByPredicate(dataDir, (fileName) =>
+        /^relationship_sales_history_company(_\d+)?\.json$/.test(fileName),
+      );
     }
   }
 

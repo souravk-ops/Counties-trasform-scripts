@@ -40,7 +40,6 @@ function main() {
   const $ = cheerio.load(html);
 
   const altkey = getAltKey($);
-  if (!altkey) throw new Error("Alternate Key not found");
 
   const hvac = findValueByLabel($, "HVAC") || "";
   const heatMethod = findValueByLabel($, "Heat Method") || "";
