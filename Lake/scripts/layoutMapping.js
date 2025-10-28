@@ -22,6 +22,17 @@ function toInt(val) {
 
 function buildLayout(spaceType, index) {
   return {
+    building_number: null,
+    total_area_sq_ft: null,
+    built_year: null,
+    adjustable_area_sq_ft: null,
+    livable_area_sq_ft: null,
+    heated_area_sq_ft: null,
+    area_under_air_sq_ft: null,
+    story_type: null,
+    //ceiling_height_average: null,
+    source_http_request: null,
+    request_identifier: null,
     space_type: spaceType,
     space_index: index,
     flooring_material_type: null,
