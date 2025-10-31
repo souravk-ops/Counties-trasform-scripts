@@ -1,118 +1,237 @@
 const fs = require("fs");
-const path = require("path"); // Add path module
+const path = require("path");
 const cheerio = require("cheerio");
-
-// Load input HTML
-const html = fs.readFileSync("input.html", "utf8");
-const $ = cheerio.load(html);
 
 // Utility: normalize whitespace
 const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+
+// Utility: strip tags/comments and decode HTML entities
+function cleanCandidateString(raw) {
+  if (!raw) return "";
+  const withoutComments = raw.replace(/<!--[\s\S]*?-->/g, " ").replace(/<!---->/g, " ");
+  const withoutTags = withoutComments.replace(/<[^>]+>/g, " ");
+  // Load cheerio locally for this utility function to avoid global dependency
+  const $temp = cheerio.load(`<div>${withoutTags}</div>`);
+  const decoded = $temp.text();
+  return norm(decoded);
+}
 
 // Utility: detect if a string looks like an address line (contains digits or zip or comma + state)
 const looksLikeAddress = (s) => {
   const str = (s || "").toLowerCase();
   if (!str) return false;
   if (/\d/.test(str)) return true; // numbers typical for addresses
-  if (
-    /\b(fl|ca|ny|tx|wa|ga|il|oh|pa|nc|va|az|nj|ma|mi|co|tn|in|mo|md|wi|mn|al|sc|la|ky|or|ok|ct|ia|ut|ms|ar|nv|nm|ne|wv|id|hi|nh|me|mt|ri|de|sd|nd|vt)\b/.test(
-      str,
-    )
-  )
-    return true;
-  if (/,/.test(str)) return true; // city, state
+  if (/\b(po\s*box|p\.?\s*o\.?\s*box)\b/.test(str)) return true; // PO Box without digits fallback
+  if (/,/.test(str) &&
+      /\b(fl|ca|ny|tx|wa|ga|il|oh|pa|nc|va|az|nj|ma|mi|co|tn|in|mo|md|wi|mn|al|sc|la|ky|or|ok|ct|ia|ut|ms|ar|nv|nm|ne|wv|id|hi|nh|me|mt|ri|de|sd|nd|vt)\b/.test(str)
+  ) {
+    return true; // City, STATE pattern
+  }
   return false;
 };
 
+// --- SCHEMA-DRIVEN PREFIXES AND SUFFIXES ---
+const ALLOWED_PREFIXES = [
+  "Mr.", "Mrs.", "Ms.", "Miss", "Mx.", "Dr.", "Prof.", "Rev.", "Fr.", "Sr.", "Br.",
+  "Capt.", "Col.", "Maj.", "Lt.", "Sgt.", "Hon.", "Judge", "Rabbi", "Imam", "Sheikh",
+  "Sir", "Dame"
+];
+
+const ALLOWED_SUFFIXES = [
+  "Jr.", "Sr.", "II", "III", "IV", "PhD", "MD", "Esq.", "JD", "LLM", "MBA", "RN",
+  "DDS", "DVM", "CFA", "CPA", "PE", "PMP", "Emeritus", "Ret."
+];
+
+const prefixLookup = new Set(ALLOWED_PREFIXES.map(p => p.replace(/\./g, "").toLowerCase()));
+const suffixLookup = new Set(ALLOWED_SUFFIXES.map(s => s.replace(/\./g, "").toLowerCase()));
+
+function getMatchingPrefix(token) {
+  const normalizedToken = token.replace(/\./g, "").toLowerCase();
+  for (const prefix of ALLOWED_PREFIXES) {
+    if (prefix.replace(/\./g, "").toLowerCase() === normalizedToken) {
+      return prefix;
+    }
+  }
+  return null;
+}
+
+function getMatchingSuffix(token) {
+  const normalizedToken = token.replace(/\./g, "").toLowerCase();
+  for (const suffix of ALLOWED_SUFFIXES) {
+    if (suffix.replace(/\./g, "").toLowerCase() === normalizedToken) {
+      return suffix;
+    }
+  }
+  return null;
+}
+
+// --- LEGAL DESIGNATIONS ---
+// Expanded to include more terms that are often legal designations rather than part of a name
+const LEGAL_DESIGNATIONS_REGEX = new RegExp(
+  "\\b(?:LIFE\\s*EST(?:ATE)?|EST(?:ATE)?|TRUST(?:EE)?|TR(?:USTEE)?|TTEE|REVOCABLE|IRREVOCABLE|EXECUTOR|EXR|ADMINISTRATOR|ADMR|PERSONAL\\s*REPRESENTATIVE|PR|HEIR|HEIRS|DECEASED|DEC'D|DEC|ET\\s*AL|ETAL|JTWROS|TENANTS?\\s*IN\\s*COMMON|TIC|TENANCY\\s*BY\\s*THE\\s*ENTIRETY|TBE|JOINT\\s*TENANTS?|JT|SURVIVOR|SURVIVORS?|AS\\s*TENANTS?\\s*IN\\s*COMMON|AS\\s*JOINT\\s*TENANTS?|AS\\s*COMMUNITY\\s*PROPERTY|AS\\s*SOLE\\s*AND\\s*SEPARATE\\s*PROPERTY|AS\\s*HUSBAND\\s*AND\\s*WIFE|AS\\s*COMMUNITY\\s*PROPERTY\\s*WITH\\s*RIGHT\\s*OF\\s*SURVIVORSHIP|A\\s*SINGLE\\s*MAN|A\\s*SINGLE\\s*WOMAN|A\\s*MARRIED\\s*MAN|A\\s*MARRIED\\s*WOMAN|A\\s*WIDOW|A\\s*WIDOWER|A\\s*PARTNERSHIP|A\\s*CORPORATION|A\\s*LIMITED\\s*LIABILITY\\s*COMPANY|A\\s*TRUST|A\\s*TRUSTEE|A\\s*FIDUCIARY|A\\s*BENEFICIARY|A\\s*GRANTOR|A\\s*GRANTEE|A\\s*DONOR|A\\s*DONEE|A\\s*SETTLOR|A\\s*SETTLEE|A\\s*DEVISEE|A\\s*LEGATEE|A\\s*ASSIGNEE|A\\s*ASSIGNOR|A\\s*MORTGAGEE|A\\s*MORTGAGOR|A\\s*LIENOR|A\\s*LIENEE|A\\s*GRANTOR\\s*TRUST|A\\s*NON-GRANTOR\\s*TRUST|A\\s*QUALIFIED\\s*PERSONAL\\s*RESIDENCE\\s*TRUST|QPRT|A\\s*CHARITABLE\\s*REMAINDER\\s*TRUST|CRT|A\\s*CHARITABLE\\s*LEAD\\s*TRUST|CLT|A\\s*SPECIAL\\s*NEEDS\\s*TRUST|SNT|A\\s*SUPPLEMENTAL\\s*NEEDS\\s*TRUST|SNT|A\\s*BLIND\\s*TRUST|A\\s*SPENDTHRIFT\\s*TRUST|A\\s*GENERATION-SKIPPING\\s*TRUST|GST|A\\s*LAND\\s*TRUST|A\\s*BUSINESS\\s*TRUST|A\\s*REAL\\s*ESTATE\\s*INVESTMENT\\s*TRUST|REIT|A\\s*FAMILY\\s*LIMITED\\s*PARTNERSHIP|FLP|A\\s*LIMITED\\s*LIABILITY\\s*PARTNERSHIP|LLP|A\\s*PROFESSIONAL\\s*CORPORATION|PC|A\\s*PROFESSIONAL\\s*LIMITED\\s*LIABILITY\\s*COMPANY|PLLC|A\\s*NON-PROFIT\\s*CORPORATION|A\\s*RELIGIOUS\\s*CORPORATION|A\\s*EDUCATIONAL\\s*CORPORATION|A\\s*CHARITABLE\\s*CORPORATION|A\\s*PUBLIC\\s*BENEFIT\\s*CORPORATION|A\\s*PRIVATE\\s*FOUNDATION|A\\s*PUBLIC\\s*CHARITY|A\\s*GOVERNMENTAL\\s*ENTITY|A\\s*MUNICIPALITY|A\\s*COUNTY|A\\s*STATE|THE\\s*UNITED\\s*STATES\\s*OF\\s*AMERICA|THE\\s*STATE\\s*OF|THE\\s*COUNTY\\s*OF|THE\\s*CITY\\s*OF|THE\\s*TOWN\\s*OF|THE\\s*VILLAGE\\s*OF|THE\\s*SCHOOL\\s*DISTRICT\\s*OF|THE\\s*WATER\\s*DISTRICT\\s*OF|THE\\s*SEWER\\s*DISTRICT\\s*OF|THE\\s*FIRE\\s*DISTRICT\\s*OF|THE\\s*HOSPITAL\\s*DISTRICT\\s*OF|THE\\s*PORT\\s*AUTHORITY\\s*OF|THE\\s*HOUSING\\s*AUTHORITY\\s*OF|THE\\s*REDEVELOPMENT\\s*AGENCY\\s*OF|THE\\s*COMMUNITY\\s*REDEVELOPMENT\\s*AGENCY\\s*OF|THE\\s*SUCCESSOR\\s*AGENCY\\s*TO\\s*THE\\s*REDEVELOPMENT\\s*AGENCY\\s*OF|THE\\s*JOINT\\s*POWERS\\s*AUTHORITY\\s*OF|THE\\s*JOINT\\s*POWERS\\s*AGENCY\\s*OF|THE\\s*JOINT\\s*POWERS\\s*BOARD\\s*OF|THE\\s*JOINT\\s*POWERS\\s*COMMISSION\\s*OF|THE\\s*JOINT\\s*POWERS\\s*ENTITY\\s*OF|THE\\s*JOINT\\s*POWERS\\s*ORGANIZATION\\s*OF|THE\\s*JOINT\\s*POWERS\\s*UNIT\\s*OF|THE\\s*JOINT\\s*POWERS\\s*VENTURE\\s*OF|THE\\s*JOINT\\s*POWERS\\s*AGREEMENT\\s*OF|THE\\s*JOINT\\s*POWERS\\s*AUTHORITY\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*AGENCY\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*BOARD\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*COMMISSION\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*ENTITY\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*ORGANIZATION\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*UNIT\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*VENTURE\\s*FOR|THE\\s*JOINT\\s*POWERS\\s*AGREEMENT\\s*FOR)\\b",
+  "gi"
+);
+
+function stripLegalDesignations(name) {
+  let cleanedName = name;
+  let match;
+  const removedDesignations = [];
+
+  // Use a loop to remove all occurrences and capture them
+  // Reset lastIndex for each new string to ensure correct behavior with global regex
+  LEGAL_DESIGNATIONS_REGEX.lastIndex = 0;
+  while ((match = LEGAL_DESIGNATIONS_REGEX.exec(cleanedName)) !== null) {
+    removedDesignations.push(match[0].trim());
+    cleanedName = cleanedName.replace(match[0], " ").trim();
+    // Reset lastIndex to avoid infinite loops with global regex and replace
+    LEGAL_DESIGNATIONS_REGEX.lastIndex = 0;
+  }
+
+  // Remove any remaining commas or extra spaces after removal
+  cleanedName = cleanedName.replace(/,+/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  return {
+    cleanedName: cleanedName,
+    removedDesignations: removedDesignations.length > 0 ? removedDesignations : null,
+  };
+}
+
 // Company detection tokens (case-insensitive, word boundaries where possible)
+// Refined to focus on actual business entity indicators, less on legal designations
 const COMPANY_TOKENS = [
-  "inc",
-  "llc",
-  "ltd",
-  "foundation",
-  "alliance",
-  "solutions",
-  "corp",
-  "co",
-  "services",
-  "trust",
-  "tr",
-  "incorporated",
-  "company",
-  "lp",
-  "llp",
-  "pllc",
-  "plc",
-  "holdings",
-  "partners",
-  "partnership",
-  "association",
-  "church",
-  "bank",
-  "university",
-  "college",
-  "hospital",
-  "group",
-  "enterprises",
-  "properties",
-  "management",
-  "investments",
+  "inc", "inc.", "incorporated", "corp", "corp.", "corporation", "co", "co.", "company",
+  "llc", "l.l.c", "ltd", "limited", "lp", "l.p.", "limited partnership",
+  "llp", "l.l.p.", "limited liability partnership", "pllc", "p.l.l.c.",
+  "pc", "p.c.", "professional corporation", "plc", "p.l.c.",
+  "foundation", "alliance", "solutions", "services", "associates", "partners",
+  "holdings", "group", "management", "properties", "realty", "capital",
+  "church", "ministries", "association", "club", "society", "institute", "center",
+  "community", "development", "fund", "bank", "credit union",
+  "federal", "state", "county", "city", "town", "district", "authority", "board",
+  "commission", "agency", "hospital", "medical", "school", "university", "college",
+  "library", "museum", "park", "conservancy", "government", "municipal",
+  "syndicate", "venture", "enterprise", "investments", "realty", "development",
+  "management", "properties", "holdings", "group", "capital", "asset", "management",
+  "trust", // Keep 'trust' here as it can be part of a company name (e.g., "ABC Trust Co.")
+  "estate", // Keep 'estate' here as it can be part of a company name (e.g., "XYZ Estate Management")
 ];
 
 const isCompany = (name) => {
   const n = (name || "").toLowerCase();
+
+  // Explicit checks for common trust/estate patterns that are definitely companies/entities
+  if (/\btrustee\s+for\b/i.test(n)) return true;
+  if (/\btrust\b/i.test(n) && /\bcompany\b/i.test(n)) return true; // e.g., "ABC Trust Company"
+  if (/\bestate\s+of\b/i.test(n)) return true; // e.g., "Estate of John Doe" is an entity, not a person
+
   return COMPANY_TOKENS.some((tok) =>
     new RegExp(`(^|[^a-z])${tok}([^a-z]|$)`, "i").test(n),
   );
 };
 
-// Parse person name from a string
-function parsePersonName(raw) {
-  const cleaned = norm(raw)
-    .replace(/\s*&\s*/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  if (!cleaned) return null;
+// Helper to create a default person object adhering to the schema
+function defaultPerson(propertyId) {
+  return {
+    first_name: null,
+    last_name: null,
+    middle_name: null,
+    prefix_name: null,
+    suffix_name: null,
+    birth_date: null,
+    us_citizenship_status: null,
+    veteran_status: null,
+    request_identifier: propertyId,
+    source_http_request: null, // Assuming no specific HTTP request for person data
+  };
+}
 
-  // Handle "Last, First Middle" format
-  if (/,/.test(cleaned)) {
-    const [lastPart, restPart] = cleaned.split(/,\s*/);
-    const restTokens = (restPart || "").split(/\s+/).filter(Boolean);
-    if (restTokens.length === 0) return null;
-    const first = restTokens[0];
-    const middle = restTokens.slice(1).join(" ") || null;
-    return {
-      type: "person",
-      first_name: first,
-      last_name: lastPart,
-      middle_name: middle || null,
-    };
+// Parse person name from a string, now handling prefixes and suffixes
+function parsePersonName(raw, propertyId) {
+  const original = norm(raw);
+  if (!original) return null;
+
+  // 1. Strip legal designations first
+  const { cleanedName: nameWithoutDesignations, removedDesignations } = stripLegalDesignations(original);
+  const workingName = norm(nameWithoutDesignations);
+  if (!workingName) return null; // If only designations were present
+
+  let prefix = null;
+  let suffix = null;
+  let nameTokens = workingName.split(/\s+/).filter(Boolean);
+
+  // 2. Extract Prefix (if present at the beginning)
+  if (nameTokens.length > 1) {
+    const firstToken = nameTokens[0];
+    const matchedPrefix = getMatchingPrefix(firstToken);
+    if (matchedPrefix) {
+      prefix = matchedPrefix;
+      nameTokens = nameTokens.slice(1);
+    }
   }
 
-  // Handle simple space-separated names: First Middle Last
-  const tokens = cleaned.split(/\s+/).filter(Boolean);
-  if (tokens.length < 2) return null; // can't decide first/last
-  const first = tokens[0];
-  const last = tokens[tokens.length - 1];
-  const middle = tokens.slice(1, -1).join(" ") || null;
-  return {
-    type: "person",
-    first_name: first,
-    last_name: last,
-    middle_name: middle || null,
-  };
+  // 3. Extract Suffix (if present at the end)
+  if (nameTokens.length > 1) {
+    const lastToken = nameTokens[nameTokens.length - 1];
+    const matchedSuffix = getMatchingSuffix(lastToken);
+    if (matchedSuffix) {
+      suffix = matchedSuffix;
+      nameTokens = nameTokens.slice(0, -1);
+    }
+  }
+
+  // 4. Parse the remaining name tokens
+  let first = null;
+  let last = null;
+  let middle = null;
+
+  // Handle "Last, First Middle" format
+  if (workingName.includes(',')) {
+    const parts = workingName.split(',').map(s => norm(s));
+    if (parts.length >= 2) {
+      last = parts[0];
+      const rest = parts.slice(1).join(' ');
+      const restTokens = rest.split(/\s+/).filter(Boolean);
+      if (restTokens.length > 0) {
+        first = restTokens[0];
+        middle = restTokens.slice(1).join(' ') || null;
+      }
+    }
+  } else { // Handle "First Middle Last" format
+    if (nameTokens.length >= 2) {
+      first = nameTokens[0];
+      last = nameTokens[nameTokens.length - 1];
+      middle = nameTokens.slice(1, -1).join(' ') || null;
+    } else if (nameTokens.length === 1) {
+      // If only one token remains, it's ambiguous. Can't reliably parse.
+      return null;
+    }
+  }
+
+  if (!first || !last) return null; // Must have at least first and last name
+
+  const person = defaultPerson(propertyId);
+  person.first_name = first;
+  person.last_name = last;
+  person.middle_name = middle;
+  person.prefix_name = prefix;
+  person.suffix_name = suffix;
+  person._removed_designations = removedDesignations; // For debugging/auditing
+
+  return person;
 }
 
 // Normalize owner for deduplication
 function normalizeOwnerForKey(owner) {
   if (!owner) return "";
   if (owner.type === "company") return norm(owner.name).toLowerCase();
-  const middle = owner.middle_name ? ` ${owner.middle_name}` : "";
-  return `${norm(owner.first_name)}${middle} ${norm(owner.last_name)}`.toLowerCase();
+  const parts = [owner.first_name, owner.middle_name, owner.last_name]
+    .map((x) => norm(x || "").toLowerCase())
+    .filter(Boolean);
+  return `person:${parts.join(" ")}`;
 }
 
 // Extract property id with tight heuristics around table rows
-function extractPropertyId($doc) {
+function extractPropertyId($doc, htmlContent) { // Pass htmlContent here
   // Strategy 1: Find the table row with a header containing Parcel ID / Property ID
   let id = null;
   $doc("tr").each((i, tr) => {
@@ -126,7 +245,7 @@ function extractPropertyId($doc) {
         const candidate = bold.length ? norm(bold.text()) : norm(td.text());
         if (candidate) {
           id = candidate;
-          return false;
+          return false; // Stop .each loop
         }
       }
     }
@@ -134,7 +253,7 @@ function extractPropertyId($doc) {
 
   // Strategy 2: Regex fallback for typical parcel formats
   if (!id) {
-    const m = html.match(/\b\d{3,}-\d{3}-\d{4}-\d{3}-\d\b/);
+    const m = htmlContent.match(/\b\d{3,}-\d{3}-\d{4}-\d{3}-\d\b/); // Example: 123-456-7890-123-4
     if (m) id = m[0];
   }
 
@@ -145,21 +264,19 @@ function extractPropertyId($doc) {
 function extractOwnerNameStrings($doc) {
   const candidates = [];
 
-  // Strategy A: Ownership section first line
+  // Strategy A: Ownership section first line (e.g., from a specific div/section)
   const ownP = $doc("#ownership .bottom-text p").first();
   if (ownP.length) {
     const htmlFrag = ownP.html() || "";
     const lines = htmlFrag
-      .replace(/<br\s*\/?\s*>/gi, "\n")
+      .replace(/<br[^>]*>/gi, "\n")
       .split("\n")
-      .map((s) => norm(s))
+      .map((s) => cleanCandidateString(s))
       .filter(Boolean);
     if (lines.length) {
       for (const line of lines) {
-        if (!looksLikeAddress(line)) {
-          candidates.push(line);
-          break;
-        }
+        if (looksLikeAddress(line)) break; // Stop if we hit an address line
+        candidates.push(line);
       }
     }
   }
@@ -170,7 +287,8 @@ function extractOwnerNameStrings($doc) {
     const td = $doc(tr).find("td").first();
     const label = norm(th.text()).toLowerCase();
     if (label && /owner|grantee/.test(label)) {
-      const val = norm(td.text());
+      const rawVal = td.html() || td.text();
+      const val = cleanCandidateString(rawVal);
       if (val) candidates.push(val);
     }
   });
@@ -180,14 +298,15 @@ function extractOwnerNameStrings($doc) {
     const txt = norm($doc(h).text()).toLowerCase();
     if (/\bowner(ship)?\b/.test(txt)) {
       const container = $doc(h).parent();
-      const p = container.find("p").first();
-      const t = norm(p.text());
+      const p = container.find("p").first(); // Look for a paragraph directly under the heading
+      const raw = p.html() || p.text();
+      const t = cleanCandidateString(raw);
       if (t) {
         const maybe =
           t
             .split(/\n|\r/)
             .map((s) => norm(s))
-            .filter(Boolean)[0] || t;
+            .filter(Boolean)[0] || t; // Take the first non-empty line
         candidates.push(maybe);
       }
     }
@@ -208,35 +327,49 @@ function extractOwnerNameStrings($doc) {
 }
 
 // Classify and structure owners
-function classifyOwners(rawNames) {
+function classifyOwners(rawNames, propertyId) {
   const owners = [];
   const invalid = [];
   const seen = new Set();
 
   for (const raw of rawNames) {
-    const name = norm(raw).replace(/^owner:?\s*/i, "");
-    if (!name) continue;
+    const nameCandidate = norm(raw).replace(/^owner:?\s*/i, "");
+    if (!nameCandidate) continue;
 
-    if (isCompany(name)) {
-      const owner = { type: "company", name: name };
-      const key = normalizeOwnerForKey(owner);
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        owners.push(owner);
-      }
+    // 1. Strip legal designations first
+    const { cleanedName, removedDesignations } = stripLegalDesignations(nameCandidate);
+    const nameForClassification = norm(cleanedName);
+
+    if (!nameForClassification) {
+      // If only legal designations were present, it's not a valid owner name
+      invalid.push({ raw: raw, reason: "only_legal_designations_present", removed: removedDesignations });
       continue;
     }
 
-    // Person (including names with &)
-    const person = parsePersonName(name.replace(/\s*&\s*/g, " "));
-    if (person) {
-      const key = normalizeOwnerForKey(person);
+    let owner = null;
+    // 2. Check if it's a company
+    if (isCompany(nameForClassification)) {
+      owner = { type: "company", name: nameForClassification };
+    } else {
+      // 3. If not a company, try parsing as a person
+      const person = parsePersonName(nameForClassification, propertyId);
+      if (person) {
+        owner = person;
+      }
+    }
+
+    if (owner) {
+      const key = normalizeOwnerForKey(owner);
       if (key && !seen.has(key)) {
         seen.add(key);
-        owners.push(person);
+        // Add removed designations to the owner object for context
+        if (removedDesignations) {
+          owner._removed_designations = removedDesignations;
+        }
+        owners.push(owner);
       }
     } else {
-      invalid.push({ raw: raw, reason: "unclassified_or_insufficient" });
+      invalid.push({ raw: raw, reason: "unclassified_or_insufficient_info" });
     }
   }
 
@@ -250,28 +383,35 @@ function buildOwnersByDate(owners) {
   return map;
 }
 
-// Main extraction flow
-const propertyId = extractPropertyId($);
-const rawOwnerNames = extractOwnerNameStrings($);
-const { owners, invalid } = classifyOwners(rawOwnerNames);
-const ownersByDate = buildOwnersByDate(owners);
+// Main execution function
+function main() {
+  const inputPath = path.join(process.cwd(), "input.html");
+  const htmlContent = fs.readFileSync(inputPath, "utf8"); // Read HTML content inside main
+  const $ = cheerio.load(htmlContent); // Load Cheerio inside main
 
-const result = {};
-result[`property_${propertyId}`] = {
-  owners_by_date: ownersByDate,
-  invalid_owners: invalid,
-};
+  const propertyId = extractPropertyId($, htmlContent); // Pass htmlContent to extractPropertyId
+  const rawOwnerNames = extractOwnerNameStrings($);
+  const { owners, invalid } = classifyOwners(rawOwnerNames, propertyId);
+  const ownersByDate = buildOwnersByDate(owners);
 
-// --- MODIFIED SECTION ---
-const outputDir = path.join(process.cwd(), "owners"); // Define output directory
-if (!fs.existsSync(outputDir)) { // Check if directory exists
-  fs.mkdirSync(outputDir, { recursive: true }); // Create it if it doesn't
+  const result = {};
+  result[`property_${propertyId}`] = {
+    owners_by_date: ownersByDate,
+    invalid_owners: invalid,
+  };
+
+  const outputDir = path.join(process.cwd(), "owners");
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  fs.writeFileSync(
+    path.join(outputDir, "owner_data.json"),
+    JSON.stringify(result, null, 2),
+    "utf8",
+  );
+  console.log(JSON.stringify(result, null, 2));
 }
 
-// Write to file and print
-fs.writeFileSync(
-  path.join(outputDir, "owner_data.json"), // Use path.join for the full path
-  JSON.stringify(result, null, 2),
-  "utf8",
-);
-console.log(JSON.stringify(result, null, 2));
+// Call the main function to start execution
+main();
