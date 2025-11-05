@@ -898,14 +898,13 @@ function createDefaultLayout(
   const spaceIndex = spaceTypeCounters[spaceType];
   const normalizedFloorLevel = normalizeFloorLevel(floorLevel);
 
-  return {
+  const layout = {
     request_identifier: null,
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index
     space_type_index: spaceTypeIndex,
     flooring_material_type: null,
     size_square_feet: null,
-    floor_level: normalizedFloorLevel,
     has_windows: null,
     window_design_type: null,
     window_material_type: null,
@@ -943,10 +942,15 @@ function createDefaultLayout(
     livable_area_sq_ft: null,
     pool_installation_date: null,
     spa_installation_date: null,
-    story_type: null,
     total_area_sq_ft: null,
     flooring_installation_date: null,
   };
+
+  if (normalizedFloorLevel && FLOOR_LEVEL_ALLOWED.has(normalizedFloorLevel)) {
+    layout.floor_level = normalizedFloorLevel;
+  }
+
+  return layout;
 }
 
 
@@ -1132,7 +1136,9 @@ function extractLayouts($, parcelId) {
     buildingLayout.livable_area_sq_ft = finishedArea;
     buildingLayout.built_year = yearBuilt;
     buildingLayout.installation_date = yearBuilt ? `${yearBuilt}-01-01` : null;
-    buildingLayout.story_type = buildingStoryType;
+    if (buildingStoryType && STORY_TYPE_ALLOWED.has(buildingStoryType)) {
+      buildingLayout.story_type = buildingStoryType;
+    }
     buildingLayout.is_finished = true; // Buildings are generally considered "finished"
     allLayouts.push(buildingLayout);
 
@@ -1149,7 +1155,9 @@ function extractLayouts($, parcelId) {
           floorLevelLabel,
           floorSpaceTypeIndex,
         );
-        floorLayout.story_type = buildingStoryType;
+        if (buildingStoryType && STORY_TYPE_ALLOWED.has(buildingStoryType)) {
+          floorLayout.story_type = buildingStoryType;
+        }
         floorLayout.is_finished = true; // Floors are generally considered "finished"
         allLayouts.push(floorLayout);
 

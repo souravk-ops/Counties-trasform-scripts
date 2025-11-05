@@ -2767,7 +2767,7 @@ async function main() {
         taxOut.property_land_amount = landVal;
       }
       if (Number.isFinite(taxableVal)) {
-        taxOut.property_taxable_value_amount = taxableVal;
+        taxOut.property_taxable_value_amount = Number(taxableVal);
       }
       ensureRequestIdentifier(taxOut);
       await fsp.writeFile(
@@ -2985,6 +2985,12 @@ async function main() {
         delete layoutOut.floor_level;
       }
     }
+    if (
+      typeof layoutOut.floor_level === "string" &&
+      layoutOut.floor_level.trim() === ""
+    ) {
+      delete layoutOut.floor_level;
+    }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
       if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
@@ -2992,6 +2998,12 @@ async function main() {
       } else {
         delete layoutOut.story_type;
       }
+    }
+    if (
+      typeof layoutOut.story_type === "string" &&
+      layoutOut.story_type.trim() === ""
+    ) {
+      delete layoutOut.story_type;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;
