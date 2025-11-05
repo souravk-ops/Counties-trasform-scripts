@@ -65,22 +65,6 @@ function parseDateToISO(dateStr) {
   return `${y}-${m}-${day}`;
 }
 
-function sanitizeAbsoluteUrl(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (!/^https?:\/\//i.test(trimmed)) return null;
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      return parsed.href;
-    }
-  } catch (_) {
-    return null;
-  }
-  return null;
-}
-
 function normalizeOwnerKey(name) {
   const cleaned = textClean(name);
   if (!cleaned) return "";
@@ -1972,6 +1956,9 @@ async function main() {
       ...addressPayload,
       ...structuredAddressFields,
     };
+    if (Object.prototype.hasOwnProperty.call(addressPayload, "unnormalized_address")) {
+      delete addressPayload.unnormalized_address;
+    }
     if (addressPayload.city_name) {
       addressPayload.city_name = addressPayload.city_name.toUpperCase();
     }
@@ -2983,11 +2970,9 @@ async function main() {
         if (sale._book_page_url) {
           fileIdx += 1;
           const fileFileName = `file_${fileIdx}.json`;
-          const sanitizedDeedUrl = sanitizeAbsoluteUrl(sale._book_page_url);
           const fileOut = {
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url || "") || null,
-            original_url: sanitizedDeedUrl,
             document_type: "ConveyanceDeed",
           };
           ensureRequestIdentifier(fileOut);
@@ -3562,11 +3547,9 @@ async function main() {
     for (const u of uniqueNonDeedUrls) {
       currentFileIdx += 1;
       const fileFileName = `file_${currentFileIdx}.json`;
-      const sanitizedUrl = sanitizeAbsoluteUrl(u);
       const rec = {
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
-        original_url: sanitizedUrl,
         document_type: null,
       };
       ensureRequestIdentifier(rec);

@@ -88,7 +88,11 @@ function stripLegalDesignations(name) {
   }
 
   // Remove any remaining commas or extra spaces after removal
-  cleanedName = cleanedName.replace(/,+/g, " ").replace(/\s{2,}/g, " ").trim();
+  cleanedName = cleanedName
+    .replace(/,+/g, " ")
+    .replace(/[()]/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
   return {
     cleanedName: cleanedName,
@@ -158,6 +162,7 @@ function parsePersonName(raw, propertyId) {
   let prefix = null;
   let suffix = null;
   let nameTokens = workingName.split(/\s+/).filter(Boolean);
+  nameTokens = nameTokens.filter((token) => /[A-Za-z]/.test(token));
 
   // 2. Extract Prefix (if present at the beginning)
   if (nameTokens.length > 1) {
@@ -187,10 +192,16 @@ function parsePersonName(raw, propertyId) {
   // Handle "Last, First Middle" format
   if (workingName.includes(',')) {
     const parts = workingName.split(',').map(s => norm(s));
+    const filteredParts = parts.filter(part => /[A-Za-z]/.test(part));
+    if (filteredParts.length >= 1) {
+      last = filteredParts[0];
+    }
     if (parts.length >= 2) {
-      last = parts[0];
       const rest = parts.slice(1).join(' ');
-      const restTokens = rest.split(/\s+/).filter(Boolean);
+      const restTokens = rest
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter(token => /[A-Za-z]/.test(token));
       if (restTokens.length > 0) {
         first = restTokens[0];
         middle = restTokens.slice(1).join(' ') || null;
@@ -202,8 +213,7 @@ function parsePersonName(raw, propertyId) {
       last = nameTokens[nameTokens.length - 1];
       middle = nameTokens.slice(1, -1).join(' ') || null;
     } else if (nameTokens.length === 1) {
-      // If only one token remains, it's ambiguous. Can't reliably parse.
-      return null;
+      first = nameTokens[0];
     }
   }
 
