@@ -326,6 +326,7 @@ function normalizeLayoutFloorLevel(value) {
 
   const lower = text.toLowerCase();
   const lowerCompact = lower.replace(/\s+/g, "");
+  const lowerAlphaNumeric = lower.replace(/[^a-z0-9]/g, "");
 
   const wordMappings = [
     [/first|^one\b|main|ground|lower/, "1st Floor"],
@@ -343,11 +344,27 @@ function normalizeLayoutFloorLevel(value) {
   }
 
   if (!mappedValue) {
+    const keywordPrefixedMatch = lower.match(
+      /\b(?:fl|floor|lvl|level|story|storey)\s*[-#:]*\s*(\d{1,2})\b/,
+    );
+    const keywordSuffixedMatch = lower.match(
+      /\b(\d{1,2})\s*(?:fl|floor|lvl|level|story|storey)\b/,
+    );
+    const alphaNumericMatch = lowerAlphaNumeric.match(
+      /^(?:fl|floor|lvl|level)?(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|lvl|level)?$/,
+    );
     const ordinalMatch = lower.match(
       /(-?\d+)(?:st|nd|rd|th)?\s*(?:floor|fl|lvl|level|story|storey)?/,
     );
-    if (ordinalMatch) {
-      const num = Number(ordinalMatch[1]);
+
+    const valueMatch =
+      keywordPrefixedMatch ||
+      keywordSuffixedMatch ||
+      alphaNumericMatch ||
+      ordinalMatch;
+
+    if (valueMatch) {
+      const num = Number(valueMatch[1]);
       if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
         mappedValue = FLOOR_LEVEL_ENUM[num - 1];
       }
@@ -378,19 +395,31 @@ function normalizeLayoutFloorLevel(value) {
     mappedValue = "1st Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*1|1level)(\b|$)/.test(lowerCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*1|1level|lvl1|fl1)(\b|$)/.test(lowerCompact)
+  ) {
     mappedValue = "1st Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*2|2level)(\b|$)/.test(lowerCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*2|2level|lvl2|fl2)(\b|$)/.test(lowerCompact)
+  ) {
     mappedValue = "2nd Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*3|3level)(\b|$)/.test(lowerCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*3|3level|lvl3|fl3)(\b|$)/.test(lowerCompact)
+  ) {
     mappedValue = "3rd Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*4|4level)(\b|$)/.test(lowerCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*4|4level|lvl4|fl4)(\b|$)/.test(lowerCompact)
+  ) {
     mappedValue = "4th Floor";
   }
 
@@ -1566,9 +1595,6 @@ async function main() {
   let parcelIdentifierDashed = null; // Also extract parcel ID from HTML
 
   // Declare these variables at a higher scope
-  let township = null;
-  let range = null;
-  let section = null;
 
   if (!isMulti) {
     $("article#property-identification table.container tr").each((i, tr) => {
@@ -1585,6 +1611,21 @@ async function main() {
     });
   }
 
+  const cleanedSiteAddress = siteAddress ? textClean(siteAddress) : null;
+  const normalizedSiteAddress =
+    cleanedSiteAddress && cleanedSiteAddress.toLowerCase() !== "tbd"
+      ? cleanedSiteAddress
+      : null;
+  const cleanedUnnormalizedAddress =
+    unnormalizedAddressData &&
+    typeof unnormalizedAddressData.full_address === "string"
+      ? textClean(unnormalizedAddressData.full_address)
+      : null;
+  const rawUnnormalizedAddress =
+    cleanedUnnormalizedAddress && cleanedUnnormalizedAddress.length > 0
+      ? cleanedUnnormalizedAddress
+      : null;
+
   let finalAddressOutput = {
     request_identifier:
       (unnormalizedAddressData && unnormalizedAddressData.request_identifier != null)
@@ -1595,10 +1636,7 @@ async function main() {
     county_name:"St. Lucie",
     latitude: unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
     longitude: unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
-    unnormalized_address:
-      (unnormalizedAddressData && unnormalizedAddressData.full_address)
-        ? unnormalizedAddressData.full_address
-        : siteAddress || null,
+    unnormalized_address: rawUnnormalizedAddress || normalizedSiteAddress,
     // Initialize all structured fields to null as per schema
     city_name: null,
     country_code: null,
@@ -1618,137 +1656,74 @@ async function main() {
     block: null,
   };
 
-  if (siteAddress && siteAddress.toLowerCase() !== "tbd") {
-    // Use unnormalizedAddressData.full_address for city, state, zip if available,
-    // otherwise try to parse from siteAddress.
-    let cityStateZipPart = null;
-    if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
-      const parts = unnormalizedAddressData.full_address.split(',');
-      if (parts.length > 1) {
-        cityStateZipPart = parts.slice(1).join(',').trim();
-      }
-    } else {
-      const parts = siteAddress.split(',');
-      if (parts.length > 1) {
-        cityStateZipPart = parts.slice(1).join(',').trim();
-      }
-    }
+  const addressSourceChain = [];
+  if (
+    unnormalizedAddressData &&
+    typeof unnormalizedAddressData === "object" &&
+    unnormalizedAddressData.normalized_address &&
+    typeof unnormalizedAddressData.normalized_address === "object"
+  ) {
+    addressSourceChain.push(unnormalizedAddressData.normalized_address);
+  }
+  if (
+    propertySeedData &&
+    typeof propertySeedData === "object" &&
+    propertySeedData.normalized_address &&
+    typeof propertySeedData.normalized_address === "object"
+  ) {
+    addressSourceChain.push(propertySeedData.normalized_address);
+  }
+  if (unnormalizedAddressData && typeof unnormalizedAddressData === "object") {
+    addressSourceChain.push(unnormalizedAddressData);
+  }
+  if (propertySeedData && typeof propertySeedData === "object") {
+    addressSourceChain.push(propertySeedData);
+  }
 
-    let streetNumber = null;
-    let streetPreDirectionalText = null;
-    let streetName = null;
-    let streetSuffixType = null;
-    let streetPostDirectionalText = null;
-    let city_name = null;
-    let state_code = null;
-    let postal_code = null;
-    let plus_four_postal_code = null;
-
-    // Parse street number, pre-directional, street name, post-directional, suffix from siteAddress
-    // Example: "1133 SW INGRASSINA AVE"
-    const streetPartMatch = siteAddress.match(/^(\d+)\s+((?:N|S|E|W|NE|NW|SE|SW)\s+)?(.+?)(?:\s+([A-Z]{2,}))?$/i);
-
-    if (streetPartMatch) {
-      streetNumber = streetPartMatch[1];
-      streetPreDirectionalText = streetPartMatch[2] ? streetPartMatch[2].trim().toUpperCase() : null;
-      let tempStreetName = streetPartMatch[3].trim();
-      let potentialSuffixOrPostDirectional = streetPartMatch[4] ? streetPartMatch[4].toUpperCase() : null;
-
-      // Common street suffix types (can be expanded)
-      const suffixMap = {
-        "ST": "St", "AVE": "Ave", "RD": "Rd", "DR": "Dr", "BLVD": "Blvd",
-        "LN": "Ln", "CT": "Ct", "CIR": "Cir", "PL": "Pl", "WAY": "Way",
-        "TER": "Ter", "PKWY": "Pkwy", "HWY": "Hwy", "SQ": "Sq", "TRL": "Trl",
-        "ALY": "Aly", "CV": "Cv", "EXPY": "Expy", "FRY": "Fry", "JCT": "Jct",
-        "MTN": "Mtn", "OVAL": "Oval", "PASS": "Pass", "PIKE": "Pike",
-        "PLZ": "Plz", "PT": "Pt", "RMP": "Ramp", "RDG": "Rdg", "RIV": "Riv",
-        "ROW": "Row", "RTE": "Rte", "SHR": "Shr", "SPG": "Spg", "SPUR": "Spur",
-        "UN": "Un", "VIS": "Vis", "VW": "Vw", "XING": "Xing", "EXT": "Ext",
-        "GLN": "Gln", "GRN": "Grn", "HTS": "Hts", "IS": "Is", "LNDG": "Lndg",
-        "LGT": "Lgt", "LCK": "Lck", "MDW": "Mdw", "MNR": "Mnr", "PR": "Pr",
-        "TRCE": "Trce", "VLG": "Vlg", "WLS": "Wls", "WALK": "Walk", "COR": "Cor",
-        "FRK": "Frk", "FRD": "Frd", "BRG": "Brg", "BRK": "Brk", "CLF": "Clf",
-        "CYN": "Cyn", "DL": "Dl", "DM": "Dm", "FLT": "Flt", "FLD": "Fld",
-        "FRST": "Frst", "GRV": "Grv", "HBR": "Hbr", "HL": "Hl", "HVN": "Hvn",
-        "INLT": "Inlt", "KY": "Ky", "LF": "Lf", "LOOP": "Loop", "MALL": "Mall",
-        "ML": "Ml", "NCK": "Nck", "ORCH": "Orch", "PSGE": "Psge", "RADL": "Radl",
-        "RPD": "Rpd", "RST": "Rst", "SHL": "Shl", "SKWY": "Skwy", "SMT": "Smt",
-        "STRA": "Stra", "STRM": "Strm", "TRFY": "Trfy", "TUNL": "Tunl",
-        "VLY": "Vly", "WALL": "Wall", "BYU": "Byu", "CPE": "Cpe", "CRK": "Crk",
-        "CRSE": "Crse", "CRST": "Crst", "DV": "Dv", "FALL": "Fall", "FT": "Ft",
-        "GTWY": "Gtwy", "LKS": "Lks", "LODG": "Ldg", "MWS": "Mews", "OPAS": "Opas",
-        "UPAS": "Upas", "PNE": "Pne", "RUN": "Run", "SPS": "Spgs", "SPUR": "Spur",
-        "TRLR": "Trlr", "TRWY": "Trwy", "VIA": "Via", "XRD": "Xrd", "BCH": "Bch",
-        "BGS": "Bgs", "BLF": "Blf", "BTM": "Btm", "CLB": "Clb", "CMN": "Cmn",
-        "CTS": "Cts", "DLS": "Dls", "DRS": "Drs", "EST": "Est", "FLS": "Fls",
-        "FRDS": "Frds", "FRGS": "Frgs", "GDNS": "Gdns", "GLNS": "Glns",
-        "GRNS": "Grns", "GRVS": "Grvs", "HBRS": "Hbrs", "HLS": "Hls",
-        "HVNS": "Hvns", "INLTS": "Inlts", "KNL": "Knl", "KNLS": "Knls",
-        "KYS": "Kys", "LGS": "Lgs", "LGTS": "Lgts", "LCKS": "Lcks",
-        "MDWS": "Mdw", "MLS": "Mls", "MNRS": "Mnr",
-        "MTNS": "Mtns", "NWS": "Nws", "PLNS": "Plns", "PNES": "Pnes", "PRTS": "Prts",
-        "PTS": "Pt", "RDGS": "Rdgs", "RPDS": "Rpds", "SHLS": "Shl",
-        "SHRS": "Shrs", "SPS": "Spgs", "SQS": "Sqs", "STS": "Sts",
-        "TRLS": "Trls", "VLS": "Vls", "VLGS": "Vlgs", "VWS": "Vws",
-        "WLS": "Wls", "WAYS": "Ways", "XRDS": "Xrds", "BYP": "Byp", "CMNS": "Cmns",
-        "CRKS": "Crks", "CRSS": "Crss",
-        "EXPS": "Exps", "FRYS": "Frys", "GTWYS": "Gtwys", "JCTS": "Jct",
-        "MTWYS": "Mtwys", "PKWYS": "Pkwys", "PLZS": "Plzs", "RMPS": "Rmps",
-        "RDGS": "Rdgs", "RIVS": "Rivs", "ROWS": "Rows", "RTES": "Rtes",
-        "SHRS": "Shrs", "SPS": "Spgs", "SQS": "Sqs", "STS": "Sts",
-        "TRLS": "Trls", "VLS": "Vls", "VLGS": "Vlgs", "VWS": "Vws",
-        "WLS": "Wls", "WAYS": "Ways", "XRDS": "Xrds"
-      };
-
-      let foundSuffix = false;
-      if (potentialSuffixOrPostDirectional) {
-        if (suffixMap[potentialSuffixOrPostDirectional]) {
-          streetSuffixType = suffixMap[potentialSuffixOrPostDirectional];
-          foundSuffix = true;
-        } else if (["N", "S", "E", "W", "NE", "NW", "SE", "SW"].includes(potentialSuffixOrPostDirectional)) {
-          streetPostDirectionalText = potentialSuffixOrPostDirectional;
+  const pickStructuredField = (key) => {
+    for (const candidate of addressSourceChain) {
+      if (
+        candidate &&
+        Object.prototype.hasOwnProperty.call(candidate, key)
+      ) {
+        const value = candidate[key];
+        if (value != null) {
+          if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (trimmed) return trimmed;
+          } else {
+            return value;
+          }
         }
       }
-      streetName = tempStreetName;
     }
+    return null;
+  };
 
-    // Parse city, state, zip from cityStateZipPart
-    if (cityStateZipPart) {
-      const cityStateZipMatch = cityStateZipPart.match(/^([\w\s\-\']+),\s*([A-Z]{2})\s+(\d{5})(?:-(\d{4}))?$/i);
-      if (cityStateZipMatch) {
-        city_name = cityStateZipMatch[1].toUpperCase();
-        state_code = cityStateZipMatch[2].toUpperCase();
-        postal_code = cityStateZipMatch[3];
-        plus_four_postal_code = cityStateZipMatch[4] || null;
-      }
+  finalAddressOutput.city_name = pickStructuredField("city_name");
+  finalAddressOutput.country_code = pickStructuredField("country_code");
+  finalAddressOutput.postal_code = pickStructuredField("postal_code");
+  finalAddressOutput.plus_four_postal_code = pickStructuredField("plus_four_postal_code");
+  finalAddressOutput.state_code = pickStructuredField("state_code");
+  finalAddressOutput.street_number = pickStructuredField("street_number");
+  finalAddressOutput.street_name = pickStructuredField("street_name");
+  finalAddressOutput.street_post_directional_text = pickStructuredField("street_post_directional_text");
+  finalAddressOutput.street_pre_directional_text = pickStructuredField("street_pre_directional_text");
+  finalAddressOutput.street_suffix_type = pickStructuredField("street_suffix_type");
+  finalAddressOutput.unit_identifier = pickStructuredField("unit_identifier");
+  finalAddressOutput.route_number = pickStructuredField("route_number");
+  finalAddressOutput.block = pickStructuredField("block");
+  finalAddressOutput.township = pickStructuredField("township");
+  finalAddressOutput.range = pickStructuredField("range");
+  finalAddressOutput.section = pickStructuredField("section");
+
+  if (secTownRange) {
+    const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
+    if (strMatch) {
+      if (!finalAddressOutput.section) finalAddressOutput.section = strMatch[1];
+      if (!finalAddressOutput.township) finalAddressOutput.township = strMatch[2];
+      if (!finalAddressOutput.range) finalAddressOutput.range = strMatch[3];
     }
-
-    // Parse Sec/Town/Range
-    // Sample: "25/37S/39E"
-    if (secTownRange) { // This block is now correctly using the declared variables
-      const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
-      if (strMatch) {
-        section = strMatch[1];
-        township = strMatch[2];
-        range = strMatch[3];
-      }
-    }
-
-    // Populate finalAddressOutput with parsed structured data
-    finalAddressOutput.city_name = city_name;
-    finalAddressOutput.country_code = "US"; // Assuming US for now
-    finalAddressOutput.postal_code = postal_code;
-    finalAddressOutput.plus_four_postal_code = plus_four_postal_code;
-    finalAddressOutput.state_code = state_code;
-    finalAddressOutput.street_number = streetNumber;
-    finalAddressOutput.street_name = streetName;
-    finalAddressOutput.street_post_directional_text = streetPostDirectionalText;
-    finalAddressOutput.street_pre_directional_text = streetPreDirectionalText;
-    finalAddressOutput.street_suffix_type = streetSuffixType;
-    finalAddressOutput.township = township; // Now correctly referenced
-    finalAddressOutput.range = range;    // Now correctly referenced
-    finalAddressOutput.section = section;  // Now correctly referenced
-    // unit_identifier, route_number, block remain null as they are not in the sample HTML
   }
   ensureRequestIdentifier(finalAddressOutput);
   await fsp.writeFile(

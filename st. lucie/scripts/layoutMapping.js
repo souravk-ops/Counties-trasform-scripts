@@ -649,6 +649,7 @@ function normalizeFloorLevel(value) {
 
   const normalized = text.toLowerCase();
   const normalizedCompact = normalized.replace(/\s+/g, "");
+  const normalizedAlphaNumeric = normalized.replace(/[^a-z0-9]/g, "");
 
   const wordMappings = [
     [/first|^one\b|main|ground|lower/, "1st Floor"],
@@ -666,11 +667,27 @@ function normalizeFloorLevel(value) {
   }
 
   if (!mappedValue) {
+    const keywordPrefixedMatch = normalized.match(
+      /\b(?:fl|floor|lvl|level|story|storey)\s*[-#:]*\s*(\d{1,2})\b/,
+    );
+    const keywordSuffixedMatch = normalized.match(
+      /\b(\d{1,2})\s*(?:fl|floor|lvl|level|story|storey)\b/,
+    );
+    const alphaNumericMatch = normalizedAlphaNumeric.match(
+      /^(?:fl|floor|lvl|level)?(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|lvl|level)?$/,
+    );
     const ordinalMatch = normalized.match(
       /(-?\d+)(?:st|nd|rd|th)?\s*(?:floor|fl|lvl|level|story|storey)?/,
     );
-    if (ordinalMatch) {
-      const num = Number(ordinalMatch[1]);
+
+    const valueMatch =
+      keywordPrefixedMatch ||
+      keywordSuffixedMatch ||
+      alphaNumericMatch ||
+      ordinalMatch;
+
+    if (valueMatch) {
+      const num = Number(valueMatch[1]);
       if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
         mappedValue = FLOOR_LEVEL_ENUM[num - 1];
       }
@@ -701,19 +718,31 @@ function normalizeFloorLevel(value) {
     mappedValue = "1st Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*1|1level)(\b|$)/.test(normalizedCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*1|1level|lvl1|fl1)(\b|$)/.test(normalizedCompact)
+  ) {
     mappedValue = "1st Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*2|2level)(\b|$)/.test(normalizedCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*2|2level|lvl2|fl2)(\b|$)/.test(normalizedCompact)
+  ) {
     mappedValue = "2nd Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*3|3level)(\b|$)/.test(normalizedCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*3|3level|lvl3|fl3)(\b|$)/.test(normalizedCompact)
+  ) {
     mappedValue = "3rd Floor";
   }
 
-  if (!mappedValue && /(^|\b)(level\s*4|4level)(\b|$)/.test(normalizedCompact)) {
+  if (
+    !mappedValue &&
+    /(^|\b)(level\s*4|4level|lvl4|fl4)(\b|$)/.test(normalizedCompact)
+  ) {
     mappedValue = "4th Floor";
   }
 
