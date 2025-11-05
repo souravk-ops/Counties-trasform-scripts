@@ -32,12 +32,11 @@ function normalizeRelationshipEndpoint(ref) {
   return null;
 }
 
-function createRelationshipPayload(fromPath, toPath, type) {
-  const rel = {};
-  if (type) rel.type = type;
-  rel.from = normalizeRelationshipEndpoint(fromPath);
-  rel.to = normalizeRelationshipEndpoint(toPath);
-  return rel;
+function createRelationshipPayload(fromPath, toPath) {
+  return {
+    from: normalizeRelationshipEndpoint(fromPath),
+    to: normalizeRelationshipEndpoint(toPath),
+  };
 }
 
 function textClean(s) {
@@ -1849,30 +1848,53 @@ async function main() {
   const structuredAddressFields = {};
   for (const key of structuredKeys) {
     const value = pickValueFromSources(normalizedAddressSources, key);
-    if (value != null) structuredAddressFields[key] = value;
+    if (value == null) continue;
+    let normalizedValue = value;
+    if (typeof normalizedValue === "string") normalizedValue = normalizedValue.trim();
+    else if (typeof normalizedValue === "number") normalizedValue = String(normalizedValue);
+    if (typeof normalizedValue === "string" && normalizedValue.length === 0) continue;
+    structuredAddressFields[key] = normalizedValue;
   }
 
-  const primaryStructuredKeys = [
+  if (structuredAddressFields.city_name) {
+    const normalizedCity = String(structuredAddressFields.city_name).trim();
+    structuredAddressFields.city_name = normalizedCity ? normalizedCity.toUpperCase() : normalizedCity;
+  }
+  if (structuredAddressFields.state_code) {
+    const normalizedState = String(structuredAddressFields.state_code).trim();
+    structuredAddressFields.state_code = normalizedState ? normalizedState.toUpperCase() : normalizedState;
+  }
+  if (structuredAddressFields.country_code) {
+    const normalizedCountry = String(structuredAddressFields.country_code).trim();
+    structuredAddressFields.country_code = normalizedCountry ? normalizedCountry.toUpperCase() : normalizedCountry;
+  }
+  if (structuredAddressFields.postal_code) {
+    structuredAddressFields.postal_code = String(structuredAddressFields.postal_code).trim();
+  }
+  if (structuredAddressFields.street_number != null) {
+    structuredAddressFields.street_number = String(structuredAddressFields.street_number).trim();
+  }
+  if (structuredAddressFields.unit_identifier != null) {
+    structuredAddressFields.unit_identifier = String(structuredAddressFields.unit_identifier).trim();
+  }
+
+  const structuredRequiredKeys = [
     "street_number",
     "street_name",
-    "street_post_directional_text",
-    "street_pre_directional_text",
-    "street_suffix_type",
-    "unit_identifier",
-    "route_number",
     "city_name",
-    "municipality_name",
     "postal_code",
-    "plus_four_postal_code",
     "state_code",
-    "country_code",
   ];
-  const hasPrimaryStructuredData = primaryStructuredKeys.some((key) =>
-    Object.prototype.hasOwnProperty.call(structuredAddressFields, key),
-  );
+  const hasAllRequiredStructuredData = structuredRequiredKeys.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(structuredAddressFields, key)) return false;
+    const value = structuredAddressFields[key];
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  });
 
   const useStructuredAddress =
-    normalizedAddressSources.length > 0 && hasPrimaryStructuredData;
+    normalizedAddressSources.length > 0 && hasAllRequiredStructuredData;
 
   if (useStructuredAddress) {
     for (const [key, value] of Object.entries(structuredAddressFields)) {
@@ -2014,7 +2036,6 @@ async function main() {
     const propertyHasAddressRel = createRelationshipPayload(
       "./property.json",
       "./address.json",
-      "property_has_address",
     );
     await fsp.writeFile(
       path.join("data", "relationship_property_has_address.json"),
@@ -2986,7 +3007,6 @@ async function main() {
         const relOut = createRelationshipPayload(
           "./property.json",
           `./${taxFileName}`,
-          "property_has_tax",
         );
         await fsp.writeFile(
           path.join("data", relFileName),
@@ -3364,7 +3384,6 @@ async function main() {
       const relOut = createRelationshipPayload(
         propertyRef,
         utilityRef,
-        "property_has_utilities",
       );
       await fsp.writeFile(
         path.join("data", relFile),
@@ -3418,7 +3437,6 @@ async function main() {
       const relOut = createRelationshipPayload(
         propertyRef,
         structureRef,
-        "property_has_structure",
       );
       await fsp.writeFile(
         path.join("data", relFile),
