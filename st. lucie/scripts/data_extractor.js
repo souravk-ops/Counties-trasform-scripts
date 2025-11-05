@@ -287,25 +287,45 @@ function mapImprovementAction(description) {
 }
 
 const FLOOR_LEVEL_ENUM = ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"];
+const FLOOR_LEVEL_ALLOWED = new Set(FLOOR_LEVEL_ENUM);
 const STORY_TYPE_ENUM = ["Full", "Half Story", "Three-Quarter Story"];
+const STORY_TYPE_ALLOWED = new Set(STORY_TYPE_ENUM);
 
 function normalizeLayoutFloorLevel(value) {
   if (value == null) return null;
 
   if (Array.isArray(value)) {
-    const candidate = value.find((item) => item != null && item !== "");
-    return candidate != null ? normalizeLayoutFloorLevel(candidate) : null;
+    for (const candidate of value) {
+      if (candidate == null || candidate === "") continue;
+      const normalized = normalizeLayoutFloorLevel(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   if (typeof value === "object") {
-    const nested = value.value ?? value.text ?? null;
-    return nested != null ? normalizeLayoutFloorLevel(nested) : null;
+    const candidates = [];
+    if (value.value != null) candidates.push(value.value);
+    if (value.text != null) candidates.push(value.text);
+    if (Array.isArray(value.values)) candidates.push(...value.values);
+    if (value.floor_level != null) candidates.push(value.floor_level);
+    if (value.floorLevel != null) candidates.push(value.floorLevel);
+    if (value.level != null) candidates.push(value.level);
+    if (value.floor != null) candidates.push(value.floor);
+    if (value.label != null) candidates.push(value.label);
+    if (value.description != null) candidates.push(value.description);
+    for (const candidate of candidates) {
+      const normalized = normalizeLayoutFloorLevel(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   const text = String(value).trim();
   if (!text) return null;
 
   const lower = text.toLowerCase();
+  const lowerCompact = lower.replace(/\s+/g, "");
 
   const wordMappings = [
     [/first|^one\b|main|ground|lower/, "1st Floor"],
@@ -335,17 +355,46 @@ function normalizeLayoutFloorLevel(value) {
   }
 
   if (!mappedValue) {
-    if (lower.includes("1st")) mappedValue = "1st Floor";
-    else if (lower.includes("2nd")) mappedValue = "2nd Floor";
-    else if (lower.includes("3rd")) mappedValue = "3rd Floor";
-    else if (lower.includes("4th")) mappedValue = "4th Floor";
+    if (lower.includes("1st") || lowerCompact.includes("1st")) {
+      mappedValue = "1st Floor";
+    } else if (lower.includes("2nd") || lowerCompact.includes("2nd")) {
+      mappedValue = "2nd Floor";
+    } else if (lower.includes("3rd") || lowerCompact.includes("3rd")) {
+      mappedValue = "3rd Floor";
+    } else if (lower.includes("4th") || lowerCompact.includes("4th")) {
+      mappedValue = "4th Floor";
+    }
   }
 
   if (!mappedValue && /\bupper\b/.test(lower)) {
     mappedValue = "2nd Floor";
   }
 
-  return mappedValue && FLOOR_LEVEL_ENUM.includes(mappedValue)
+  if (!mappedValue && /\blower\b/.test(lower)) {
+    mappedValue = "1st Floor";
+  }
+
+  if (!mappedValue && /\bmain\b/.test(lower)) {
+    mappedValue = "1st Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*1|1level)(\b|$)/.test(lowerCompact)) {
+    mappedValue = "1st Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*2|2level)(\b|$)/.test(lowerCompact)) {
+    mappedValue = "2nd Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*3|3level)(\b|$)/.test(lowerCompact)) {
+    mappedValue = "3rd Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*4|4level)(\b|$)/.test(lowerCompact)) {
+    mappedValue = "4th Floor";
+  }
+
+  return mappedValue && FLOOR_LEVEL_ALLOWED.has(mappedValue)
     ? mappedValue
     : null;
 }
@@ -354,13 +403,28 @@ function normalizeLayoutStoryType(value) {
   if (value == null) return null;
 
   if (Array.isArray(value)) {
-    const candidate = value.find((item) => item != null && item !== "");
-    return candidate != null ? normalizeLayoutStoryType(candidate) : null;
+    for (const candidate of value) {
+      if (candidate == null || candidate === "") continue;
+      const normalized = normalizeLayoutStoryType(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   if (typeof value === "object") {
-    const nested = value.value ?? value.text ?? null;
-    return nested != null ? normalizeLayoutStoryType(nested) : null;
+    const candidates = [];
+    if (value.value != null) candidates.push(value.value);
+    if (value.text != null) candidates.push(value.text);
+    if (Array.isArray(value.values)) candidates.push(...value.values);
+    if (value.story_type != null) candidates.push(value.story_type);
+    if (value.storyType != null) candidates.push(value.storyType);
+    if (value.description != null) candidates.push(value.description);
+    if (value.label != null) candidates.push(value.label);
+    for (const candidate of candidates) {
+      const normalized = normalizeLayoutStoryType(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   const normalized = String(value).toLowerCase();
@@ -430,7 +494,7 @@ function normalizeLayoutStoryType(value) {
     mappedStory = "Full";
   }
 
-  return mappedStory && STORY_TYPE_ENUM.includes(mappedStory)
+  return mappedStory && STORY_TYPE_ALLOWED.has(mappedStory)
     ? mappedStory
     : null;
 }
@@ -1494,8 +1558,6 @@ async function main() {
   // Ensure source_http_request is taken from property_seed if available, otherwise unnormalized_address
   const baseRequestData = propertySeedData || unnormalizedAddressData || {};
   const sourceHttpRequest = baseRequestData.source_http_request || null;
-  const sourceHttpRequestUrl = sourceHttpRequest ? sourceHttpRequest.url : null;
-
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   const propertyImprovementRecords = [];
@@ -2816,8 +2878,8 @@ async function main() {
       delete utilityOut.number_of_buildings;
     }
 
-    if (utilityOut.url && utilityOut.url.includes("placeholder")) {
-      utilityOut.url = sourceHttpRequestUrl;
+    if (Object.prototype.hasOwnProperty.call(utilityOut, "url")) {
+      delete utilityOut.url;
     }
     utilityOut.source_http_request = sourceHttpRequest;
     ensureRequestIdentifier(utilityOut);
@@ -2901,8 +2963,8 @@ async function main() {
       delete structureOut.number_of_buildings;
     }
 
-    if (structureOut.url && structureOut.url.includes("placeholder")) {
-      structureOut.url = sourceHttpRequestUrl;
+    if (Object.prototype.hasOwnProperty.call(structureOut, "url")) {
+      delete structureOut.url;
     }
     structureOut.source_http_request = sourceHttpRequest;
     ensureRequestIdentifier(structureOut);
@@ -2958,8 +3020,8 @@ async function main() {
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       layoutOut.story_type = normalizeLayoutStoryType(layoutOut.story_type);
     }
-    if (layoutOut.url && layoutOut.url.includes("placeholder")) {
-      layoutOut.url = sourceHttpRequestUrl;
+    if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
+      delete layoutOut.url;
     }
     layoutOut.source_http_request = sourceHttpRequest;
     ensureRequestIdentifier(layoutOut);

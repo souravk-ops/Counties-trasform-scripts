@@ -612,24 +612,43 @@ function mapFreeformFeatureToLayout(feature, enums, mapEnumFn) {
 }
 
 const FLOOR_LEVEL_ENUM = ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"];
+const FLOOR_LEVEL_ALLOWED = new Set(FLOOR_LEVEL_ENUM);
 
 function normalizeFloorLevel(value) {
   if (value == null) return null;
 
   if (Array.isArray(value)) {
-    const candidate = value.find((item) => item != null && item !== "");
-    return candidate != null ? normalizeFloorLevel(candidate) : null;
+    for (const candidate of value) {
+      if (candidate == null || candidate === "") continue;
+      const normalized = normalizeFloorLevel(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   if (typeof value === "object") {
-    const nested = value.value ?? value.text ?? null;
-    return nested != null ? normalizeFloorLevel(nested) : null;
+    const candidates = [];
+    if (value.value != null) candidates.push(value.value);
+    if (value.text != null) candidates.push(value.text);
+    if (Array.isArray(value.values)) candidates.push(...value.values);
+    if (value.floor_level != null) candidates.push(value.floor_level);
+    if (value.floorLevel != null) candidates.push(value.floorLevel);
+    if (value.level != null) candidates.push(value.level);
+    if (value.floor != null) candidates.push(value.floor);
+    if (value.label != null) candidates.push(value.label);
+    if (value.description != null) candidates.push(value.description);
+    for (const candidate of candidates) {
+      const normalized = normalizeFloorLevel(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   const text = String(value).trim();
   if (!text) return null;
 
   const normalized = text.toLowerCase();
+  const normalizedCompact = normalized.replace(/\s+/g, "");
 
   const wordMappings = [
     [/first|^one\b|main|ground|lower/, "1st Floor"],
@@ -659,34 +678,79 @@ function normalizeFloorLevel(value) {
   }
 
   if (!mappedValue) {
-    if (normalized.includes("1st")) mappedValue = "1st Floor";
-    else if (normalized.includes("2nd")) mappedValue = "2nd Floor";
-    else if (normalized.includes("3rd")) mappedValue = "3rd Floor";
-    else if (normalized.includes("4th")) mappedValue = "4th Floor";
+    if (normalized.includes("1st") || normalizedCompact.includes("1st")) {
+      mappedValue = "1st Floor";
+    } else if (normalized.includes("2nd") || normalizedCompact.includes("2nd")) {
+      mappedValue = "2nd Floor";
+    } else if (normalized.includes("3rd") || normalizedCompact.includes("3rd")) {
+      mappedValue = "3rd Floor";
+    } else if (normalized.includes("4th") || normalizedCompact.includes("4th")) {
+      mappedValue = "4th Floor";
+    }
   }
 
   if (!mappedValue && /\bupper\b/.test(normalized)) {
     mappedValue = "2nd Floor";
   }
 
-  return mappedValue && FLOOR_LEVEL_ENUM.includes(mappedValue)
+  if (!mappedValue && /\blower\b/.test(normalized)) {
+    mappedValue = "1st Floor";
+  }
+
+  if (!mappedValue && /\bmain\b/.test(normalized)) {
+    mappedValue = "1st Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*1|1level)(\b|$)/.test(normalizedCompact)) {
+    mappedValue = "1st Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*2|2level)(\b|$)/.test(normalizedCompact)) {
+    mappedValue = "2nd Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*3|3level)(\b|$)/.test(normalizedCompact)) {
+    mappedValue = "3rd Floor";
+  }
+
+  if (!mappedValue && /(^|\b)(level\s*4|4level)(\b|$)/.test(normalizedCompact)) {
+    mappedValue = "4th Floor";
+  }
+
+  return mappedValue && FLOOR_LEVEL_ALLOWED.has(mappedValue)
     ? mappedValue
     : null;
 }
 
 const STORY_TYPE_ENUM = ["Full", "Half Story", "Three-Quarter Story"];
+const STORY_TYPE_ALLOWED = new Set(STORY_TYPE_ENUM);
 
 function normalizeStoryType(value) {
   if (value == null) return null;
 
   if (Array.isArray(value)) {
-    const candidate = value.find((item) => item != null && item !== "");
-    return candidate != null ? normalizeStoryType(candidate) : null;
+    for (const candidate of value) {
+      if (candidate == null || candidate === "") continue;
+      const normalized = normalizeStoryType(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   if (typeof value === "object") {
-    const nested = value.value ?? value.text ?? null;
-    return nested != null ? normalizeStoryType(nested) : null;
+    const candidates = [];
+    if (value.value != null) candidates.push(value.value);
+    if (value.text != null) candidates.push(value.text);
+    if (Array.isArray(value.values)) candidates.push(...value.values);
+    if (value.story_type != null) candidates.push(value.story_type);
+    if (value.storyType != null) candidates.push(value.storyType);
+    if (value.description != null) candidates.push(value.description);
+    if (value.label != null) candidates.push(value.label);
+    for (const candidate of candidates) {
+      const normalized = normalizeStoryType(candidate);
+      if (normalized != null) return normalized;
+    }
+    return null;
   }
 
   const text = String(value).trim();
@@ -728,6 +792,8 @@ function normalizeStoryType(value) {
       "splitlevel",
       "bilevel",
       "trilevel",
+      "bi-level",
+      "tri-level",
     ];
     if (
       fullStoryTokens.some((token) =>
@@ -759,9 +825,33 @@ function normalizeStoryType(value) {
     mappedStory = "Full";
   }
 
-  return mappedStory && STORY_TYPE_ENUM.includes(mappedStory)
+  return mappedStory && STORY_TYPE_ALLOWED.has(mappedStory)
     ? mappedStory
     : null;
+}
+
+function sanitizeLayoutRecord(layout) {
+  const sanitized = { ...layout };
+
+  if (Object.prototype.hasOwnProperty.call(sanitized, "floor_level")) {
+    const normalizedFloor = normalizeFloorLevel(sanitized.floor_level);
+    sanitized.floor_level = normalizedFloor ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(sanitized, "story_type")) {
+    const normalizedStory = normalizeStoryType(sanitized.story_type);
+    sanitized.story_type = normalizedStory ?? null;
+  }
+
+  if (sanitized.floor_level != null && !FLOOR_LEVEL_ALLOWED.has(sanitized.floor_level)) {
+    sanitized.floor_level = null;
+  }
+
+  if (sanitized.story_type != null && !STORY_TYPE_ALLOWED.has(sanitized.story_type)) {
+    sanitized.story_type = null;
+  }
+
+  return sanitized;
 }
 
 // Helper to create a default layout object with all required fields as null
@@ -1476,7 +1566,7 @@ function extractLayouts($, parcelId) {
     }
   });
 
-  return { layouts: allLayouts };
+  return { layouts: allLayouts.map(sanitizeLayoutRecord) };
 }
 
 function main() {
