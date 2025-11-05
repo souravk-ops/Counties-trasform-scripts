@@ -360,12 +360,31 @@ function normalizeLayoutFloorLevel(value) {
     [/(?:third|^three\b)/, "3rd Floor"],
     [/(?:fourth|^four\b)/, "4th Floor"],
   ];
+  const aliasPatterns = [
+    [/\b(?:main|entry|ground)\s+(?:level|floor)\b/, "1st Floor"],
+    [/\blower\s+(?:level|floor)\b/, "1st Floor"],
+    [/\b(?:mid|middle)\s+(?:level|floor)\b/, "2nd Floor"],
+    [/\bsecond\s+level\b/, "2nd Floor"],
+    [/\bupper\s+(?:level|floor)\b/, "2nd Floor"],
+    [/\bmezzanine\b/, "2nd Floor"],
+    [/\bthird\s+level\b/, "3rd Floor"],
+    [/\b(?:top|penthouse)\s+(?:level|floor)?\b/, "4th Floor"],
+  ];
 
   let mappedValue = null;
   for (const [pattern, mapped] of wordMappings) {
     if (pattern.test(lowerSpaced)) {
       mappedValue = mapped;
       break;
+    }
+  }
+
+  if (!mappedValue) {
+    for (const [pattern, mapped] of aliasPatterns) {
+      if (pattern.test(lowerSpaced)) {
+        mappedValue = mapped;
+        break;
+      }
     }
   }
 
@@ -534,17 +553,33 @@ function normalizeLayoutStoryType(value) {
       "triplestories",
       "multistory",
       "multistories",
+      "multilevel",
+      "multilevels",
       "splitlevel",
       "bilevel",
       "trilevel",
+      "bi-level",
+      "tri-level",
+      "bi level",
+      "tri level",
+      "split level",
     ];
     if (
       fullStoryTokens.some((token) =>
-        normalizedCompact.includes(token.replace(/\s+/g, "")),
+        normalizedCompact.includes(token.replace(/[\s_-]+/g, "")),
       )
     ) {
       mappedStory = "Full";
     }
+  }
+
+  if (
+    !mappedStory &&
+    /\b(?:multi[\s-]*level|split\s+foyer|split\s+level)\b/.test(
+      normalizedSpaced,
+    )
+  ) {
+    mappedStory = "Full";
   }
 
   if (!mappedStory) {
@@ -2822,15 +2857,6 @@ async function main() {
       if (Number.isFinite(taxableVal)) {
         taxOut.property_taxable_value_amount = Number(taxableVal);
       }
-      if (
-        Object.prototype.hasOwnProperty.call(
-          taxOut,
-          "property_taxable_value_amount",
-        ) &&
-        typeof taxOut.property_taxable_value_amount !== "number"
-      ) {
-        delete taxOut.property_taxable_value_amount;
-      }
       const numericTaxFields = [
         "property_assessed_value_amount",
         "property_market_value_amount",
@@ -2841,7 +2867,13 @@ async function main() {
       for (const field of numericTaxFields) {
         if (!Object.prototype.hasOwnProperty.call(taxOut, field)) continue;
         const value = taxOut[field];
-        if (typeof value !== "number" || !Number.isFinite(value)) {
+        const coerced =
+          typeof value === "number" && Number.isFinite(value)
+            ? value
+            : parseCurrencyToNumber(value);
+        if (typeof coerced === "number" && Number.isFinite(coerced)) {
+          taxOut[field] = coerced;
+        } else {
           delete taxOut[field];
         }
       }
