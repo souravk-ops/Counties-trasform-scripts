@@ -3065,61 +3065,19 @@ async function main() {
     const layoutOut = { ...layout };
     if (Object.prototype.hasOwnProperty.call(layoutOut, "floor_level")) {
       const normalizedFloor = normalizeLayoutFloorLevel(layoutOut.floor_level);
-      if (normalizedFloor && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
+      if (typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
         layoutOut.floor_level = normalizedFloor;
       } else {
-        layoutOut.floor_level = null;
+        delete layoutOut.floor_level;
       }
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
-      typeof layoutOut.floor_level === "string" &&
-      layoutOut.floor_level.trim() === ""
-    ) {
-      layoutOut.floor_level = null;
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
-      layoutOut.floor_level !== null &&
-      !FLOOR_LEVEL_ALLOWED.has(layoutOut.floor_level)
-    ) {
-      layoutOut.floor_level = null;
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
-      layoutOut.floor_level !== null &&
-      typeof layoutOut.floor_level !== "string"
-    ) {
-      layoutOut.floor_level = null;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
-      if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
+      if (typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)) {
         layoutOut.story_type = normalizedStory;
       } else {
-        layoutOut.story_type = null;
+        delete layoutOut.story_type;
       }
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
-      typeof layoutOut.story_type === "string" &&
-      layoutOut.story_type.trim() === ""
-    ) {
-      layoutOut.story_type = null;
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
-      layoutOut.story_type !== null &&
-      !STORY_TYPE_ALLOWED.has(layoutOut.story_type)
-    ) {
-      layoutOut.story_type = null;
-    }
-    if (
-      Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
-      layoutOut.story_type !== null &&
-      typeof layoutOut.story_type !== "string"
-    ) {
-      layoutOut.story_type = null;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;

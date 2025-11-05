@@ -902,62 +902,20 @@ function sanitizeLayoutRecord(layout) {
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "floor_level")) {
     const normalizedFloor = normalizeFloorLevel(sanitized.floor_level);
-    if (normalizedFloor && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
+    if (typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
       sanitized.floor_level = normalizedFloor;
     } else {
-      sanitized.floor_level = null;
+      delete sanitized.floor_level;
     }
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
-    typeof sanitized.floor_level === "string" &&
-    sanitized.floor_level.trim() === ""
-  ) {
-    sanitized.floor_level = null;
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
-    sanitized.floor_level !== null &&
-    !FLOOR_LEVEL_ALLOWED.has(sanitized.floor_level)
-  ) {
-    sanitized.floor_level = null;
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
-    sanitized.floor_level !== null &&
-    typeof sanitized.floor_level !== "string"
-  ) {
-    sanitized.floor_level = null;
   }
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "story_type")) {
     const normalizedStory = normalizeStoryType(sanitized.story_type);
-    if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
+    if (typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)) {
       sanitized.story_type = normalizedStory;
     } else {
-      sanitized.story_type = null;
+      delete sanitized.story_type;
     }
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
-    typeof sanitized.story_type === "string" &&
-    sanitized.story_type.trim() === ""
-  ) {
-    sanitized.story_type = null;
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
-    sanitized.story_type !== null &&
-    !STORY_TYPE_ALLOWED.has(sanitized.story_type)
-  ) {
-    sanitized.story_type = null;
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
-    sanitized.story_type !== null &&
-    typeof sanitized.story_type !== "string"
-  ) {
-    sanitized.story_type = null;
   }
 
   return sanitized;
@@ -1163,6 +1121,7 @@ function extractLayouts($, parcelId) {
   const yearBuilt = parseInt(yearBuiltText, 10) || null;
   const numberOfUnits = parseInt(numberOfUnitsText, 10) || 1;
   const buildingStoryType = normalizeStoryType(storyHeightText);
+  let appliedStoryType = null;
 
   // Extract interior details once for the main building
   const interiorTableSelector = "#building-info .interior-container table.container";
@@ -1195,6 +1154,12 @@ function extractLayouts($, parcelId) {
     }
   }
 
+  if (buildingStoryType && STORY_TYPE_ALLOWED.has(buildingStoryType)) {
+    appliedStoryType = buildingStoryType;
+  } else if (hasFloorInformation) {
+    appliedStoryType = "Full";
+  }
+
   // Handle multiple buildings if indicated (e.g., "1 of 1", "1 of 2")
   const buildingCountMatch = buildingSequenceText.match(/\((\d+)\s+of\s+(\d+)\)/);
   let totalBuildings = 1;
@@ -1216,17 +1181,18 @@ function extractLayouts($, parcelId) {
     buildingLayout.livable_area_sq_ft = finishedArea;
     buildingLayout.built_year = yearBuilt;
     buildingLayout.installation_date = yearBuilt ? `${yearBuilt}-01-01` : null;
-    if (buildingStoryType && STORY_TYPE_ALLOWED.has(buildingStoryType)) {
-      buildingLayout.story_type = buildingStoryType;
+    if (appliedStoryType) {
+      buildingLayout.story_type = appliedStoryType;
     }
     buildingLayout.is_finished = true; // Buildings are generally considered "finished"
     allLayouts.push(buildingLayout);
 
     if (hasFloorInformation) {
-      for (let floorNum = 1; floorNum <= totalStories; floorNum++) {
+      const floorCount = Math.min(totalStories, FLOOR_LEVEL_ENUM.length);
+      for (let floorNum = 1; floorNum <= floorCount; floorNum++) {
         const floorSpaceTypeIndex = `${buildingSpaceTypeIndex}.${floorNum}`;
-        const floorLevelLabel =
-          FLOOR_LEVEL_ENUM[floorNum - 1] || normalizeFloorLevel(floorNum);
+        const floorLevelLabel = FLOOR_LEVEL_ENUM[floorNum - 1];
+        if (!floorLevelLabel) continue;
         const floorLayout = createDefaultLayout(
           parcelId,
           "Floor",
@@ -1235,8 +1201,8 @@ function extractLayouts($, parcelId) {
           floorLevelLabel,
           floorSpaceTypeIndex,
         );
-        if (buildingStoryType && STORY_TYPE_ALLOWED.has(buildingStoryType)) {
-          floorLayout.story_type = buildingStoryType;
+        if (appliedStoryType) {
+          floorLayout.story_type = appliedStoryType;
         }
         floorLayout.is_finished = true; // Floors are generally considered "finished"
         allLayouts.push(floorLayout);
