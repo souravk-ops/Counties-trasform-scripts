@@ -689,7 +689,6 @@ function normalizeLayoutStoryType(value) {
 function ensureRequestIdentifier(obj) {
   if (!obj || typeof obj !== "object") return;
   if (!Object.prototype.hasOwnProperty.call(obj, "request_identifier")) {
-    obj.request_identifier = null;
     return;
   }
   const current = obj.request_identifier;
@@ -699,8 +698,32 @@ function ensureRequestIdentifier(obj) {
     current === "" ||
     current === false
   ) {
-    obj.request_identifier = null;
+    delete obj.request_identifier;
+    return;
   }
+  if (typeof current !== "string") {
+    obj.request_identifier = String(current);
+  }
+}
+
+function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
+  if (!obj || typeof obj !== "object") return obj;
+  for (const key of Object.keys(obj)) {
+    if (preserve.has(key)) continue;
+    const value = obj[key];
+    if (value === undefined || value === null) {
+      delete obj[key];
+      continue;
+    }
+    if (
+      trimStrings &&
+      typeof value === "string" &&
+      value.trim().length === 0
+    ) {
+      delete obj[key];
+    }
+  }
+  return obj;
 }
 
 async function removeExisting(pattern) {
@@ -1828,49 +1851,50 @@ async function main() {
     return null;
   };
 
-  const finalAddressOutput = {
+  const baseAddress = {
     county_name: "St. Lucie",
   };
 
   const explicitRequestIdentifier =
-    (unnormalizedAddressData && unnormalizedAddressData.request_identifier != null)
+    (unnormalizedAddressData &&
+      unnormalizedAddressData.request_identifier != null)
       ? unnormalizedAddressData.request_identifier
       : (propertySeedData && propertySeedData.request_identifier != null)
           ? propertySeedData.request_identifier
           : null;
   if (explicitRequestIdentifier != null) {
-    finalAddressOutput.request_identifier = explicitRequestIdentifier;
+    baseAddress.request_identifier = explicitRequestIdentifier;
   }
 
   const latCandidate = pickValueFromSources(
     [...normalizedAddressSources, ...addressFallbackSources],
     "latitude",
   );
-  if (latCandidate != null) finalAddressOutput.latitude = latCandidate;
+  if (latCandidate != null) baseAddress.latitude = latCandidate;
 
   const lonCandidate = pickValueFromSources(
     [...normalizedAddressSources, ...addressFallbackSources],
     "longitude",
   );
-  if (lonCandidate != null) finalAddressOutput.longitude = lonCandidate;
+  if (lonCandidate != null) baseAddress.longitude = lonCandidate;
 
   const townshipCandidate = pickValueFromSources(
     [...normalizedAddressSources, ...addressFallbackSources],
     "township",
   );
-  if (townshipCandidate != null) finalAddressOutput.township = townshipCandidate;
+  if (townshipCandidate != null) baseAddress.township = townshipCandidate;
 
   const rangeCandidate = pickValueFromSources(
     [...normalizedAddressSources, ...addressFallbackSources],
     "range",
   );
-  if (rangeCandidate != null) finalAddressOutput.range = rangeCandidate;
+  if (rangeCandidate != null) baseAddress.range = rangeCandidate;
 
   const sectionCandidate = pickValueFromSources(
     [...normalizedAddressSources, ...addressFallbackSources],
     "section",
   );
-  if (sectionCandidate != null) finalAddressOutput.section = sectionCandidate;
+  if (sectionCandidate != null) baseAddress.section = sectionCandidate;
 
   const structuredKeys = [
     "street_number",
@@ -1941,12 +1965,21 @@ async function main() {
   const useStructuredAddress =
     normalizedAddressSources.length > 0 && hasAllRequiredStructuredData;
 
+  let addressPayload = { ...baseAddress };
+
   if (useStructuredAddress) {
-    for (const [key, value] of Object.entries(structuredAddressFields)) {
-      finalAddressOutput[key] = value;
+    addressPayload = {
+      ...addressPayload,
+      ...structuredAddressFields,
+    };
+    if (addressPayload.city_name) {
+      addressPayload.city_name = addressPayload.city_name.toUpperCase();
     }
-    if (Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")) {
-      delete finalAddressOutput.unnormalized_address;
+    if (addressPayload.state_code) {
+      addressPayload.state_code = addressPayload.state_code.toUpperCase();
+    }
+    if (addressPayload.country_code) {
+      addressPayload.country_code = addressPayload.country_code.toUpperCase();
     }
   } else {
     const fallbackUnnormalized =
@@ -1954,11 +1987,11 @@ async function main() {
       normalizedSiteAddress ||
       pickValueFromSources(addressFallbackSources, "unnormalized_address");
     if (fallbackUnnormalized) {
-      finalAddressOutput.unnormalized_address = fallbackUnnormalized;
+      addressPayload.unnormalized_address = fallbackUnnormalized;
     }
     for (const key of structuredKeys) {
-      if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-        delete finalAddressOutput[key];
+      if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
+        delete addressPayload[key];
       }
     }
   }
@@ -1966,15 +1999,18 @@ async function main() {
   if (secTownRange) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
     if (strMatch) {
-      if (!finalAddressOutput.section) finalAddressOutput.section = strMatch[1];
-      if (!finalAddressOutput.township) finalAddressOutput.township = strMatch[2];
-      if (!finalAddressOutput.range) finalAddressOutput.range = strMatch[3];
+      if (!addressPayload.section) addressPayload.section = strMatch[1];
+      if (!addressPayload.township) addressPayload.township = strMatch[2];
+      if (!addressPayload.range) addressPayload.range = strMatch[3];
     }
   }
-  ensureRequestIdentifier(finalAddressOutput);
+
+  ensureRequestIdentifier(addressPayload);
+  pruneNullish(addressPayload);
+
   await fsp.writeFile(
     path.join("data", "address.json"),
-    JSON.stringify(finalAddressOutput, null, 2),
+    JSON.stringify(addressPayload, null, 2),
   );
 
   // --- Parcel extraction ---
@@ -2540,6 +2576,7 @@ async function main() {
         // po_box_number: null,
       };
       ensureRequestIdentifier(mailingAddressOut);
+      pruneNullish(mailingAddressOut);
 
       console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
 
@@ -2635,6 +2672,8 @@ async function main() {
           request_identifier: record.person?.request_identifier ?? null,
         };
         sanitizePersonIdentity(personOut);
+        ensureRequestIdentifier(personOut);
+        pruneNullish(personOut);
         const fileName = `person_${personIdx}.json`;
         await fsp.writeFile(
           path.join("data", fileName),
@@ -2651,6 +2690,8 @@ async function main() {
           name: record.company?.name ?? record.displayName ?? null,
           request_identifier: record.company?.request_identifier ?? null,
         };
+        ensureRequestIdentifier(companyOut);
+        pruneNullish(companyOut);
         const fileName = `company_${companyIdx}.json`;
         await fsp.writeFile(
           path.join("data", fileName),
