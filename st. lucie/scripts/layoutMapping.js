@@ -611,92 +611,157 @@ function mapFreeformFeatureToLayout(feature, enums, mapEnumFn) {
   return null;
 }
 
+const FLOOR_LEVEL_ENUM = ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"];
+
 function normalizeFloorLevel(value) {
   if (value == null) return null;
 
-  const asString = String(value).trim();
-  if (!asString) return null;
+  if (Array.isArray(value)) {
+    const candidate = value.find((item) => item != null && item !== "");
+    return candidate != null ? normalizeFloorLevel(candidate) : null;
+  }
 
-  const normalized = asString.toLowerCase();
+  if (typeof value === "object") {
+    const nested = value.value ?? value.text ?? null;
+    return nested != null ? normalizeFloorLevel(nested) : null;
+  }
 
-  const wordMap = new Map([
-    ["first", "1st Floor"],
-    ["second", "2nd Floor"],
-    ["third", "3rd Floor"],
-    ["fourth", "4th Floor"],
-  ]);
+  const text = String(value).trim();
+  if (!text) return null;
 
-  for (const [key, enumValue] of wordMap.entries()) {
-    if (normalized.includes(key)) {
-      return enumValue;
+  const normalized = text.toLowerCase();
+
+  const wordMappings = [
+    [/first|^one\b|main|ground|lower/, "1st Floor"],
+    [/second|^two\b/, "2nd Floor"],
+    [/third|^three\b/, "3rd Floor"],
+    [/fourth|^four\b/, "4th Floor"],
+  ];
+
+  let mappedValue = null;
+  for (const [pattern, mapped] of wordMappings) {
+    if (pattern.test(normalized)) {
+      mappedValue = mapped;
+      break;
     }
   }
 
-  const numberMatch = normalized.match(/(\d+)/);
-  if (numberMatch) {
-    const num = Number(numberMatch[1]);
-    if (num >= 1 && num <= 4) {
-      return ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"][num - 1];
+  if (!mappedValue) {
+    const ordinalMatch = normalized.match(
+      /(-?\d+)(?:st|nd|rd|th)?\s*(?:floor|fl|lvl|level|story|storey)?/,
+    );
+    if (ordinalMatch) {
+      const num = Number(ordinalMatch[1]);
+      if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
+        mappedValue = FLOOR_LEVEL_ENUM[num - 1];
+      }
     }
   }
 
-  if (normalized.includes("1st")) return "1st Floor";
-  if (normalized.includes("2nd")) return "2nd Floor";
-  if (normalized.includes("3rd")) return "3rd Floor";
-  if (normalized.includes("4th")) return "4th Floor";
+  if (!mappedValue) {
+    if (normalized.includes("1st")) mappedValue = "1st Floor";
+    else if (normalized.includes("2nd")) mappedValue = "2nd Floor";
+    else if (normalized.includes("3rd")) mappedValue = "3rd Floor";
+    else if (normalized.includes("4th")) mappedValue = "4th Floor";
+  }
 
-  return null;
+  if (!mappedValue && /\bupper\b/.test(normalized)) {
+    mappedValue = "2nd Floor";
+  }
+
+  return mappedValue && FLOOR_LEVEL_ENUM.includes(mappedValue)
+    ? mappedValue
+    : null;
 }
 
+const STORY_TYPE_ENUM = ["Full", "Half Story", "Three-Quarter Story"];
+
 function normalizeStoryType(value) {
-  if (!value) return null;
-  const normalized = value.toLowerCase();
+  if (value == null) return null;
+
+  if (Array.isArray(value)) {
+    const candidate = value.find((item) => item != null && item !== "");
+    return candidate != null ? normalizeStoryType(candidate) : null;
+  }
+
+  if (typeof value === "object") {
+    const nested = value.value ?? value.text ?? null;
+    return nested != null ? normalizeStoryType(nested) : null;
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const normalized = text.toLowerCase();
   const normalizedSpaced = normalized.replace(/[-_]+/g, " ");
   const normalizedCompact = normalizedSpaced.replace(/\s+/g, "");
-  if (normalized.includes("half")) return "Half Story";
-  if (
-    normalized.includes("three") &&
-    (normalized.includes("quarter") || normalized.includes("3/4"))
-  ) {
-    return "Three-Quarter Story";
+
+  let mappedStory = null;
+  if (/(?:half|1\/2|one-half|½)/.test(normalized)) {
+    mappedStory = "Half Story";
+  } else if (/(?:three\s*(?:quarter|qtr)|3\/4|¾)/.test(normalized)) {
+    mappedStory = "Three-Quarter Story";
+  } else if (/\b0\s*(?:story|stories)\b/.test(normalizedSpaced)) {
+    mappedStory = null;
+  } else if (normalized.includes("full")) {
+    mappedStory = "Full";
   }
-  if (normalized.includes("full")) return "Full";
-  const spelledFullStoryTokens = [
-    "onestory",
-    "twostory",
-    "threestory",
-    "fourstory",
-    "singlestory",
-    "doublestory",
-    "triplestory",
-    "onestories",
-    "twostories",
-    "threestories",
-    "fourstories",
-    "singlestories",
-    "doublestories",
-    "triplestories",
-    "multistory",
-    "multistories",
-  ];
-  if (
-    spelledFullStoryTokens.some((token) =>
-      normalizedCompact.includes(token.replace(/\s+/g, "")),
-    )
-  ) {
-    return "Full";
+
+  if (!mappedStory) {
+    const fullStoryTokens = [
+      "onestory",
+      "twostory",
+      "threestory",
+      "fourstory",
+      "singlestory",
+      "doublestory",
+      "triplestory",
+      "onestories",
+      "twostories",
+      "threestories",
+      "fourstories",
+      "singlestories",
+      "doublestories",
+      "triplestories",
+      "multistory",
+      "multistories",
+      "splitlevel",
+      "bilevel",
+      "trilevel",
+    ];
+    if (
+      fullStoryTokens.some((token) =>
+        normalizedCompact.includes(token.replace(/\s+/g, "")),
+      )
+    ) {
+      mappedStory = "Full";
+    }
   }
-  if (/\b\d+\s*(?:story|stories)\b/.test(normalizedSpaced)) {
-    return "Full";
+
+  if (!mappedStory) {
+    const numberMatch = normalizedSpaced.match(/(\d+(?:\.\d+)?)/);
+    if (numberMatch) {
+      const num = Number(numberMatch[1]);
+      if (Number.isFinite(num) && num > 0) {
+        mappedStory = "Full";
+      } else {
+        mappedStory = null;
+      }
+    }
   }
+
   if (
+    !mappedStory &&
     /\bstor(?:y|ies)\b/.test(normalizedSpaced) &&
     !/\bno\s+stor(?:y|ies)\b/.test(normalizedSpaced) &&
     !/\bn\/?a\b/.test(normalizedSpaced)
   ) {
-    return "Full";
+    mappedStory = "Full";
   }
-  return null;
+
+  return mappedStory && STORY_TYPE_ENUM.includes(mappedStory)
+    ? mappedStory
+    : null;
 }
 
 // Helper to create a default layout object with all required fields as null
