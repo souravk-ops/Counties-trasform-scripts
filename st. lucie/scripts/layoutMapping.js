@@ -611,6 +611,94 @@ function mapFreeformFeatureToLayout(feature, enums, mapEnumFn) {
   return null;
 }
 
+function normalizeFloorLevel(value) {
+  if (value == null) return null;
+
+  const asString = String(value).trim();
+  if (!asString) return null;
+
+  const normalized = asString.toLowerCase();
+
+  const wordMap = new Map([
+    ["first", "1st Floor"],
+    ["second", "2nd Floor"],
+    ["third", "3rd Floor"],
+    ["fourth", "4th Floor"],
+  ]);
+
+  for (const [key, enumValue] of wordMap.entries()) {
+    if (normalized.includes(key)) {
+      return enumValue;
+    }
+  }
+
+  const numberMatch = normalized.match(/(\d+)/);
+  if (numberMatch) {
+    const num = Number(numberMatch[1]);
+    if (num >= 1 && num <= 4) {
+      return ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"][num - 1];
+    }
+  }
+
+  if (normalized.includes("1st")) return "1st Floor";
+  if (normalized.includes("2nd")) return "2nd Floor";
+  if (normalized.includes("3rd")) return "3rd Floor";
+  if (normalized.includes("4th")) return "4th Floor";
+
+  return null;
+}
+
+function normalizeStoryType(value) {
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  const normalizedSpaced = normalized.replace(/[-_]+/g, " ");
+  const normalizedCompact = normalizedSpaced.replace(/\s+/g, "");
+  if (normalized.includes("half")) return "Half Story";
+  if (
+    normalized.includes("three") &&
+    (normalized.includes("quarter") || normalized.includes("3/4"))
+  ) {
+    return "Three-Quarter Story";
+  }
+  if (normalized.includes("full")) return "Full";
+  const spelledFullStoryTokens = [
+    "onestory",
+    "twostory",
+    "threestory",
+    "fourstory",
+    "singlestory",
+    "doublestory",
+    "triplestory",
+    "onestories",
+    "twostories",
+    "threestories",
+    "fourstories",
+    "singlestories",
+    "doublestories",
+    "triplestories",
+    "multistory",
+    "multistories",
+  ];
+  if (
+    spelledFullStoryTokens.some((token) =>
+      normalizedCompact.includes(token.replace(/\s+/g, "")),
+    )
+  ) {
+    return "Full";
+  }
+  if (/\b\d+\s*(?:story|stories)\b/.test(normalizedSpaced)) {
+    return "Full";
+  }
+  if (
+    /\bstor(?:y|ies)\b/.test(normalizedSpaced) &&
+    !/\bno\s+stor(?:y|ies)\b/.test(normalizedSpaced) &&
+    !/\bn\/?a\b/.test(normalizedSpaced)
+  ) {
+    return "Full";
+  }
+  return null;
+}
+
 // Helper to create a default layout object with all required fields as null
 // Modified to accept spaceTypeCounters for space_index
 function createDefaultLayout(
@@ -624,19 +712,16 @@ function createDefaultLayout(
   // Increment the counter for this spaceType
   spaceTypeCounters[spaceType] = (spaceTypeCounters[spaceType] || 0) + 1;
   const spaceIndex = spaceTypeCounters[spaceType];
+  const normalizedFloorLevel = normalizeFloorLevel(floorLevel);
 
   return {
-    source_http_request: {
-      method: "GET",
-      url: `https://apps.paslc.gov/rerecordcard, '')}`
-    },
     request_identifier: `${parcelId}_${spaceType.toLowerCase().replace(/\s/g, '')}_${spaceIndex}`,
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index
     space_type_index: spaceTypeIndex,
     flooring_material_type: null,
     size_square_feet: null,
-    floor_level: floorLevel, // Can be integer or string depending on schema
+    floor_level: normalizedFloorLevel,
     has_windows: null,
     window_design_type: null,
     window_material_type: null,
@@ -683,8 +768,6 @@ function createDefaultLayout(
 
 function extractLayouts($, parcelId) {
   const allLayouts = [];
-  // A separate array to hold relationship objects
-  const allRelationships = [];
   const spaceTypeCounters = {}; // Counter for each space_type across the property
   const buildingTypeIndexCounters = {};
   const floorTypeIndexCounters = {};
@@ -811,6 +894,7 @@ function extractLayouts($, parcelId) {
   const grossArea = parseInt(grossAreaText.replace(/,/g, ''), 10) || null;
   const yearBuilt = parseInt(yearBuiltText, 10) || null;
   const numberOfUnits = parseInt(numberOfUnitsText, 10) || 1;
+  const buildingStoryType = normalizeStoryType(storyHeightText);
 
   // Extract interior details once for the main building
   const interiorTableSelector = "#building-info .interior-container table.container";
@@ -864,11 +948,9 @@ function extractLayouts($, parcelId) {
     buildingLayout.livable_area_sq_ft = finishedArea;
     buildingLayout.built_year = yearBuilt;
     buildingLayout.installation_date = yearBuilt ? `${yearBuilt}-01-01` : null;
+    buildingLayout.story_type = buildingStoryType;
     buildingLayout.is_finished = true; // Buildings are generally considered "finished"
     allLayouts.push(buildingLayout);
-
-    // Store space_index for relationships
-    const buildingSpaceIndex = buildingLayout.space_index;
 
     if (hasFloorInformation) {
       for (let floorNum = 1; floorNum <= totalStories; floorNum++) {
@@ -881,24 +963,9 @@ function extractLayouts($, parcelId) {
           floorNum,
           floorSpaceTypeIndex,
         );
-        floorLayout.story_type = `${floorNum} Story`; // Assuming story_type can be descriptive string
+        floorLayout.story_type = buildingStoryType;
         floorLayout.is_finished = true; // Floors are generally considered "finished"
         allLayouts.push(floorLayout);
-
-        // Add relationship: Building has Floor
-        allRelationships.push({
-          from: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: buildingSpaceIndex,
-          },
-          to: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: floorLayout.space_index,
-          },
-          type: "layout_has_layout" // Relationship type
-        });
 
         // Add rooms to the current floor
         for (let i = 0; i < bedrooms; i++) {
@@ -914,20 +981,6 @@ function extractLayouts($, parcelId) {
           roomLayout.flooring_material_type = interiorFlooring;
           roomLayout.is_finished = true;
           allLayouts.push(roomLayout);
-          // Relationship: Floor has Bedroom
-          allRelationships.push({
-            from: {
-              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-              space_index: floorLayout.space_index,
-            },
-            to: {
-              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-              space_index: roomLayout.space_index,
-            },
-            type: "layout_has_layout"
-          });
         }
         for (let i = 0; i < fullBaths; i++) {
           const roomSpaceTypeIndex = nextFloorTypeIndex(b, floorNum, "Full Bathroom");
@@ -942,20 +995,6 @@ function extractLayouts($, parcelId) {
           roomLayout.flooring_material_type = interiorFlooring;
           roomLayout.is_finished = true;
           allLayouts.push(roomLayout);
-          // Relationship: Floor has Full Bathroom
-          allRelationships.push({
-            from: {
-              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-              space_index: floorLayout.space_index,
-            },
-            to: {
-              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-              space_index: roomLayout.space_index,
-            },
-            type: "layout_has_layout"
-          });
         }
         for (let i = 0; i < halfBaths; i++) {
           const roomSpaceTypeIndex = nextFloorTypeIndex(b, floorNum, "Half Bathroom / Powder Room");
@@ -970,20 +1009,6 @@ function extractLayouts($, parcelId) {
           roomLayout.flooring_material_type = interiorFlooring;
           roomLayout.is_finished = true;
           allLayouts.push(roomLayout);
-          // Relationship: Floor has Half Bathroom
-          allRelationships.push({
-            from: {
-              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-              space_index: floorLayout.space_index,
-            },
-            to: {
-              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-              space_index: roomLayout.space_index,
-            },
-            type: "layout_has_layout"
-          });
         }
       }
     } else {
@@ -1001,20 +1026,6 @@ function extractLayouts($, parcelId) {
         roomLayout.flooring_material_type = interiorFlooring;
         roomLayout.is_finished = true;
         allLayouts.push(roomLayout);
-        // Relationship: Building has Bedroom
-        allRelationships.push({
-          from: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: buildingSpaceIndex,
-          },
-          to: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: roomLayout.space_index,
-          },
-          type: "layout_has_layout"
-        });
       }
       for (let i = 0; i < fullBaths; i++) {
         const roomSpaceTypeIndex = nextBuildingTypeIndex(b, "Full Bathroom");
@@ -1029,20 +1040,6 @@ function extractLayouts($, parcelId) {
         roomLayout.flooring_material_type = interiorFlooring;
         roomLayout.is_finished = true;
         allLayouts.push(roomLayout);
-        // Relationship: Building has Full Bathroom
-        allRelationships.push({
-          from: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: buildingSpaceIndex,
-          },
-          to: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: roomLayout.space_index,
-          },
-          type: "layout_has_layout"
-        });
       }
       for (let i = 0; i < halfBaths; i++) {
         const roomSpaceTypeIndex = nextBuildingTypeIndex(b, "Half Bathroom / Powder Room");
@@ -1057,20 +1054,6 @@ function extractLayouts($, parcelId) {
         roomLayout.flooring_material_type = interiorFlooring;
         roomLayout.is_finished = true;
         allLayouts.push(roomLayout);
-        // Relationship: Building has Half Bathroom
-        allRelationships.push({
-          from: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: buildingSpaceIndex,
-          },
-          to: {
-            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
-            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
-            space_index: roomLayout.space_index,
-          },
-          type: "layout_has_layout"
-        });
       }
     }
   }
@@ -1428,20 +1411,20 @@ function extractLayouts($, parcelId) {
     }
   });
 
-  return { layouts: allLayouts, relationships: allRelationships };
+  return { layouts: allLayouts };
 }
 
 function main() {
   const inputPath = path.join(process.cwd(), "input.html");
   const $ = loadHtml(inputPath);
   const parcelId = getParcelId($);
-  const { layouts, relationships } = extractLayouts($, parcelId); // Get both layouts and relationships
+  const { layouts } = extractLayouts($, parcelId);
 
   const outputDir = path.join(process.cwd(), "owners");
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
   const output = {};
-  output[`property_${parcelId}`] = { layouts, relationships }; // Include relationships in the output
+  output[`property_${parcelId}`] = { layouts };
 
   const outPath = path.join(outputDir, "layout_data.json");
   fs.writeFileSync(outPath, JSON.stringify(output, null, 2), "utf8");

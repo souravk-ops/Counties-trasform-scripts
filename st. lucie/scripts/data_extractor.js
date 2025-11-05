@@ -1367,6 +1367,10 @@ async function main() {
     county_name:"St. Lucie",
     latitude: unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
     longitude: unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
+    unnormalized_address:
+      (unnormalizedAddressData && unnormalizedAddressData.full_address)
+        ? unnormalizedAddressData.full_address
+        : siteAddress || null,
     // Initialize all structured fields to null as per schema
     city_name: null,
     country_code: null,
@@ -1518,8 +1522,6 @@ async function main() {
     finalAddressOutput.section = section;  // Now correctly referenced
     // unit_identifier, route_number, block remain null as they are not in the sample HTML
   }
-  // We are explicitly NOT adding unnormalized_address.
-
   await fsp.writeFile(
     path.join("data", "address.json"),
     JSON.stringify(finalAddressOutput, null, 2),
@@ -2559,8 +2561,6 @@ async function main() {
         property_building_amount:
           buildingVal && buildingVal > 0 ? buildingVal : null,
         property_land_amount: landVal && landVal > 0 ? landVal : null,
-        property_taxable_value_amount:
-          taxableVal && taxableVal > 0 ? taxableVal : null,
         monthly_tax_amount: null,
         period_end_date: null,
         period_start_date: null,
@@ -2568,6 +2568,9 @@ async function main() {
         first_year_on_tax_roll: null,
         yearly_tax_amount: null,
       };
+      if (typeof taxableVal === "number" && Number.isFinite(taxableVal)) {
+        taxOut.property_taxable_value_amount = taxableVal;
+      }
       await fsp.writeFile(
         path.join("data", taxFileName),
         JSON.stringify(taxOut, null, 2),
