@@ -1554,10 +1554,6 @@ async function main() {
   const unnormalizedAddressData = await readJson(unnormalizedAddressPath).catch(() => null);
   const propertySeedData = await readJson(propertySeedPath).catch(() => null); // Read property_seed.json
 
-  // Base data for address output, derived from property_seed or unnormalized_address
-  // Ensure source_http_request is taken from property_seed if available, otherwise unnormalized_address
-  const baseRequestData = propertySeedData || unnormalizedAddressData || {};
-  const sourceHttpRequest = baseRequestData.source_http_request || null;
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   const propertyImprovementRecords = [];
@@ -1590,7 +1586,6 @@ async function main() {
   }
 
   let finalAddressOutput = {
-    source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
     request_identifier:
       (unnormalizedAddressData && unnormalizedAddressData.request_identifier != null)
         ? unnormalizedAddressData.request_identifier
@@ -1764,7 +1759,6 @@ async function main() {
   // --- Parcel extraction ---
   // parcelIdentifierDashed is already extracted from HTML
   const parcelOut = {
-    source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
     parcel_identifier: parcelIdentifierDashed || null,
   };
   ensureRequestIdentifier(parcelOut);
@@ -1839,7 +1833,6 @@ async function main() {
     });
 
     propertyOut = {
-      source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
       parcel_identifier: parcelIdentifierDashed || null, // Use the extracted parcel ID
       property_legal_description_text: legalDescription || null,
       property_type: mappedPropertyDetails.property_type || "LandParcel", // Default if not found
@@ -1866,7 +1859,6 @@ async function main() {
 
     // Lot data
     const lotOut = {
-      source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
       lot_type: null,
       lot_length_feet: null,
       lot_width_feet: null,
@@ -1914,7 +1906,6 @@ async function main() {
       const improvementAction = mapImprovementAction(descriptionText);
 
       const improvementOut = {
-        source_http_request: sourceHttpRequest,
         permit_number: permitNumber || null,
         permit_issue_date: permitIssueDate || null,
         permit_close_date: null,
@@ -2289,7 +2280,6 @@ async function main() {
     if (mailingAddressText) {
       // No need to break down, just store the full text in unnormalized_address
       mailingAddressOut = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         unnormalized_address: mailingAddressText, // Store the full cleaned text here
         // All other structured fields are null as per instruction
         latitude:  null,
@@ -2393,7 +2383,6 @@ async function main() {
       if (record.type === "person") {
         personIdx += 1;
         const personOut = {
-          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
           birth_date: record.person?.birth_date ?? null,
           first_name: record.person?.first_name ?? null,
           last_name: record.person?.last_name ?? null,
@@ -2417,7 +2406,6 @@ async function main() {
       } else {
         companyIdx += 1;
         const companyOut = {
-          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
           name: record.company?.name ?? record.displayName ?? null,
           request_identifier: record.company?.request_identifier ?? null,
         };
@@ -2642,7 +2630,6 @@ async function main() {
       const sale = sales[i];
       const saleFileName = `sales_history_${i + 1}.json`;
       const saleOut = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         ownership_transfer_date: sale.ownership_transfer_date,
         purchase_price_amount: sale.purchase_price_amount,
       };
@@ -2658,7 +2645,6 @@ async function main() {
       if (deedType !== null) {
         const deedFileName = `deed_${i + 1}.json`;
         const deedOut = {
-          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
           deed_type: deedType,
         };
         await fsp.writeFile(
@@ -2717,7 +2703,6 @@ async function main() {
           fileIdx += 1;
           const fileFileName = `file_${fileIdx}.json`;
           const fileOut = {
-            source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url) || null,
             original_url: sale._book_page_url,
@@ -2786,18 +2771,7 @@ async function main() {
     if (foundTargetYear) { // Only write tax data if 2025 is found
       const taxFileName = `tax_${targetTaxYear}.json`;
       const taxOut = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         tax_year: targetTaxYear,
-        property_assessed_value_amount:
-          assessedVal && assessedVal > 0 ? assessedVal : null,
-        property_market_value_amount: justVal && justVal > 0 ? justVal : null,
-        property_building_amount:
-          buildingVal && buildingVal > 0 ? buildingVal : null,
-        property_land_amount: landVal && landVal > 0 ? landVal : null,
-        property_taxable_value_amount:
-          typeof taxableVal === "number" && Number.isFinite(taxableVal)
-            ? taxableVal
-            : null,
         monthly_tax_amount: null,
         period_end_date: null,
         period_start_date: null,
@@ -2805,6 +2779,21 @@ async function main() {
         first_year_on_tax_roll: null,
         yearly_tax_amount: null,
       };
+      if (Number.isFinite(assessedVal)) {
+        taxOut.property_assessed_value_amount = assessedVal;
+      }
+      if (Number.isFinite(justVal)) {
+        taxOut.property_market_value_amount = justVal;
+      }
+      if (Number.isFinite(buildingVal)) {
+        taxOut.property_building_amount = buildingVal;
+      }
+      if (Number.isFinite(landVal)) {
+        taxOut.property_land_amount = landVal;
+      }
+      if (Number.isFinite(taxableVal)) {
+        taxOut.property_taxable_value_amount = taxableVal;
+      }
       ensureRequestIdentifier(taxOut);
       await fsp.writeFile(
         path.join("data", taxFileName),
@@ -2882,7 +2871,6 @@ async function main() {
     if (Object.prototype.hasOwnProperty.call(utilityOut, "url")) {
       delete utilityOut.url;
     }
-    utilityOut.source_http_request = sourceHttpRequest;
     ensureRequestIdentifier(utilityOut);
 
     await fsp.writeFile(
@@ -2967,7 +2955,6 @@ async function main() {
     if (Object.prototype.hasOwnProperty.call(structureOut, "url")) {
       delete structureOut.url;
     }
-    structureOut.source_http_request = sourceHttpRequest;
     ensureRequestIdentifier(structureOut);
 
     await fsp.writeFile(
@@ -3016,27 +3003,24 @@ async function main() {
 
     const layoutOut = { ...layout };
     if (Object.prototype.hasOwnProperty.call(layoutOut, "floor_level")) {
-      layoutOut.floor_level = normalizeLayoutFloorLevel(layoutOut.floor_level);
-      if (
-        layoutOut.floor_level != null &&
-        !FLOOR_LEVEL_ALLOWED.has(layoutOut.floor_level)
-      ) {
-        layoutOut.floor_level = null;
+      const normalizedFloor = normalizeLayoutFloorLevel(layoutOut.floor_level);
+      if (normalizedFloor && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
+        layoutOut.floor_level = normalizedFloor;
+      } else {
+        delete layoutOut.floor_level;
       }
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
-      layoutOut.story_type = normalizeLayoutStoryType(layoutOut.story_type);
-      if (
-        layoutOut.story_type != null &&
-        !STORY_TYPE_ALLOWED.has(layoutOut.story_type)
-      ) {
-        layoutOut.story_type = null;
+      const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
+      if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
+        layoutOut.story_type = normalizedStory;
+      } else {
+        delete layoutOut.story_type;
       }
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;
     }
-    layoutOut.source_http_request = sourceHttpRequest;
     ensureRequestIdentifier(layoutOut);
 
     if (layoutOut.space_type === "Building") {
@@ -3265,7 +3249,6 @@ async function main() {
       currentFileIdx += 1;
       const fileFileName = `file_${currentFileIdx}.json`;
       const rec = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
         original_url: u || null,

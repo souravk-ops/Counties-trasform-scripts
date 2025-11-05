@@ -835,20 +835,20 @@ function sanitizeLayoutRecord(layout) {
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "floor_level")) {
     const normalizedFloor = normalizeFloorLevel(sanitized.floor_level);
-    sanitized.floor_level = normalizedFloor ?? null;
+    if (normalizedFloor && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
+      sanitized.floor_level = normalizedFloor;
+    } else {
+      delete sanitized.floor_level;
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "story_type")) {
     const normalizedStory = normalizeStoryType(sanitized.story_type);
-    sanitized.story_type = normalizedStory ?? null;
-  }
-
-  if (sanitized.floor_level != null && !FLOOR_LEVEL_ALLOWED.has(sanitized.floor_level)) {
-    sanitized.floor_level = null;
-  }
-
-  if (sanitized.story_type != null && !STORY_TYPE_ALLOWED.has(sanitized.story_type)) {
-    sanitized.story_type = null;
+    if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
+      sanitized.story_type = normalizedStory;
+    } else {
+      delete sanitized.story_type;
+    }
   }
 
   return sanitized;
