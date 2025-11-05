@@ -715,7 +715,7 @@ function createDefaultLayout(
   const normalizedFloorLevel = normalizeFloorLevel(floorLevel);
 
   return {
-    request_identifier: `${parcelId}_${spaceType.toLowerCase().replace(/\s/g, '')}_${spaceIndex}`,
+    request_identifier: null,
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index
     space_type_index: spaceTypeIndex,

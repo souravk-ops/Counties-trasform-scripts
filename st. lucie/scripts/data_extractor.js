@@ -286,6 +286,111 @@ function mapImprovementAction(description) {
   return null;
 }
 
+function normalizeLayoutFloorLevel(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const lower = text.toLowerCase();
+  const wordMap = new Map([
+    ["first", "1st Floor"],
+    ["second", "2nd Floor"],
+    ["third", "3rd Floor"],
+    ["fourth", "4th Floor"],
+  ]);
+
+  for (const [key, mapped] of wordMap.entries()) {
+    if (lower.includes(key)) {
+      return mapped;
+    }
+  }
+
+  const numberMatch = lower.match(/(-?\d+)/);
+  if (numberMatch) {
+    const num = Number(numberMatch[1]);
+    if (num >= 1 && num <= 4) {
+      return ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"][num - 1];
+    }
+  }
+
+  if (lower.includes("1st")) return "1st Floor";
+  if (lower.includes("2nd")) return "2nd Floor";
+  if (lower.includes("3rd")) return "3rd Floor";
+  if (lower.includes("4th")) return "4th Floor";
+
+  return null;
+}
+
+function normalizeLayoutStoryType(value) {
+  if (!value) return null;
+  const normalized = String(value).toLowerCase();
+  const normalizedSpaced = normalized.replace(/[-_]+/g, " ");
+  const normalizedCompact = normalizedSpaced.replace(/\s+/g, "");
+
+  if (normalized.includes("half")) return "Half Story";
+  if (
+    normalized.includes("three") &&
+    (normalized.includes("quarter") || normalized.includes("3/4"))
+  ) {
+    return "Three-Quarter Story";
+  }
+  if (normalized.includes("full")) return "Full";
+
+  const spelledFullStoryTokens = [
+    "onestory",
+    "twostory",
+    "threestory",
+    "fourstory",
+    "singlestory",
+    "doublestory",
+    "triplestory",
+    "onestories",
+    "twostories",
+    "threestories",
+    "fourstories",
+    "singlestories",
+    "doublestories",
+    "triplestories",
+    "multistory",
+    "multistories",
+  ];
+  if (
+    spelledFullStoryTokens.some((token) =>
+      normalizedCompact.includes(token),
+    )
+  ) {
+    return "Full";
+  }
+  if (/\b\d+\s*(?:story|stories)\b/.test(normalizedSpaced)) {
+    return "Full";
+  }
+  if (
+    /\bstor(?:y|ies)\b/.test(normalizedSpaced) &&
+    !/\bno\s+stor(?:y|ies)\b/.test(normalizedSpaced) &&
+    !/\bn\/?a\b/.test(normalizedSpaced)
+  ) {
+    return "Full";
+  }
+  return null;
+}
+
+function ensureRequestIdentifier(obj) {
+  if (!obj || typeof obj !== "object") return;
+  if (!Object.prototype.hasOwnProperty.call(obj, "request_identifier")) {
+    obj.request_identifier = null;
+    return;
+  }
+  const current = obj.request_identifier;
+  if (
+    current === undefined ||
+    current === null ||
+    current === "" ||
+    current === false
+  ) {
+    obj.request_identifier = null;
+  }
+}
+
 async function removeExisting(pattern) {
   try {
     const files = await fsp.readdir("data");
@@ -1363,7 +1468,12 @@ async function main() {
 
   let finalAddressOutput = {
     source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-    request_identifier: baseRequestData.request_identifier || null,
+    request_identifier:
+      (unnormalizedAddressData && unnormalizedAddressData.request_identifier != null)
+        ? unnormalizedAddressData.request_identifier
+        : (propertySeedData && propertySeedData.request_identifier != null)
+            ? propertySeedData.request_identifier
+            : null,
     county_name:"St. Lucie",
     latitude: unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
     longitude: unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
@@ -1522,6 +1632,7 @@ async function main() {
     finalAddressOutput.section = section;  // Now correctly referenced
     // unit_identifier, route_number, block remain null as they are not in the sample HTML
   }
+  ensureRequestIdentifier(finalAddressOutput);
   await fsp.writeFile(
     path.join("data", "address.json"),
     JSON.stringify(finalAddressOutput, null, 2),
@@ -1531,9 +1642,9 @@ async function main() {
   // parcelIdentifierDashed is already extracted from HTML
   const parcelOut = {
     source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-    request_identifier: baseRequestData.request_identifier || null,
     parcel_identifier: parcelIdentifierDashed || null,
   };
+  ensureRequestIdentifier(parcelOut);
   await fsp.writeFile(
     path.join("data", "parcel.json"),
     JSON.stringify(parcelOut, null, 2),
@@ -1606,7 +1717,6 @@ async function main() {
 
     propertyOut = {
       source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-      request_identifier: baseRequestData.request_identifier || null,
       parcel_identifier: parcelIdentifierDashed || null, // Use the extracted parcel ID
       property_legal_description_text: legalDescription || null,
       property_type: mappedPropertyDetails.property_type || "LandParcel", // Default if not found
@@ -1624,6 +1734,7 @@ async function main() {
       property_effective_built_year: null,
       historic_designation: false,
     };
+    ensureRequestIdentifier(propertyOut);
 
     await fsp.writeFile(
       path.join("data", "property.json"),
@@ -1633,7 +1744,6 @@ async function main() {
     // Lot data
     const lotOut = {
       source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-      request_identifier: baseRequestData.request_identifier || null,
       lot_type: null,
       lot_length_feet: null,
       lot_width_feet: null,
@@ -1648,6 +1758,7 @@ async function main() {
       lot_condition_issues: null,
       lot_size_acre: null,
     };
+    ensureRequestIdentifier(lotOut);
     if (landAcres) {
       const n = Number(String(landAcres).replace(/[^0-9.\-]/g, ""));
       if (isFinite(n)) lotOut.lot_size_acre = n;
@@ -1681,7 +1792,6 @@ async function main() {
 
       const improvementOut = {
         source_http_request: sourceHttpRequest,
-        request_identifier: baseRequestData.request_identifier || null,
         permit_number: permitNumber || null,
         permit_issue_date: permitIssueDate || null,
         permit_close_date: null,
@@ -1698,6 +1808,7 @@ async function main() {
         private_provider_plan_review: null,
         permit_required: true,
       };
+      ensureRequestIdentifier(improvementOut);
 
       await fsp.writeFile(
         path.join("data", improvementFile),
@@ -2056,7 +2167,6 @@ async function main() {
       // No need to break down, just store the full text in unnormalized_address
       mailingAddressOut = {
         source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-        request_identifier: baseRequestData.request_identifier || null,
         unnormalized_address: mailingAddressText, // Store the full cleaned text here
         // All other structured fields are null as per instruction
         latitude:  null,
@@ -2075,6 +2185,7 @@ async function main() {
         // route_number: null,
         // po_box_number: null,
       };
+      ensureRequestIdentifier(mailingAddressOut);
 
       console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
 
@@ -2409,10 +2520,10 @@ async function main() {
       const saleFileName = `sales_history_${i + 1}.json`;
       const saleOut = {
         source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-        request_identifier: baseRequestData.request_identifier || null,
         ownership_transfer_date: sale.ownership_transfer_date,
         purchase_price_amount: sale.purchase_price_amount,
       };
+      ensureRequestIdentifier(saleOut);
       await fsp.writeFile(
         path.join("data", saleFileName),
         JSON.stringify(saleOut, null, 2),
@@ -2484,13 +2595,13 @@ async function main() {
           const fileFileName = `file_${fileIdx}.json`;
           const fileOut = {
             source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-            request_identifier: baseRequestData.request_identifier || null,
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url) || null,
             original_url: sale._book_page_url,
             ipfs_url: null,
             document_type: "ConveyanceDeed",
           };
+          ensureRequestIdentifier(fileOut);
           await fsp.writeFile(
             path.join("data", fileFileName),
             JSON.stringify(fileOut, null, 2),
@@ -2553,7 +2664,6 @@ async function main() {
       const taxFileName = `tax_${targetTaxYear}.json`;
       const taxOut = {
         source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-        request_identifier: baseRequestData.request_identifier || null,
         tax_year: targetTaxYear,
         property_assessed_value_amount:
           assessedVal && assessedVal > 0 ? assessedVal : null,
@@ -2568,6 +2678,7 @@ async function main() {
         first_year_on_tax_roll: null,
         yearly_tax_amount: null,
       };
+      ensureRequestIdentifier(taxOut);
       if (typeof taxableVal === "number" && Number.isFinite(taxableVal)) {
         taxOut.property_taxable_value_amount = taxableVal;
       }
@@ -2648,7 +2759,7 @@ async function main() {
       utilityOut.url = sourceHttpRequestUrl;
     }
     utilityOut.source_http_request = sourceHttpRequest;
-    utilityOut.request_identifier = baseRequestData.request_identifier || null;
+    ensureRequestIdentifier(utilityOut);
 
     await fsp.writeFile(
       path.join("data", fileName),
@@ -2733,7 +2844,7 @@ async function main() {
       structureOut.url = sourceHttpRequestUrl;
     }
     structureOut.source_http_request = sourceHttpRequest;
-    structureOut.request_identifier = baseRequestData.request_identifier || null;
+    ensureRequestIdentifier(structureOut);
 
     await fsp.writeFile(
       path.join("data", fileName),
@@ -2780,11 +2891,17 @@ async function main() {
     const fileName = `layout_${i + 1}.json`;
 
     const layoutOut = { ...layout };
+    if (Object.prototype.hasOwnProperty.call(layoutOut, "floor_level")) {
+      layoutOut.floor_level = normalizeLayoutFloorLevel(layoutOut.floor_level);
+    }
+    if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
+      layoutOut.story_type = normalizeLayoutStoryType(layoutOut.story_type);
+    }
     if (layoutOut.url && layoutOut.url.includes("placeholder")) {
       layoutOut.url = sourceHttpRequestUrl;
     }
     layoutOut.source_http_request = sourceHttpRequest;
-    layoutOut.request_identifier = baseRequestData.request_identifier || null;
+    ensureRequestIdentifier(layoutOut);
 
     if (layoutOut.space_type === "Building") {
       if (layoutOut.building_number == null) {
@@ -3013,13 +3130,13 @@ async function main() {
       const fileFileName = `file_${currentFileIdx}.json`;
       const rec = {
         source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
-        request_identifier: baseRequestData.request_identifier || null,
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
         original_url: u || null,
         ipfs_url: null,
         document_type: null,
       };
+      ensureRequestIdentifier(rec);
       // Map document_type to schema-compliant values
       // Changed "Miscellaneous" to null as "Miscellaneous" is not in the schema's enum.
       // If "TaxDocument" and "MapDocument" are truly, the schema must be updated.
