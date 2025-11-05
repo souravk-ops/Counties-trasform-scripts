@@ -2713,6 +2713,7 @@ async function main() {
 
   // Tax extraction: clear old and create one file per year option present
   await removeExisting(/^tax_.*\.json$/);
+  await removeExisting(/^relationship_property_has_tax_.*\.json$/);
   if (!isMulti) {
     const targetTaxYear = 2025; // Only include tax for 2025
 
@@ -2769,11 +2770,30 @@ async function main() {
       if (Number.isFinite(taxableVal)) {
         taxOut.property_taxable_value_amount = Number(taxableVal);
       }
+      if (
+        Object.prototype.hasOwnProperty.call(
+          taxOut,
+          "property_taxable_value_amount",
+        ) &&
+        typeof taxOut.property_taxable_value_amount !== "number"
+      ) {
+        delete taxOut.property_taxable_value_amount;
+      }
       ensureRequestIdentifier(taxOut);
-      await fsp.writeFile(
-        path.join("data", taxFileName),
-        JSON.stringify(taxOut, null, 2),
-      );
+      const taxFilePath = path.join("data", taxFileName);
+      await fsp.writeFile(taxFilePath, JSON.stringify(taxOut, null, 2));
+
+      if (propertyOut) {
+        const relFileName = `relationship_property_has_tax_${targetTaxYear}.json`;
+        const relOut = {
+          from: { "/": "./property.json" },
+          to: { "/": `./${taxFileName}` },
+        };
+        await fsp.writeFile(
+          path.join("data", relFileName),
+          JSON.stringify(relOut, null, 2),
+        );
+      }
     }
   }
 
@@ -2991,6 +3011,12 @@ async function main() {
     ) {
       delete layoutOut.floor_level;
     }
+    if (
+      Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
+      typeof layoutOut.floor_level !== "string"
+    ) {
+      delete layoutOut.floor_level;
+    }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
       if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
@@ -3002,6 +3028,12 @@ async function main() {
     if (
       typeof layoutOut.story_type === "string" &&
       layoutOut.story_type.trim() === ""
+    ) {
+      delete layoutOut.story_type;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
+      typeof layoutOut.story_type !== "string"
     ) {
       delete layoutOut.story_type;
     }

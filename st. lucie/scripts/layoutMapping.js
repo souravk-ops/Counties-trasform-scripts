@@ -870,6 +870,12 @@ function sanitizeLayoutRecord(layout) {
       delete sanitized.floor_level;
     }
   }
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
+    typeof sanitized.floor_level !== "string"
+  ) {
+    delete sanitized.floor_level;
+  }
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "story_type")) {
     const normalizedStory = normalizeStoryType(sanitized.story_type);
@@ -878,6 +884,12 @@ function sanitizeLayoutRecord(layout) {
     } else {
       delete sanitized.story_type;
     }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
+    typeof sanitized.story_type !== "string"
+  ) {
+    delete sanitized.story_type;
   }
 
   return sanitized;
