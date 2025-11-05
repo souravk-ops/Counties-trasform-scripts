@@ -1672,6 +1672,8 @@ async function main() {
 
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
+  await removeExisting(/^relationship_property_has_address.*\.json$/);
+  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   const propertyImprovementRecords = [];
 
 
@@ -1969,6 +1971,15 @@ async function main() {
     await fsp.writeFile(
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
+    );
+
+    const propertyHasAddressRel = {
+      from: { "/": "./property.json" },
+      to: { "/": "./address.json" },
+    };
+    await fsp.writeFile(
+      path.join("data", "relationship_property_has_address.json"),
+      JSON.stringify(propertyHasAddressRel, null, 2),
     );
 
     // Lot data
