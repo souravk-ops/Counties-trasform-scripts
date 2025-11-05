@@ -133,22 +133,26 @@ function parsePersonNameTokens(name) {
     return { first_name: null, middle_name: null, last_name: null };
   }
   if (tokens.length === 1) {
-    return { first_name: tokens[0], middle_name: null, last_name: null };
+    const singlePerson = {
+      first_name: tokens[0],
+      middle_name: null,
+      last_name: null,
+    };
+    sanitizePersonIdentity(singlePerson);
+    return singlePerson;
   }
   const first = tokens[0];
   const last = tokens[tokens.length - 1];
   const middle =
     tokens.length > 2 ? tokens.slice(1, -1).join(" ") || null : null;
 
-  // Validate middle name against the pattern if it exists
-  const middleNamePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
-  const validatedMiddle = (middle && middleNamePattern.test(middle)) ? middle : null;
-
-  return {
+  const result = {
     first_name: first || null,
-    middle_name: validatedMiddle, // Use the validated middle name
+    middle_name: middle,
     last_name: last || null,
   };
+  sanitizePersonIdentity(result);
+  return result;
 }
 
 function buildPersonDisplayName(person) {
@@ -159,6 +163,49 @@ function buildPersonDisplayName(person) {
     person.last_name,
   ].filter(Boolean);
   return parts.length ? parts.join(" ") : null;
+}
+
+const PERSON_NAME_PATTERN = /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
+const PERSON_MIDDLE_NAME_PATTERN = /^[A-Z][a-zA-Z\s\-',.]*$/;
+
+function normalizeNameValue(raw, pattern) {
+  if (!raw || typeof raw !== "string") return null;
+  let value = raw.trim();
+  if (!value) return null;
+  value = value.replace(/[^A-Za-z\s\-',.]/g, " ");
+  value = value.replace(/\s+/g, " ").replace(/^[',.\- ]+|[',.\- ]+$/g, "");
+  if (!value) return null;
+  value = value.replace(/([A-Za-z]+)/g, (segment) => {
+    if (!segment) return segment;
+    return segment[0].toUpperCase() + segment.slice(1).toLowerCase();
+  });
+  value = value.replace(/\s+/g, " ").trim();
+  if (!value) return null;
+  if (!pattern || pattern.test(value)) return value;
+
+  const fallback = value.replace(/['.,-]/g, " ").replace(/\s+/g, " ").trim();
+  if (fallback && (!pattern || pattern.test(fallback))) return fallback;
+  return null;
+}
+
+function sanitizePersonIdentity(target) {
+  if (!target || typeof target !== "object") return;
+  target.first_name = normalizeNameValue(target.first_name, PERSON_NAME_PATTERN);
+  target.last_name = normalizeNameValue(target.last_name, PERSON_NAME_PATTERN);
+  target.middle_name = normalizeNameValue(
+    target.middle_name,
+    PERSON_MIDDLE_NAME_PATTERN,
+  );
+  if (typeof target.prefix_name === "string") {
+    target.prefix_name =
+      normalizeNameValue(target.prefix_name, PERSON_NAME_PATTERN) ??
+      target.prefix_name;
+  }
+  if (typeof target.suffix_name === "string") {
+    target.suffix_name =
+      normalizeNameValue(target.suffix_name, PERSON_NAME_PATTERN) ??
+      target.suffix_name;
+  }
 }
 
 function slugify(value, fallback = "unspecified") {
@@ -2179,6 +2226,9 @@ async function main() {
               }
             : undefined,
       };
+      if (record.person) {
+        sanitizePersonIdentity(record.person);
+      }
       ownerRecords.set(record.id, record);
       return record;
     }
@@ -2198,6 +2248,7 @@ async function main() {
           veteran_status: ownerEntry.veteran_status ?? null,
           request_identifier: ownerEntry.request_identifier ?? null,
         };
+        sanitizePersonIdentity(personData);
         const candidateDisplay =
           ownerEntry.full_name ||
           buildPersonDisplayName(personData) ||
@@ -2221,6 +2272,9 @@ async function main() {
           if (!record.displayName && candidateDisplay) {
             record.displayName = candidateDisplay;
           }
+        }
+        if (record && record.person) {
+          sanitizePersonIdentity(record.person);
         }
         if (candidateDisplay) registerAlias(record, candidateDisplay);
         if (ownerEntry.raw_name) registerAlias(record, ownerEntry.raw_name);
@@ -2295,10 +2349,14 @@ async function main() {
         middle_name: parsed?.middle_name ?? null,
         // Other fields are null by default in createOwnerRecord
       };
+      sanitizePersonIdentity(personData);
+      const normalizedDisplay =
+        buildPersonDisplayName(personData) || cleaned || null;
       const record = createOwnerRecord("person", {
         person: personData,
-        displayName: cleaned,
+        displayName: normalizedDisplay || cleaned,
       });
+      if (normalizedDisplay) registerAlias(record, normalizedDisplay);
       registerAlias(record, cleaned);
       return record;
     }
@@ -2576,6 +2634,7 @@ async function main() {
           veteran_status: record.person?.veteran_status ?? null,
           request_identifier: record.person?.request_identifier ?? null,
         };
+        sanitizePersonIdentity(personOut);
         const fileName = `person_${personIdx}.json`;
         await fsp.writeFile(
           path.join("data", fileName),
