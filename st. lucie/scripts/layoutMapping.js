@@ -902,20 +902,18 @@ function sanitizeLayoutRecord(layout) {
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "floor_level")) {
     const normalizedFloor = normalizeFloorLevel(sanitized.floor_level);
-    if (typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
-      sanitized.floor_level = normalizedFloor;
-    } else {
-      delete sanitized.floor_level;
-    }
+    sanitized.floor_level =
+      typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)
+        ? normalizedFloor
+        : null;
   }
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "story_type")) {
     const normalizedStory = normalizeStoryType(sanitized.story_type);
-    if (typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)) {
-      sanitized.story_type = normalizedStory;
-    } else {
-      delete sanitized.story_type;
-    }
+    sanitized.story_type =
+      typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)
+        ? normalizedStory
+        : null;
   }
 
   return sanitized;
@@ -941,6 +939,7 @@ function createDefaultLayout(
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index
     space_type_index: spaceTypeIndex,
+    floor_level: null,
     flooring_material_type: null,
     size_square_feet: null,
     has_windows: null,
@@ -982,11 +981,13 @@ function createDefaultLayout(
     spa_installation_date: null,
     total_area_sq_ft: null,
     flooring_installation_date: null,
+    story_type: null,
   };
 
-  if (normalizedFloorLevel && FLOOR_LEVEL_ALLOWED.has(normalizedFloorLevel)) {
-    layout.floor_level = normalizedFloorLevel;
-  }
+  layout.floor_level =
+    typeof normalizedFloorLevel === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloorLevel)
+      ? normalizedFloorLevel
+      : null;
 
   return layout;
 }
@@ -1181,7 +1182,7 @@ function extractLayouts($, parcelId) {
     buildingLayout.livable_area_sq_ft = finishedArea;
     buildingLayout.built_year = yearBuilt;
     buildingLayout.installation_date = yearBuilt ? `${yearBuilt}-01-01` : null;
-    if (appliedStoryType) {
+    if (appliedStoryType && STORY_TYPE_ALLOWED.has(appliedStoryType)) {
       buildingLayout.story_type = appliedStoryType;
     }
     buildingLayout.is_finished = true; // Buildings are generally considered "finished"
@@ -1202,7 +1203,9 @@ function extractLayouts($, parcelId) {
           floorSpaceTypeIndex,
         );
         if (appliedStoryType) {
-          floorLayout.story_type = appliedStoryType;
+          floorLayout.story_type = STORY_TYPE_ALLOWED.has(appliedStoryType)
+            ? appliedStoryType
+            : null;
         }
         floorLayout.is_finished = true; // Floors are generally considered "finished"
         allLayouts.push(floorLayout);

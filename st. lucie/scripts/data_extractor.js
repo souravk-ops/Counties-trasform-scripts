@@ -3065,19 +3065,21 @@ async function main() {
     const layoutOut = { ...layout };
     if (Object.prototype.hasOwnProperty.call(layoutOut, "floor_level")) {
       const normalizedFloor = normalizeLayoutFloorLevel(layoutOut.floor_level);
-      if (typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
-        layoutOut.floor_level = normalizedFloor;
-      } else {
-        delete layoutOut.floor_level;
-      }
+      layoutOut.floor_level =
+        typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)
+          ? normalizedFloor
+          : null;
+    } else {
+      layoutOut.floor_level = null;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
-      if (typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)) {
-        layoutOut.story_type = normalizedStory;
-      } else {
-        delete layoutOut.story_type;
-      }
+      layoutOut.story_type =
+        typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)
+          ? normalizedStory
+          : null;
+    } else {
+      layoutOut.story_type = null;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;
