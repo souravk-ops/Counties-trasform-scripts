@@ -15,21 +15,19 @@ function ensureDirSync(dir) {
 
 function normalizeRelationshipEndpoint(ref) {
   if (ref == null) return null;
+
+  let pointer = null;
   if (typeof ref === "string") {
-    const trimmed = ref.trim();
-    return trimmed || null;
-  }
-  if (typeof ref === "object") {
-    if (Object.prototype.hasOwnProperty.call(ref, "/")) {
-      const pointer = ref["/"];
-      if (typeof pointer === "string") {
-        const trimmed = pointer.trim();
-        return trimmed || null;
-      }
+    pointer = ref.trim();
+  } else if (typeof ref === "object") {
+    const candidate = ref["/"];
+    if (typeof candidate === "string") {
+      pointer = candidate.trim();
     }
-    return null;
   }
-  return null;
+
+  if (!pointer) return null;
+  return { "/": pointer };
 }
 
 function createRelationshipPayload(fromPath, toPath) {
