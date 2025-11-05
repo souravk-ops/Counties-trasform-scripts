@@ -41,6 +41,22 @@ function parseDateToISO(dateStr) {
   return `${y}-${m}-${day}`;
 }
 
+function sanitizeAbsoluteUrl(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.href;
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
 function normalizeOwnerKey(name) {
   const cleaned = textClean(name);
   if (!cleaned) return "";
@@ -325,46 +341,58 @@ function normalizeLayoutFloorLevel(value) {
   if (!text) return null;
 
   const lower = text.toLowerCase();
-  const lowerCompact = lower.replace(/\s+/g, "");
-  const lowerAlphaNumeric = lower.replace(/[^a-z0-9]/g, "");
+  const lowerSpaced = lower.replace(/[_-]+/g, " ");
+  const lowerCompact = lowerSpaced.replace(/\s+/g, "");
+  const lowerAlphaNumeric = lowerSpaced.replace(/[^a-z0-9]/g, "");
+  const hasFloorKeyword = /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/.test(
+    lowerSpaced,
+  );
 
   const wordMappings = [
-    [/first|^one\b|main|ground|lower/, "1st Floor"],
-    [/second|^two\b/, "2nd Floor"],
-    [/third|^three\b/, "3rd Floor"],
-    [/fourth|^four\b/, "4th Floor"],
+    [/(?:first|^one\b|main|ground|lower)(?!\s*flooring)/, "1st Floor"],
+    [/(?:second|^two\b|upper\b)/, "2nd Floor"],
+    [/(?:third|^three\b)/, "3rd Floor"],
+    [/(?:fourth|^four\b)/, "4th Floor"],
   ];
 
   let mappedValue = null;
   for (const [pattern, mapped] of wordMappings) {
-    if (pattern.test(lower)) {
+    if (pattern.test(lowerSpaced)) {
       mappedValue = mapped;
       break;
     }
   }
 
   if (!mappedValue) {
-    const keywordPrefixedMatch = lower.match(
-      /\b(?:fl|floor|lvl|level|story|storey)\s*[-#:]*\s*(\d{1,2})\b/,
-    );
-    const keywordSuffixedMatch = lower.match(
-      /\b(\d{1,2})\s*(?:fl|floor|lvl|level|story|storey)\b/,
-    );
-    const alphaNumericMatch = lowerAlphaNumeric.match(
-      /^(?:fl|floor|lvl|level)?(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|lvl|level)?$/,
-    );
-    const ordinalMatch = lower.match(
-      /(-?\d+)(?:st|nd|rd|th)?\s*(?:floor|fl|lvl|level|story|storey)?/,
-    );
+    const candidateMatches = [
+      lowerSpaced.match(
+        /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\s*[-#:]*\s*0*(\d{1,2})\b/,
+      ),
+      lowerSpaced.match(
+        /\b0*(\d{1,2})\s*(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/,
+      ),
+      lowerAlphaNumeric.match(
+        /^(?:fl|flr|floor|lvl|level|levels)?0*(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|flr|lvl|level|levels)?$/,
+      ),
+      hasFloorKeyword
+        ? lowerSpaced.match(/\b0*(\d{1,2})\s*(?:of|\/)\s*\d{1,2}\b/)
+        : null,
+    ];
 
-    const valueMatch =
-      keywordPrefixedMatch ||
-      keywordSuffixedMatch ||
-      alphaNumericMatch ||
-      ordinalMatch;
+    for (const match of candidateMatches) {
+      if (!match) continue;
+      const num = Number(match[1]);
+      if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
+        mappedValue = FLOOR_LEVEL_ENUM[num - 1];
+        break;
+      }
+    }
+  }
 
-    if (valueMatch) {
-      const num = Number(valueMatch[1]);
+  if (!mappedValue && hasFloorKeyword) {
+    const looseNumberMatch = lowerSpaced.match(/\b0*(\d{1,2})\b/);
+    if (looseNumberMatch) {
+      const num = Number(looseNumberMatch[1]);
       if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
         mappedValue = FLOOR_LEVEL_ENUM[num - 1];
       }
@@ -372,27 +400,24 @@ function normalizeLayoutFloorLevel(value) {
   }
 
   if (!mappedValue) {
-    if (lower.includes("1st") || lowerCompact.includes("1st")) {
+    if (lowerSpaced.includes("1st") || lowerCompact.includes("1st")) {
       mappedValue = "1st Floor";
-    } else if (lower.includes("2nd") || lowerCompact.includes("2nd")) {
+    } else if (
+      lowerSpaced.includes("2nd") ||
+      lowerCompact.includes("2nd")
+    ) {
       mappedValue = "2nd Floor";
-    } else if (lower.includes("3rd") || lowerCompact.includes("3rd")) {
+    } else if (
+      lowerSpaced.includes("3rd") ||
+      lowerCompact.includes("3rd")
+    ) {
       mappedValue = "3rd Floor";
-    } else if (lower.includes("4th") || lowerCompact.includes("4th")) {
+    } else if (
+      lowerSpaced.includes("4th") ||
+      lowerCompact.includes("4th")
+    ) {
       mappedValue = "4th Floor";
     }
-  }
-
-  if (!mappedValue && /\bupper\b/.test(lower)) {
-    mappedValue = "2nd Floor";
-  }
-
-  if (!mappedValue && /\blower\b/.test(lower)) {
-    mappedValue = "1st Floor";
-  }
-
-  if (!mappedValue && /\bmain\b/.test(lower)) {
-    mappedValue = "1st Floor";
   }
 
   if (
@@ -2677,10 +2702,11 @@ async function main() {
         if (sale._book_page_url) {
           fileIdx += 1;
           const fileFileName = `file_${fileIdx}.json`;
+          const sanitizedDeedUrl = sanitizeAbsoluteUrl(sale._book_page_url);
           const fileOut = {
             file_format: getFileFormatFromUrl(sale._book_page_url),
-            name: path.basename(sale._book_page_url) || null,
-            original_url: sale._book_page_url,
+            name: path.basename(sale._book_page_url || "") || null,
+            original_url: sanitizedDeedUrl,
             ipfs_url: null,
             document_type: "ConveyanceDeed",
           };
@@ -3267,10 +3293,11 @@ async function main() {
     for (const u of uniqueNonDeedUrls) {
       currentFileIdx += 1;
       const fileFileName = `file_${currentFileIdx}.json`;
+      const sanitizedUrl = sanitizeAbsoluteUrl(u);
       const rec = {
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
-        original_url: u || null,
+        original_url: sanitizedUrl,
         ipfs_url: null,
         document_type: null,
       };

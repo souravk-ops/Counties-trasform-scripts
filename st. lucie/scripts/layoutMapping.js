@@ -648,46 +648,58 @@ function normalizeFloorLevel(value) {
   if (!text) return null;
 
   const normalized = text.toLowerCase();
-  const normalizedCompact = normalized.replace(/\s+/g, "");
-  const normalizedAlphaNumeric = normalized.replace(/[^a-z0-9]/g, "");
+  const normalizedSpaced = normalized.replace(/[_-]+/g, " ");
+  const normalizedCompact = normalizedSpaced.replace(/\s+/g, "");
+  const normalizedAlphaNumeric = normalizedSpaced.replace(/[^a-z0-9]/g, "");
+  const hasFloorKeyword = /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/.test(
+    normalizedSpaced,
+  );
 
   const wordMappings = [
-    [/first|^one\b|main|ground|lower/, "1st Floor"],
-    [/second|^two\b/, "2nd Floor"],
-    [/third|^three\b/, "3rd Floor"],
-    [/fourth|^four\b/, "4th Floor"],
+    [/(?:first|^one\b|main|ground|lower)(?!\s*flooring)/, "1st Floor"],
+    [/(?:second|^two\b|upper\b)/, "2nd Floor"],
+    [/(?:third|^three\b)/, "3rd Floor"],
+    [/(?:fourth|^four\b)/, "4th Floor"],
   ];
 
   let mappedValue = null;
   for (const [pattern, mapped] of wordMappings) {
-    if (pattern.test(normalized)) {
+    if (pattern.test(normalizedSpaced)) {
       mappedValue = mapped;
       break;
     }
   }
 
   if (!mappedValue) {
-    const keywordPrefixedMatch = normalized.match(
-      /\b(?:fl|floor|lvl|level|story|storey)\s*[-#:]*\s*(\d{1,2})\b/,
-    );
-    const keywordSuffixedMatch = normalized.match(
-      /\b(\d{1,2})\s*(?:fl|floor|lvl|level|story|storey)\b/,
-    );
-    const alphaNumericMatch = normalizedAlphaNumeric.match(
-      /^(?:fl|floor|lvl|level)?(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|lvl|level)?$/,
-    );
-    const ordinalMatch = normalized.match(
-      /(-?\d+)(?:st|nd|rd|th)?\s*(?:floor|fl|lvl|level|story|storey)?/,
-    );
+    const candidateMatches = [
+      normalizedSpaced.match(
+        /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\s*[-#:]*\s*0*(\d{1,2})\b/,
+      ),
+      normalizedSpaced.match(
+        /\b0*(\d{1,2})\s*(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/,
+      ),
+      normalizedAlphaNumeric.match(
+        /^(?:fl|flr|floor|lvl|level|levels)?0*(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|flr|lvl|level|levels)?$/,
+      ),
+      hasFloorKeyword
+        ? normalizedSpaced.match(/\b0*(\d{1,2})\s*(?:of|\/)\s*\d{1,2}\b/)
+        : null,
+    ];
 
-    const valueMatch =
-      keywordPrefixedMatch ||
-      keywordSuffixedMatch ||
-      alphaNumericMatch ||
-      ordinalMatch;
+    for (const match of candidateMatches) {
+      if (!match) continue;
+      const num = Number(match[1]);
+      if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
+        mappedValue = FLOOR_LEVEL_ENUM[num - 1];
+        break;
+      }
+    }
+  }
 
-    if (valueMatch) {
-      const num = Number(valueMatch[1]);
+  if (!mappedValue && hasFloorKeyword) {
+    const looseNumberMatch = normalizedSpaced.match(/\b0*(\d{1,2})\b/);
+    if (looseNumberMatch) {
+      const num = Number(looseNumberMatch[1]);
       if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
         mappedValue = FLOOR_LEVEL_ENUM[num - 1];
       }
@@ -695,27 +707,24 @@ function normalizeFloorLevel(value) {
   }
 
   if (!mappedValue) {
-    if (normalized.includes("1st") || normalizedCompact.includes("1st")) {
+    if (normalizedSpaced.includes("1st") || normalizedCompact.includes("1st")) {
       mappedValue = "1st Floor";
-    } else if (normalized.includes("2nd") || normalizedCompact.includes("2nd")) {
+    } else if (
+      normalizedSpaced.includes("2nd") ||
+      normalizedCompact.includes("2nd")
+    ) {
       mappedValue = "2nd Floor";
-    } else if (normalized.includes("3rd") || normalizedCompact.includes("3rd")) {
+    } else if (
+      normalizedSpaced.includes("3rd") ||
+      normalizedCompact.includes("3rd")
+    ) {
       mappedValue = "3rd Floor";
-    } else if (normalized.includes("4th") || normalizedCompact.includes("4th")) {
+    } else if (
+      normalizedSpaced.includes("4th") ||
+      normalizedCompact.includes("4th")
+    ) {
       mappedValue = "4th Floor";
     }
-  }
-
-  if (!mappedValue && /\bupper\b/.test(normalized)) {
-    mappedValue = "2nd Floor";
-  }
-
-  if (!mappedValue && /\blower\b/.test(normalized)) {
-    mappedValue = "1st Floor";
-  }
-
-  if (!mappedValue && /\bmain\b/.test(normalized)) {
-    mappedValue = "1st Floor";
   }
 
   if (
