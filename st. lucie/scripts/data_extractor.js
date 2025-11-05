@@ -1713,44 +1713,14 @@ async function main() {
       ? cleanedUnnormalizedAddress
       : null;
 
-  let finalAddressOutput = {
-    request_identifier:
-      (unnormalizedAddressData && unnormalizedAddressData.request_identifier != null)
-        ? unnormalizedAddressData.request_identifier
-        : (propertySeedData && propertySeedData.request_identifier != null)
-            ? propertySeedData.request_identifier
-            : null,
-    county_name:"St. Lucie",
-    latitude: unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
-    longitude: unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
-    unnormalized_address: rawUnnormalizedAddress || normalizedSiteAddress,
-    // Initialize all structured fields to null as per schema
-    city_name: null,
-    country_code: null,
-    postal_code: null,
-    plus_four_postal_code: null,
-    state_code: null,
-    street_number: null,
-    street_name: null,
-    street_post_directional_text: null,
-    street_pre_directional_text: null,
-    street_suffix_type: null,
-    unit_identifier: null,
-    route_number: null,
-    township: null, // Now correctly referenced
-    range: null,    // Now correctly referenced
-    section: null,  // Now correctly referenced
-    block: null,
-  };
-
-  const addressSourceChain = [];
+  const normalizedAddressSources = [];
   if (
     unnormalizedAddressData &&
     typeof unnormalizedAddressData === "object" &&
     unnormalizedAddressData.normalized_address &&
     typeof unnormalizedAddressData.normalized_address === "object"
   ) {
-    addressSourceChain.push(unnormalizedAddressData.normalized_address);
+    normalizedAddressSources.push(unnormalizedAddressData.normalized_address);
   }
   if (
     propertySeedData &&
@@ -1758,51 +1728,133 @@ async function main() {
     propertySeedData.normalized_address &&
     typeof propertySeedData.normalized_address === "object"
   ) {
-    addressSourceChain.push(propertySeedData.normalized_address);
-  }
-  if (unnormalizedAddressData && typeof unnormalizedAddressData === "object") {
-    addressSourceChain.push(unnormalizedAddressData);
-  }
-  if (propertySeedData && typeof propertySeedData === "object") {
-    addressSourceChain.push(propertySeedData);
+    normalizedAddressSources.push(propertySeedData.normalized_address);
   }
 
-  const pickStructuredField = (key) => {
-    for (const candidate of addressSourceChain) {
-      if (
-        candidate &&
-        Object.prototype.hasOwnProperty.call(candidate, key)
-      ) {
-        const value = candidate[key];
-        if (value != null) {
-          if (typeof value === "string") {
-            const trimmed = value.trim();
-            if (trimmed) return trimmed;
-          } else {
-            return value;
-          }
-        }
+  const addressFallbackSources = [];
+  if (unnormalizedAddressData && typeof unnormalizedAddressData === "object") {
+    addressFallbackSources.push(unnormalizedAddressData);
+  }
+  if (propertySeedData && typeof propertySeedData === "object") {
+    addressFallbackSources.push(propertySeedData);
+  }
+
+  const pickValueFromSources = (sources, key) => {
+    for (const candidate of sources) {
+      if (!candidate || typeof candidate !== "object") continue;
+      if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
+      const value = candidate[key];
+      if (value === undefined || value === null) continue;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) continue;
+        return trimmed;
       }
+      return value;
     }
     return null;
   };
 
-  finalAddressOutput.city_name = pickStructuredField("city_name");
-  finalAddressOutput.country_code = pickStructuredField("country_code");
-  finalAddressOutput.postal_code = pickStructuredField("postal_code");
-  finalAddressOutput.plus_four_postal_code = pickStructuredField("plus_four_postal_code");
-  finalAddressOutput.state_code = pickStructuredField("state_code");
-  finalAddressOutput.street_number = pickStructuredField("street_number");
-  finalAddressOutput.street_name = pickStructuredField("street_name");
-  finalAddressOutput.street_post_directional_text = pickStructuredField("street_post_directional_text");
-  finalAddressOutput.street_pre_directional_text = pickStructuredField("street_pre_directional_text");
-  finalAddressOutput.street_suffix_type = pickStructuredField("street_suffix_type");
-  finalAddressOutput.unit_identifier = pickStructuredField("unit_identifier");
-  finalAddressOutput.route_number = pickStructuredField("route_number");
-  finalAddressOutput.block = pickStructuredField("block");
-  finalAddressOutput.township = pickStructuredField("township");
-  finalAddressOutput.range = pickStructuredField("range");
-  finalAddressOutput.section = pickStructuredField("section");
+  const finalAddressOutput = {
+    county_name: "St. Lucie",
+  };
+
+  const explicitRequestIdentifier =
+    (unnormalizedAddressData && unnormalizedAddressData.request_identifier != null)
+      ? unnormalizedAddressData.request_identifier
+      : (propertySeedData && propertySeedData.request_identifier != null)
+          ? propertySeedData.request_identifier
+          : null;
+  if (explicitRequestIdentifier != null) {
+    finalAddressOutput.request_identifier = explicitRequestIdentifier;
+  }
+
+  const latCandidate = pickValueFromSources(
+    [...normalizedAddressSources, ...addressFallbackSources],
+    "latitude",
+  );
+  if (latCandidate != null) finalAddressOutput.latitude = latCandidate;
+
+  const lonCandidate = pickValueFromSources(
+    [...normalizedAddressSources, ...addressFallbackSources],
+    "longitude",
+  );
+  if (lonCandidate != null) finalAddressOutput.longitude = lonCandidate;
+
+  const townshipCandidate = pickValueFromSources(
+    [...normalizedAddressSources, ...addressFallbackSources],
+    "township",
+  );
+  if (townshipCandidate != null) finalAddressOutput.township = townshipCandidate;
+
+  const rangeCandidate = pickValueFromSources(
+    [...normalizedAddressSources, ...addressFallbackSources],
+    "range",
+  );
+  if (rangeCandidate != null) finalAddressOutput.range = rangeCandidate;
+
+  const sectionCandidate = pickValueFromSources(
+    [...normalizedAddressSources, ...addressFallbackSources],
+    "section",
+  );
+  if (sectionCandidate != null) finalAddressOutput.section = sectionCandidate;
+
+  const structuredKeys = [
+    "street_number",
+    "street_name",
+    "street_post_directional_text",
+    "street_pre_directional_text",
+    "street_suffix_type",
+    "unit_identifier",
+    "route_number",
+    "city_name",
+    "municipality_name",
+    "postal_code",
+    "plus_four_postal_code",
+    "state_code",
+    "country_code",
+    "lot",
+    "block",
+  ];
+
+  const structuredAddressFields = {};
+  for (const key of structuredKeys) {
+    const value = pickValueFromSources(normalizedAddressSources, key);
+    if (value != null) structuredAddressFields[key] = value;
+  }
+
+  const primaryStructuredKeys = [
+    "street_number",
+    "street_name",
+    "street_post_directional_text",
+    "street_pre_directional_text",
+    "street_suffix_type",
+    "unit_identifier",
+    "route_number",
+    "city_name",
+    "municipality_name",
+    "postal_code",
+    "plus_four_postal_code",
+    "state_code",
+    "country_code",
+  ];
+  const hasPrimaryStructuredData = primaryStructuredKeys.some((key) =>
+    Object.prototype.hasOwnProperty.call(structuredAddressFields, key),
+  );
+
+  if (normalizedAddressSources.length > 0 && hasPrimaryStructuredData) {
+    for (const [key, value] of Object.entries(structuredAddressFields)) {
+      finalAddressOutput[key] = value;
+    }
+  } else {
+    const fallbackUnnormalized =
+      rawUnnormalizedAddress ||
+      normalizedSiteAddress ||
+      pickValueFromSources(addressFallbackSources, "unnormalized_address");
+    if (fallbackUnnormalized) {
+      finalAddressOutput.unnormalized_address = fallbackUnnormalized;
+    }
+  }
 
   if (secTownRange) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
