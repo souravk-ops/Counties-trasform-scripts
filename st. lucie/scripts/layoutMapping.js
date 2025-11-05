@@ -1110,12 +1110,14 @@ function extractLayouts($, parcelId) {
     if (hasFloorInformation) {
       for (let floorNum = 1; floorNum <= totalStories; floorNum++) {
         const floorSpaceTypeIndex = `${buildingSpaceTypeIndex}.${floorNum}`;
+        const floorLevelLabel =
+          FLOOR_LEVEL_ENUM[floorNum - 1] || normalizeFloorLevel(floorNum);
         const floorLayout = createDefaultLayout(
           parcelId,
           "Floor",
           spaceTypeCounters,
           b,
-          floorNum,
+          floorLevelLabel,
           floorSpaceTypeIndex,
         );
         floorLayout.story_type = buildingStoryType;
@@ -1130,7 +1132,7 @@ function extractLayouts($, parcelId) {
             "Bedroom",
             spaceTypeCounters,
             b,
-            floorNum,
+            floorLevelLabel,
             roomSpaceTypeIndex,
           );
           roomLayout.flooring_material_type = interiorFlooring;
@@ -1144,7 +1146,7 @@ function extractLayouts($, parcelId) {
             "Full Bathroom",
             spaceTypeCounters,
             b,
-            floorNum,
+            floorLevelLabel,
             roomSpaceTypeIndex,
           );
           roomLayout.flooring_material_type = interiorFlooring;
@@ -1158,7 +1160,7 @@ function extractLayouts($, parcelId) {
             "Half Bathroom / Powder Room",
             spaceTypeCounters,
             b,
-            floorNum,
+            floorLevelLabel,
             roomSpaceTypeIndex,
           );
           roomLayout.flooring_material_type = interiorFlooring;

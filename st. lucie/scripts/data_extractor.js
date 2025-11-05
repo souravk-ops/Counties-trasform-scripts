@@ -2794,6 +2794,10 @@ async function main() {
         property_building_amount:
           buildingVal && buildingVal > 0 ? buildingVal : null,
         property_land_amount: landVal && landVal > 0 ? landVal : null,
+        property_taxable_value_amount:
+          typeof taxableVal === "number" && Number.isFinite(taxableVal)
+            ? taxableVal
+            : null,
         monthly_tax_amount: null,
         period_end_date: null,
         period_start_date: null,
@@ -2802,9 +2806,6 @@ async function main() {
         yearly_tax_amount: null,
       };
       ensureRequestIdentifier(taxOut);
-      if (typeof taxableVal === "number" && Number.isFinite(taxableVal)) {
-        taxOut.property_taxable_value_amount = taxableVal;
-      }
       await fsp.writeFile(
         path.join("data", taxFileName),
         JSON.stringify(taxOut, null, 2),
@@ -3016,9 +3017,21 @@ async function main() {
     const layoutOut = { ...layout };
     if (Object.prototype.hasOwnProperty.call(layoutOut, "floor_level")) {
       layoutOut.floor_level = normalizeLayoutFloorLevel(layoutOut.floor_level);
+      if (
+        layoutOut.floor_level != null &&
+        !FLOOR_LEVEL_ALLOWED.has(layoutOut.floor_level)
+      ) {
+        layoutOut.floor_level = null;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       layoutOut.story_type = normalizeLayoutStoryType(layoutOut.story_type);
+      if (
+        layoutOut.story_type != null &&
+        !STORY_TYPE_ALLOWED.has(layoutOut.story_type)
+      ) {
+        layoutOut.story_type = null;
+      }
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;
