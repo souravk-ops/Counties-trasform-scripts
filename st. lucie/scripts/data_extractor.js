@@ -17,14 +17,14 @@ function normalizeRelationshipEndpoint(ref) {
   if (ref == null) return null;
   if (typeof ref === "string") {
     const trimmed = ref.trim();
-    return trimmed ? { "/": trimmed } : null;
+    return trimmed || null;
   }
   if (typeof ref === "object") {
     if (Object.prototype.hasOwnProperty.call(ref, "/")) {
       const pointer = ref["/"];
       if (typeof pointer === "string") {
         const trimmed = pointer.trim();
-        return trimmed ? { "/": trimmed } : null;
+        return trimmed || null;
       }
     }
     return null;
