@@ -876,14 +876,29 @@ function sanitizeLayoutRecord(layout) {
     if (normalizedFloor && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
       sanitized.floor_level = normalizedFloor;
     } else {
-      delete sanitized.floor_level;
+      sanitized.floor_level = null;
     }
   }
   if (
     Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
+    typeof sanitized.floor_level === "string" &&
+    sanitized.floor_level.trim() === ""
+  ) {
+    sanitized.floor_level = null;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
+    sanitized.floor_level !== null &&
+    !FLOOR_LEVEL_ALLOWED.has(sanitized.floor_level)
+  ) {
+    sanitized.floor_level = null;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "floor_level") &&
+    sanitized.floor_level !== null &&
     typeof sanitized.floor_level !== "string"
   ) {
-    delete sanitized.floor_level;
+    sanitized.floor_level = null;
   }
 
   if (Object.prototype.hasOwnProperty.call(sanitized, "story_type")) {
@@ -891,14 +906,29 @@ function sanitizeLayoutRecord(layout) {
     if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
       sanitized.story_type = normalizedStory;
     } else {
-      delete sanitized.story_type;
+      sanitized.story_type = null;
     }
   }
   if (
     Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
+    typeof sanitized.story_type === "string" &&
+    sanitized.story_type.trim() === ""
+  ) {
+    sanitized.story_type = null;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
+    sanitized.story_type !== null &&
+    !STORY_TYPE_ALLOWED.has(sanitized.story_type)
+  ) {
+    sanitized.story_type = null;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "story_type") &&
+    sanitized.story_type !== null &&
     typeof sanitized.story_type !== "string"
   ) {
-    delete sanitized.story_type;
+    sanitized.story_type = null;
   }
 
   return sanitized;

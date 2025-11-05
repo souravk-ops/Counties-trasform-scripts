@@ -2805,6 +2805,20 @@ async function main() {
       ) {
         delete taxOut.property_taxable_value_amount;
       }
+      const numericTaxFields = [
+        "property_assessed_value_amount",
+        "property_market_value_amount",
+        "property_building_amount",
+        "property_land_amount",
+        "property_taxable_value_amount",
+      ];
+      for (const field of numericTaxFields) {
+        if (!Object.prototype.hasOwnProperty.call(taxOut, field)) continue;
+        const value = taxOut[field];
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          delete taxOut[field];
+        }
+      }
       ensureRequestIdentifier(taxOut);
       const taxFilePath = path.join("data", taxFileName);
       await fsp.writeFile(taxFilePath, JSON.stringify(taxOut, null, 2));
@@ -3028,40 +3042,58 @@ async function main() {
       if (normalizedFloor && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)) {
         layoutOut.floor_level = normalizedFloor;
       } else {
-        delete layoutOut.floor_level;
+        layoutOut.floor_level = null;
       }
     }
     if (
+      Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
       typeof layoutOut.floor_level === "string" &&
       layoutOut.floor_level.trim() === ""
     ) {
-      delete layoutOut.floor_level;
+      layoutOut.floor_level = null;
     }
     if (
       Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
+      layoutOut.floor_level !== null &&
+      !FLOOR_LEVEL_ALLOWED.has(layoutOut.floor_level)
+    ) {
+      layoutOut.floor_level = null;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(layoutOut, "floor_level") &&
+      layoutOut.floor_level !== null &&
       typeof layoutOut.floor_level !== "string"
     ) {
-      delete layoutOut.floor_level;
+      layoutOut.floor_level = null;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
       const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
       if (normalizedStory && STORY_TYPE_ALLOWED.has(normalizedStory)) {
         layoutOut.story_type = normalizedStory;
       } else {
-        delete layoutOut.story_type;
+        layoutOut.story_type = null;
       }
     }
     if (
+      Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
       typeof layoutOut.story_type === "string" &&
       layoutOut.story_type.trim() === ""
     ) {
-      delete layoutOut.story_type;
+      layoutOut.story_type = null;
     }
     if (
       Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
+      layoutOut.story_type !== null &&
+      !STORY_TYPE_ALLOWED.has(layoutOut.story_type)
+    ) {
+      layoutOut.story_type = null;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(layoutOut, "story_type") &&
+      layoutOut.story_type !== null &&
       typeof layoutOut.story_type !== "string"
     ) {
-      delete layoutOut.story_type;
+      layoutOut.story_type = null;
     }
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;
