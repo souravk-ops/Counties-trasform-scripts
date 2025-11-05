@@ -1871,9 +1871,15 @@ async function main() {
     Object.prototype.hasOwnProperty.call(structuredAddressFields, key),
   );
 
-  if (normalizedAddressSources.length > 0 && hasPrimaryStructuredData) {
+  const useStructuredAddress =
+    normalizedAddressSources.length > 0 && hasPrimaryStructuredData;
+
+  if (useStructuredAddress) {
     for (const [key, value] of Object.entries(structuredAddressFields)) {
       finalAddressOutput[key] = value;
+    }
+    if (Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")) {
+      delete finalAddressOutput.unnormalized_address;
     }
   } else {
     const fallbackUnnormalized =
@@ -1882,6 +1888,11 @@ async function main() {
       pickValueFromSources(addressFallbackSources, "unnormalized_address");
     if (fallbackUnnormalized) {
       finalAddressOutput.unnormalized_address = fallbackUnnormalized;
+    }
+    for (const key of structuredKeys) {
+      if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+        delete finalAddressOutput[key];
+      }
     }
   }
 
