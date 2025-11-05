@@ -306,6 +306,12 @@ const FLOOR_LEVEL_ENUM = ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"];
 const FLOOR_LEVEL_ALLOWED = new Set(FLOOR_LEVEL_ENUM);
 const STORY_TYPE_ENUM = ["Full", "Half Story", "Three-Quarter Story"];
 const STORY_TYPE_ALLOWED = new Set(STORY_TYPE_ENUM);
+const ROMAN_TO_NUMBER = new Map([
+  ["i", 1],
+  ["ii", 2],
+  ["iii", 3],
+  ["iv", 4],
+]);
 
 function normalizeLayoutFloorLevel(value) {
   if (value == null) return null;
@@ -341,7 +347,7 @@ function normalizeLayoutFloorLevel(value) {
   if (!text) return null;
 
   const lower = text.toLowerCase();
-  const lowerSpaced = lower.replace(/[_-]+/g, " ");
+  const lowerSpaced = lower.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   const lowerCompact = lowerSpaced.replace(/\s+/g, "");
   const lowerAlphaNumeric = lowerSpaced.replace(/[^a-z0-9]/g, "");
   const hasFloorKeyword = /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/.test(
@@ -395,6 +401,20 @@ function normalizeLayoutFloorLevel(value) {
       const num = Number(looseNumberMatch[1]);
       if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
         mappedValue = FLOOR_LEVEL_ENUM[num - 1];
+      }
+    }
+  }
+
+  if (!mappedValue) {
+    const romanMatch = lowerSpaced.match(/\b(?:level|lvl|fl|floor)?\s*(i{1,3}|iv)\b/);
+    if (romanMatch) {
+      const roman = romanMatch[1].toLowerCase();
+      if (ROMAN_TO_NUMBER.has(roman)) {
+        const candidate = ROMAN_TO_NUMBER.get(roman);
+        mappedValue =
+          candidate && candidate >= 1 && candidate <= FLOOR_LEVEL_ENUM.length
+            ? FLOOR_LEVEL_ENUM[candidate - 1]
+            : null;
       }
     }
   }
@@ -536,6 +556,13 @@ function normalizeLayoutStoryType(value) {
       } else {
         mappedStory = null;
       }
+    }
+  }
+
+  if (!mappedStory) {
+    const romanStoryMatch = normalizedSpaced.match(/\b(i{1,3}|iv)\s*(?:story|stories)?\b/);
+    if (romanStoryMatch) {
+      mappedStory = "Full";
     }
   }
 
@@ -2707,7 +2734,6 @@ async function main() {
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url || "") || null,
             original_url: sanitizedDeedUrl,
-            ipfs_url: null,
             document_type: "ConveyanceDeed",
           };
           ensureRequestIdentifier(fileOut);
@@ -3330,7 +3356,6 @@ async function main() {
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
         original_url: sanitizedUrl,
-        ipfs_url: null,
         document_type: null,
       };
       ensureRequestIdentifier(rec);

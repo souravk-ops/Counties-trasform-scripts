@@ -613,6 +613,12 @@ function mapFreeformFeatureToLayout(feature, enums, mapEnumFn) {
 
 const FLOOR_LEVEL_ENUM = ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"];
 const FLOOR_LEVEL_ALLOWED = new Set(FLOOR_LEVEL_ENUM);
+const ROMAN_TO_NUMBER = new Map([
+  ["i", 1],
+  ["ii", 2],
+  ["iii", 3],
+  ["iv", 4],
+]);
 
 function normalizeFloorLevel(value) {
   if (value == null) return null;
@@ -648,7 +654,7 @@ function normalizeFloorLevel(value) {
   if (!text) return null;
 
   const normalized = text.toLowerCase();
-  const normalizedSpaced = normalized.replace(/[_-]+/g, " ");
+  const normalizedSpaced = normalized.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   const normalizedCompact = normalizedSpaced.replace(/\s+/g, "");
   const normalizedAlphaNumeric = normalizedSpaced.replace(/[^a-z0-9]/g, "");
   const hasFloorKeyword = /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/.test(
@@ -692,6 +698,22 @@ function normalizeFloorLevel(value) {
       if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
         mappedValue = FLOOR_LEVEL_ENUM[num - 1];
         break;
+      }
+    }
+  }
+
+  if (!mappedValue) {
+    const romanMatch = normalizedSpaced.match(
+      /\b(?:level|lvl|fl|floor)?\s*(i{1,3}|iv)\b/,
+    );
+    if (romanMatch) {
+      const roman = romanMatch[1].toLowerCase();
+      if (ROMAN_TO_NUMBER.has(roman)) {
+        const candidate = ROMAN_TO_NUMBER.get(roman);
+        mappedValue =
+          candidate && candidate >= 1 && candidate <= FLOOR_LEVEL_ENUM.length
+            ? FLOOR_LEVEL_ENUM[candidate - 1]
+            : null;
       }
     }
   }
@@ -851,6 +873,13 @@ function normalizeStoryType(value) {
       } else {
         mappedStory = null;
       }
+    }
+  }
+
+  if (!mappedStory) {
+    const romanStoryMatch = normalizedSpaced.match(/\b(i{1,3}|iv)\s*(?:story|stories)?\b/);
+    if (romanStoryMatch) {
+      mappedStory = "Full";
     }
   }
 
