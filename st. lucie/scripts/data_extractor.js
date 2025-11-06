@@ -205,6 +205,15 @@ function sanitizePersonIdentity(target) {
     target.middle_name,
     PERSON_MIDDLE_NAME_PATTERN,
   );
+  if (target.first_name && !PERSON_NAME_PATTERN.test(target.first_name)) {
+    target.first_name = null;
+  }
+  if (target.last_name && !PERSON_NAME_PATTERN.test(target.last_name)) {
+    target.last_name = null;
+  }
+  if (target.middle_name && !PERSON_MIDDLE_NAME_PATTERN.test(target.middle_name)) {
+    target.middle_name = null;
+  }
   if (typeof target.prefix_name === "string") {
     target.prefix_name =
       normalizeNameValue(target.prefix_name, PERSON_NAME_PATTERN) ??
@@ -1923,97 +1932,72 @@ async function main() {
     "block",
   ];
 
-  const structuredAddressFields = {};
-  for (const key of structuredKeys) {
-    const value = pickValueFromSources(normalizedAddressSources, key);
-    if (value == null) continue;
-    let normalizedValue = value;
-    if (typeof normalizedValue === "string") normalizedValue = normalizedValue.trim();
-    else if (typeof normalizedValue === "number") normalizedValue = String(normalizedValue);
-    if (typeof normalizedValue === "string" && normalizedValue.length === 0) continue;
-    structuredAddressFields[key] = normalizedValue;
-  }
-
-  if (structuredAddressFields.city_name) {
-    const normalizedCity = String(structuredAddressFields.city_name).trim();
-    structuredAddressFields.city_name = normalizedCity ? normalizedCity.toUpperCase() : normalizedCity;
-  }
-  if (structuredAddressFields.state_code) {
-    const normalizedState = String(structuredAddressFields.state_code).trim();
-    structuredAddressFields.state_code = normalizedState ? normalizedState.toUpperCase() : normalizedState;
-  }
-  if (structuredAddressFields.country_code) {
-    const normalizedCountry = String(structuredAddressFields.country_code).trim();
-    structuredAddressFields.country_code = normalizedCountry ? normalizedCountry.toUpperCase() : normalizedCountry;
-  }
-  if (structuredAddressFields.postal_code) {
-    structuredAddressFields.postal_code = String(structuredAddressFields.postal_code).trim();
-  }
-  if (structuredAddressFields.street_number != null) {
-    structuredAddressFields.street_number = String(structuredAddressFields.street_number).trim();
-  }
-  if (structuredAddressFields.unit_identifier != null) {
-    structuredAddressFields.unit_identifier = String(structuredAddressFields.unit_identifier).trim();
-  }
-
-  const structuredRequiredKeys = [
+  const requiredStructuredKeys = [
     "street_number",
     "street_name",
     "city_name",
     "postal_code",
     "state_code",
   ];
-  const hasAllRequiredStructuredData = structuredRequiredKeys.every((key) => {
-    if (!Object.prototype.hasOwnProperty.call(structuredAddressFields, key)) return false;
-    const value = structuredAddressFields[key];
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    return true;
-  });
 
-  const useStructuredAddress =
-    normalizedAddressSources.length > 0 && hasAllRequiredStructuredData;
+  const structuredAddressFields = {};
+  if (normalizedAddressSources.length > 0) {
+    for (const key of structuredKeys) {
+      const value = pickValueFromSources(normalizedAddressSources, key);
+      if (value == null) continue;
+      let normalizedValue = value;
+      if (typeof normalizedValue === "number") normalizedValue = String(normalizedValue);
+      if (typeof normalizedValue === "string") {
+        normalizedValue = normalizedValue.trim();
+      }
+      if (normalizedValue === "" || normalizedValue == null) continue;
 
-  let addressPayload = { ...baseAddress };
+      if (key === "city_name" || key === "municipality_name") {
+        normalizedValue = String(normalizedValue).toUpperCase();
+      } else if (key === "state_code" || key === "country_code") {
+        normalizedValue = String(normalizedValue).toUpperCase();
+      } else if (key === "postal_code" || key === "plus_four_postal_code") {
+        normalizedValue = String(normalizedValue);
+      } else if (key === "street_number" || key === "unit_identifier" || key === "route_number") {
+        normalizedValue = String(normalizedValue);
+      }
 
-  if (useStructuredAddress) {
-    addressPayload = {
-      ...addressPayload,
-      ...structuredAddressFields,
-    };
-    if (Object.prototype.hasOwnProperty.call(addressPayload, "unnormalized_address")) {
-      delete addressPayload.unnormalized_address;
+      structuredAddressFields[key] = normalizedValue;
     }
-    if (addressPayload.city_name) {
-      addressPayload.city_name = addressPayload.city_name.toUpperCase();
+
+    const hasAllRequiredStructuredData = requiredStructuredKeys.every((key) => {
+      if (!Object.prototype.hasOwnProperty.call(structuredAddressFields, key)) return false;
+      const value = structuredAddressFields[key];
+      if (value == null) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      return true;
+    });
+
+    if (!hasAllRequiredStructuredData) {
+      for (const key of structuredKeys) {
+        delete structuredAddressFields[key];
+      }
     }
-    if (addressPayload.state_code) {
-      addressPayload.state_code = addressPayload.state_code.toUpperCase();
-    }
-    if (addressPayload.country_code) {
-      addressPayload.country_code = addressPayload.country_code.toUpperCase();
-    }
-  } else {
+  }
+
+  let addressPayload = { ...baseAddress, ...structuredAddressFields };
+
+  if (Object.keys(structuredAddressFields).length === 0) {
     const fallbackUnnormalized =
       rawUnnormalizedAddress ||
       normalizedSiteAddress ||
       pickValueFromSources(addressFallbackSources, "unnormalized_address");
     if (fallbackUnnormalized) {
-      addressPayload.unnormalized_address = fallbackUnnormalized;
-    }
-    for (const key of structuredKeys) {
-      if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
-        delete addressPayload[key];
-      }
+      addressPayload.unnormalized_address = String(fallbackUnnormalized).trim();
     }
   }
 
-  if (secTownRange) {
-    const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
-    if (strMatch) {
-      if (!addressPayload.section) addressPayload.section = strMatch[1];
-      if (!addressPayload.township) addressPayload.township = strMatch[2];
-      if (!addressPayload.range) addressPayload.range = strMatch[3];
+  if (
+    typeof addressPayload.unnormalized_address === "string"
+  ) {
+    addressPayload.unnormalized_address = addressPayload.unnormalized_address.trim();
+    if (addressPayload.unnormalized_address.length === 0) {
+      delete addressPayload.unnormalized_address;
     }
   }
 
@@ -2027,14 +2011,25 @@ async function main() {
     typeof addressPayload.unnormalized_address === "string" &&
     addressPayload.unnormalized_address.trim().length > 0;
 
-  if (hasStructuredAddressFields && hasUnnormalizedAddress) {
+  if (hasStructuredAddressFields) {
+    delete addressPayload.unnormalized_address;
+  } else if (hasUnnormalizedAddress) {
+    for (const key of structuredKeys) {
+      delete addressPayload[key];
+    }
+  } else {
+    for (const key of structuredKeys) {
+      delete addressPayload[key];
+    }
     delete addressPayload.unnormalized_address;
   }
-  if (!hasStructuredAddressFields) {
-    for (const key of structuredKeys) {
-      if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
-        delete addressPayload[key];
-      }
+
+  if (secTownRange) {
+    const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
+    if (strMatch) {
+      if (!addressPayload.section) addressPayload.section = strMatch[1];
+      if (!addressPayload.township) addressPayload.township = strMatch[2];
+      if (!addressPayload.range) addressPayload.range = strMatch[3];
     }
   }
 
