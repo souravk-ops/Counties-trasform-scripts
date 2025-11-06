@@ -700,6 +700,25 @@ function selectStructuredAddressCandidate(sources) {
   return null;
 }
 
+function formatNameToPattern(name) {
+  if (!name || typeof name !== "string") return null;
+  let cleaned = name.trim();
+  if (!cleaned) return null;
+  cleaned = cleaned.replace(/\//g, "-");
+  cleaned = cleaned.replace(/\s+/g, " ");
+  const formatted = cleaned
+    .split(/([ \-',.])/)
+    .map((part) => {
+      if (!part) return "";
+      if (/[ \-',.]/.test(part)) return part;
+      return part[0].toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+  return formatted || null;
+}
+
 function normalizeNameValue(raw, pattern) {
   if (!raw || typeof raw !== "string") return null;
   let value = stripNameDesignations(raw);
@@ -717,6 +736,7 @@ function normalizeNameValue(raw, pattern) {
     return segment[0].toUpperCase() + segment.slice(1).toLowerCase();
   });
   value = value.replace(/\s+/g, " ").trim();
+  value = formatNameToPattern(value) ?? value;
   if (!value) return null;
   if (!pattern || pattern.test(value)) return value;
 
@@ -725,11 +745,12 @@ function normalizeNameValue(raw, pattern) {
     .filter(Boolean)
     .map((segment) => segment[0].toUpperCase() + segment.slice(1).toLowerCase());
   if (simpleTokens.length) {
-    const candidate = simpleTokens.join(" ");
+    const candidate = formatNameToPattern(simpleTokens.join(" ")) ?? simpleTokens.join(" ");
     if (!pattern || pattern.test(candidate)) return candidate;
   }
 
-  const fallback = value.replace(/['.,-]/g, " ").replace(/\s+/g, " ").trim();
+  const fallbackBase = value.replace(/['.,-]/g, " ").replace(/\s+/g, " ").trim();
+  const fallback = formatNameToPattern(fallbackBase) ?? fallbackBase;
   if (fallback && (!pattern || pattern.test(fallback))) return fallback;
   return null;
 }
@@ -3002,6 +3023,18 @@ async function main() {
     addressPayload = normalizedAddress.payload;
     addressVariant =
       normalizedAddress.variant !== "none" ? normalizedAddress.variant : null;
+  }
+
+  if (addressPayload && addressVariant) {
+    if (addressVariant === "structured") {
+      delete addressPayload.unnormalized_address;
+    } else if (addressVariant === "unnormalized") {
+      for (const key of ADDRESS_STRUCTURED_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
+          delete addressPayload[key];
+        }
+      }
+    }
   }
 
   const addressOutputPath = path.join("data", "address.json");
