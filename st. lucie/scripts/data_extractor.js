@@ -2666,30 +2666,61 @@ async function main() {
       return true;
     });
 
+  const hasMeaningful = (value) => {
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  };
+
+  const trimmedBaseAddress = {};
+  for (const [key, value] of Object.entries(baseAddress)) {
+    if (!hasMeaningful(value)) continue;
+    trimmedBaseAddress[key] =
+      typeof value === "string" ? value.trim() : value;
+  }
+
+  const trimmedStructuredAddress = {};
+  if (structuredAddress) {
+    for (const key of ADDRESS_STRUCTURED_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredAddress, key))
+        continue;
+      const value = structuredAddress[key];
+      if (!hasMeaningful(value)) continue;
+      trimmedStructuredAddress[key] =
+        typeof value === "string" ? value.trim() : value;
+    }
+  }
+
+  const normalizedFallbackUnnormalized =
+    typeof fallbackUnnormalizedCandidate === "string" &&
+    fallbackUnnormalizedCandidate.trim().length > 0
+      ? fallbackUnnormalizedCandidate.trim()
+      : null;
+
   let addressPayload = null;
-  let preferredRepresentation = null;
 
   if (structuredHasRequired) {
-    addressPayload = { ...baseAddress, ...structuredAddress };
-    preferredRepresentation = "structured";
-  } else if (fallbackUnnormalizedCandidate) {
     addressPayload = {
-      ...baseAddress,
-      unnormalized_address: fallbackUnnormalizedCandidate,
+      ...trimmedBaseAddress,
+      ...trimmedStructuredAddress,
     };
-    preferredRepresentation = "unnormalized";
+  } else if (normalizedFallbackUnnormalized) {
+    addressPayload = {
+      ...trimmedBaseAddress,
+      unnormalized_address: normalizedFallbackUnnormalized,
+    };
   } else if (structuredAddress) {
-    // Structured data exists but is incomplete; fall back to unnormalized string if any
     const backup =
       typeof rawUnnormalizedAddress === "string"
-        ? rawUnnormalizedAddress
-        : normalizedSiteAddress;
+        ? rawUnnormalizedAddress.trim()
+        : typeof normalizedSiteAddress === "string"
+        ? normalizedSiteAddress.trim()
+        : null;
     if (backup) {
       addressPayload = {
-        ...baseAddress,
-        unnormalized_address: backup.trim(),
+        ...trimmedBaseAddress,
+        unnormalized_address: backup,
       };
-      preferredRepresentation = "unnormalized";
     }
   }
 
@@ -2704,58 +2735,11 @@ async function main() {
 
   const addressOutputPath = path.join("data", "address.json");
   if (addressPayload) {
-    if (preferredRepresentation === "structured") {
-      delete addressPayload.unnormalized_address;
-    } else if (preferredRepresentation === "unnormalized") {
-      for (const key of ADDRESS_STRUCTURED_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
-          delete addressPayload[key];
-        }
-      }
-    }
-
-    let representation = enforceAddressOneOf(addressPayload, {
-      preferUnnormalized: preferredRepresentation === "unnormalized",
-    });
-    pruneNullish(addressPayload);
-
-    if (representation === "structured") {
-      delete addressPayload.unnormalized_address;
-      const hasAllRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
-        const value = addressPayload[key];
-        if (value == null) return false;
-        if (typeof value === "string") return value.trim().length > 0;
-        return true;
-      });
-      if (!hasAllRequired) {
-        representation = "none";
-      }
-    } else if (representation === "unnormalized") {
-      for (const key of ADDRESS_STRUCTURED_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
-          delete addressPayload[key];
-        }
-      }
-      if (
-        typeof addressPayload.unnormalized_address === "string" &&
-        addressPayload.unnormalized_address.trim().length > 0
-      ) {
-        addressPayload.unnormalized_address =
-          addressPayload.unnormalized_address.trim();
-      } else {
-        representation = "none";
-      }
-    }
-
-    if (representation === "none") {
-      await fsp.unlink(addressOutputPath).catch(() => {});
-    } else {
-      await fsp.writeFile(
-        addressOutputPath,
-        JSON.stringify(addressPayload, null, 2),
-      );
-      addressWritten = true;
-    }
+    await fsp.writeFile(
+      addressOutputPath,
+      JSON.stringify(addressPayload, null, 2),
+    );
+    addressWritten = true;
   } else {
     await fsp.unlink(addressOutputPath).catch(() => {});
   }
@@ -3364,39 +3348,11 @@ async function main() {
 
     // --- Mailing Address File Creation ---
     if (mailingAddressText) {
-      // No need to break down, just store the full text in unnormalized_address
-      mailingAddressOut = {
-        unnormalized_address: mailingAddressText, // Store the full cleaned text here
-        // All other structured fields are null as per instruction
-        latitude:  null,
-        longitude: null
-        // country_code: null,
-        // city_name: null,
-        // postal_code: null,
-        // plus_four_postal_code: null,
-        // state_code: null,
-        // street_number: null,
-        // street_name: null,
-        // street_post_directional_text: null,
-        // street_pre_directional_text: null,
-        // street_suffix_type: null,
-        // unit_identifier: null,
-        // route_number: null,
-        // po_box_number: null,
-      };
-      const mailingRepresentation = enforceAddressOneOf(mailingAddressOut, {
-        preferUnnormalized: true,
-      });
-      pruneNullish(mailingAddressOut);
-
-      if (
-        mailingRepresentation === "unnormalized" &&
-        typeof mailingAddressOut.unnormalized_address === "string" &&
-        mailingAddressOut.unnormalized_address.trim().length > 0
-      ) {
-        mailingAddressOut.unnormalized_address =
-          mailingAddressOut.unnormalized_address.trim();
-
+      const trimmedMailing = mailingAddressText.trim();
+      if (trimmedMailing.length > 0) {
+        mailingAddressOut = {
+          unnormalized_address: trimmedMailing,
+        };
         await fsp.writeFile(
           path.join("data", "mailing_address.json"),
           JSON.stringify(mailingAddressOut, null, 2),
