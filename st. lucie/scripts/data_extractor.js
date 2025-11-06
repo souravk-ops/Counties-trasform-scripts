@@ -2733,6 +2733,15 @@ async function main() {
     }
   }
 
+  if (addressPayload) {
+    const selectedVariant = enforceAddressOneOf(addressPayload, {
+      preferUnnormalized: !structuredHasRequired,
+    });
+    if (selectedVariant === "none") {
+      addressPayload = null;
+    }
+  }
+
   const addressOutputPath = path.join("data", "address.json");
   if (addressPayload) {
     await fsp.writeFile(
