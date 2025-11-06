@@ -812,6 +812,8 @@ function ensurePersonRecordSchemaCompliance(record) {
   enforcePersonNamePatterns(record.person);
 
   if (
+    record.person.first_name &&
+    PERSON_NAME_PATTERN.test(record.person.first_name) &&
     record.person.last_name &&
     PERSON_NAME_PATTERN.test(record.person.last_name)
   ) {
@@ -843,6 +845,8 @@ function ensurePersonRecordSchemaCompliance(record) {
     }
     sanitizePersonIdentity(record.person);
     if (
+      record.person.first_name &&
+      PERSON_NAME_PATTERN.test(record.person.first_name) &&
       record.person.last_name &&
       PERSON_NAME_PATTERN.test(record.person.last_name)
     ) {
@@ -909,6 +913,8 @@ function buildPersonPayload(record) {
   sanitizePersonIdentity(payload);
   enforcePersonNamePatterns(payload);
   if (
+    !payload.first_name ||
+    !PERSON_NAME_PATTERN.test(payload.first_name) ||
     !payload.last_name ||
     !PERSON_NAME_PATTERN.test(payload.last_name)
   ) {
@@ -920,7 +926,7 @@ function buildPersonPayload(record) {
   ) {
     payload.middle_name = null;
   }
-  pruneNullish(payload);
+  pruneNullish(payload, { preserve: new Set(["first_name", "last_name"]) });
   return payload;
 }
 
@@ -1552,6 +1558,29 @@ function finalizeAddressVariant(address) {
   }
 
   return null;
+}
+
+function filterAddressByVariant(address, variant) {
+  if (!address || typeof address !== "object") return null;
+  const allowedKeys = new Set();
+  for (const key of ADDRESS_COMMON_KEYS) {
+    allowedKeys.add(key);
+  }
+  if (variant === "structured") {
+    for (const key of ADDRESS_STRUCTURED_KEYS) {
+      allowedKeys.add(key);
+    }
+  } else if (variant === "unnormalized") {
+    allowedKeys.add("unnormalized_address");
+  } else {
+    return null;
+  }
+  for (const key of Object.keys(address)) {
+    if (!allowedKeys.has(key)) {
+      delete address[key];
+    }
+  }
+  return Object.keys(address).length ? address : null;
 }
 
 async function removeExisting(pattern) {
@@ -2826,16 +2855,23 @@ async function main() {
     }
   }
 
+  let addressVariant = null;
   if (addressPayload) {
-    const selectedVariant = enforceAddressOneOf(addressPayload, {
+    addressVariant = enforceAddressOneOf(addressPayload, {
       preferUnnormalized: !structuredHasRequired,
     });
-    if (selectedVariant === "none") {
+    if (addressVariant === "none") {
       addressPayload = null;
+      addressVariant = null;
     } else {
       addressPayload = finalizeAddressVariant(addressPayload);
-      if (!addressPayload) {
-        addressPayload = null;
+      if (addressPayload) {
+        addressPayload = filterAddressByVariant(addressPayload, addressVariant);
+        if (!addressPayload) {
+          addressVariant = null;
+        }
+      } else {
+        addressVariant = null;
       }
     }
   }
