@@ -46,6 +46,28 @@ function textClean(s) {
     .trim();
 }
 
+const NAME_DESIGNATION_TOKENS =
+  /\b(?:A\/K\/A|AKA|C\/O|DBA|D\/B\/A|DECD|DEC'D|DECEASED|ESQ|EST(?:ATE)?|ET\s*AL|ETAL|FBO|FKA|JR|SR|II|III|IV|IX|MD|MR|MRS|MS|PHD|TR|TRUST(?:EE)?|TTEE|V|VI|VII|VIII)\b\.?/gi;
+
+function stripNameDesignations(value) {
+  if (!value || typeof value !== "string") return value;
+  let cleaned = value;
+  cleaned = cleaned.replace(/\(([^)]*)\)/g, (_, inner) => {
+    const normalized = inner.trim();
+    if (!normalized) return "";
+    NAME_DESIGNATION_TOKENS.lastIndex = 0;
+    return NAME_DESIGNATION_TOKENS.test(normalized.toUpperCase())
+      ? ""
+      : ` ${normalized}`;
+  });
+  NAME_DESIGNATION_TOKENS.lastIndex = 0;
+  cleaned = cleaned.replace(NAME_DESIGNATION_TOKENS, " ");
+  cleaned = cleaned.replace(/\bN\/?K\/?A\b\.?/gi, " ");
+  const result = cleaned.replace(/\s+/g, " ").trim();
+  NAME_DESIGNATION_TOKENS.lastIndex = 0;
+  return result;
+}
+
 function parseCurrencyToNumber(str) {
   if (str == null) return null;
   const s = String(str).replace(/[^0-9.\-]/g, "");
@@ -88,6 +110,8 @@ function parsePersonNameTokens(name) {
   cleaned = cleaned.replace(/\s*\((EST|TR|ET AL|JR|SR|II|III|IV)\)\s*/gi, ' ').trim();
   // Also remove common suffixes that might be mistaken for middle names or part of the last name
   cleaned = cleaned.replace(/,?\s*(JR|SR|II|III|IV)\.?$/i, '').trim();
+
+  cleaned = stripNameDesignations(cleaned);
 
 
   if (cleaned.includes(",")) {
@@ -154,8 +178,9 @@ const PERSON_MIDDLE_NAME_PATTERN = /^[A-Z][a-zA-Z\s\-',.]*$/;
 
 function normalizeNameValue(raw, pattern) {
   if (!raw || typeof raw !== "string") return null;
-  let value = raw.trim();
+  let value = stripNameDesignations(raw);
   if (!value) return null;
+  value = value.trim();
   value = value.replace(/[^A-Za-z\s\-',.]/g, " ");
   value = value.replace(/\s+/g, " ").replace(/^[',.\- ]+|[',.\- ]+$/g, "");
   if (!value) return null;
@@ -1992,6 +2017,27 @@ async function main() {
     }
   }
 
+  const hasStructuredAddressFields = structuredKeys.some((key) => {
+    const value = addressPayload[key];
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  });
+  const hasUnnormalizedAddress =
+    typeof addressPayload.unnormalized_address === "string" &&
+    addressPayload.unnormalized_address.trim().length > 0;
+
+  if (hasStructuredAddressFields && hasUnnormalizedAddress) {
+    delete addressPayload.unnormalized_address;
+  }
+  if (!hasStructuredAddressFields) {
+    for (const key of structuredKeys) {
+      if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
+        delete addressPayload[key];
+      }
+    }
+  }
+
   ensureRequestIdentifier(addressPayload);
   pruneNullish(addressPayload);
 
@@ -2697,8 +2743,8 @@ async function main() {
     // and ownerToFileMap is now fully populated.
     if (currentOwnerRecord  && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
-      if (latestOwnerMeta) { // Ensure it's a person for this relationship
-        const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
+      if (latestOwnerMeta && latestOwnerMeta.type === "person") {
+        const relFileName = `relationship_person_${latestOwnerMeta.index}_has_mailing_address.json`;
         const relOut = createRelationshipPayload(
           `./${latestOwnerMeta.fileName}`,
           "./mailing_address.json",
@@ -2708,6 +2754,10 @@ async function main() {
           JSON.stringify(relOut, null, 2),
         );
         console.log(`Created mailing address relationship: ${relFileName}`);
+      } else if (latestOwnerMeta) {
+        console.log(
+          "Skipping mailing address relationship for non-person owner.",
+        );
       } else {
         console.log("Warning: Could not find metadata for currentOwnerRecord (or it's not a person) to create mailing address relationship.");
       }
