@@ -3035,6 +3035,15 @@ async function main() {
         }
       }
     }
+
+    const finalNormalized = normalizeAddressPayloadForOneOf(addressPayload);
+    if (finalNormalized.variant === "none" || !finalNormalized.payload) {
+      addressPayload = null;
+      addressVariant = null;
+    } else {
+      addressPayload = finalNormalized.payload;
+      addressVariant = finalNormalized.variant;
+    }
   }
 
   const addressOutputPath = path.join("data", "address.json");
