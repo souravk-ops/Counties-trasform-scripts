@@ -3033,6 +3033,54 @@ async function main() {
       }
     }
 
+    const propertyHasAddressPath = path.join(
+      "data",
+      "relationship_property_has_address.json",
+    );
+    const addressHasFactSheetPath = path.join(
+      "data",
+      "relationship_address_has_fact_sheet.json",
+    );
+
+    if (addressPayload) {
+      if (propertyOut) {
+        const propertyHasAddressRel = createRelationshipPayload(
+          "./property.json",
+          "./address.json",
+        );
+        if (propertyHasAddressRel) {
+          await fsp.writeFile(
+            propertyHasAddressPath,
+            JSON.stringify(propertyHasAddressRel, null, 2),
+          );
+        } else {
+          await fsp.unlink(propertyHasAddressPath).catch(() => {});
+        }
+      } else {
+        await fsp.unlink(propertyHasAddressPath).catch(() => {});
+      }
+
+      if (factSheetWritten) {
+        const addressHasFactSheetRel = createRelationshipPayload(
+          "./address.json",
+          `./${factSheetFileName}`,
+        );
+        if (addressHasFactSheetRel) {
+          await fsp.writeFile(
+            addressHasFactSheetPath,
+            JSON.stringify(addressHasFactSheetRel, null, 2),
+          );
+        } else {
+          await fsp.unlink(addressHasFactSheetPath).catch(() => {});
+        }
+      } else {
+        await fsp.unlink(addressHasFactSheetPath).catch(() => {});
+      }
+    } else {
+      await fsp.unlink(propertyHasAddressPath).catch(() => {});
+      await fsp.unlink(addressHasFactSheetPath).catch(() => {});
+    }
+
     // Lot data
     const lotOut = {
       lot_type: null,
@@ -3229,7 +3277,15 @@ async function main() {
           }
         }
         if (record && record.person) {
-          sanitizePersonIdentity(record.person);
+          const stillCompliant = ensurePersonRecordSchemaCompliance(record);
+          if (!stillCompliant) {
+            convertPersonRecordToCompany(record);
+          } else {
+            sanitizePersonIdentity(record.person);
+            enforcePersonNamePatterns(record.person);
+          }
+        } else if (record && record.type === "company") {
+          // Company path retains any previously captured person aliases.
         }
         if (candidateDisplay) registerAlias(record, candidateDisplay);
         if (ownerEntry.raw_name) registerAlias(record, ownerEntry.raw_name);
@@ -3315,6 +3371,12 @@ async function main() {
       });
       if (normalizedDisplay) registerAlias(record, normalizedDisplay);
       registerAlias(record, cleaned);
+      if (record.type === "person") {
+        const compliant = ensurePersonRecordSchemaCompliance(record);
+        if (!compliant) {
+          convertPersonRecordToCompany(record);
+        }
+      }
       return record;
     }
 
