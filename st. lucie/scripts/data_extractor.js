@@ -52,6 +52,98 @@ function parseDateToISO(dateStr) {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeCountyName(value) {
+  if (!value) return null;
+  const cleaned = textClean(String(value));
+  if (!cleaned) return null;
+  const lower = cleaned.toLowerCase();
+  if (lower === "st lucie" || lower === "st. lucie" || lower === "saint lucie") {
+    return "St. Lucie";
+  }
+  return cleaned
+    .split(/\s+/)
+    .map((part) =>
+      part
+        ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        : part,
+    )
+    .join(" ");
+}
+
+function normalizeCityName(value) {
+  if (!value) return null;
+  const cleaned = textClean(String(value));
+  if (!cleaned) return null;
+  return cleaned.toUpperCase();
+}
+
+function sanitizePostalCode(value) {
+  if (!value) return null;
+  const digits = String(value).match(/\d/g);
+  if (!digits || digits.length < 5) return null;
+  return digits.join("").slice(0, 5);
+}
+
+function sanitizePlusFour(value) {
+  if (!value) return null;
+  const digits = String(value).match(/\d/g);
+  if (!digits || digits.length < 4) return null;
+  return digits.join("").slice(0, 4);
+}
+
+function pickStructuredAddress(candidate) {
+  if (!candidate || typeof candidate !== "object") return null;
+  const streetNumber = textClean(candidate.street_number);
+  const streetName = textClean(candidate.street_name);
+  const cityName = textClean(candidate.city_name);
+  const stateCodeRaw = textClean(candidate.state_code);
+  const postalCodeRaw = textClean(candidate.postal_code);
+  const postalCode = sanitizePostalCode(postalCodeRaw);
+  if (
+    !streetNumber ||
+    !streetName ||
+    !cityName ||
+    !stateCodeRaw ||
+    !postalCode
+  ) {
+    return null;
+  }
+
+  const structured = {
+    street_number: streetNumber,
+    street_name: streetName,
+    city_name: normalizeCityName(cityName),
+    state_code: stateCodeRaw.slice(0, 2).toUpperCase(),
+    postal_code: postalCode,
+    country_code: candidate.country_code
+      ? String(candidate.country_code).trim().toUpperCase()
+      : "US",
+  };
+
+  const plusFour = sanitizePlusFour(candidate.plus_four_postal_code);
+  if (plusFour) structured.plus_four_postal_code = plusFour;
+
+  const spreadKeys = [
+    "street_pre_directional_text",
+    "street_post_directional_text",
+    "street_suffix_type",
+    "unit_identifier",
+    "route_number",
+    "block",
+    "lot",
+    "municipality_name",
+  ];
+  for (const key of spreadKeys) {
+    const val = candidate[key];
+    if (val != null) {
+      const cleaned = textClean(String(val));
+      if (cleaned) structured[key] = cleaned;
+    }
+  }
+
+  return structured;
+}
+
 function toTitleCaseName(part) {
   if (!part) return null;
   const normalized = part.trim().toLowerCase();
@@ -1447,9 +1539,8 @@ async function main() {
   let siteAddress = null;
   let secTownRange = null;
   let jurisdiction = null;
-  let parcelIdentifierDashed = null; // Also extract parcel ID from HTML
+  let parcelIdentifierDashed = null;
 
-  // Declare these variables at a higher scope
   let township = null;
   let range = null;
   let section = null;
@@ -1473,8 +1564,14 @@ async function main() {
   const finalAddressOutput = {
     source_http_request: sourceHttpRequest || null,
     request_identifier: baseRequestData.request_identifier || null,
-    county_name: "St. Lucie",
   };
+
+  const countySource =
+    (unnormalizedAddressData && unnormalizedAddressData.county_jurisdiction) ||
+    jurisdiction ||
+    null;
+  const normalizedCounty = normalizeCountyName(countySource) || "St. Lucie";
+  assignIfValue(finalAddressOutput, "county_name", normalizedCounty);
 
   assignIfValue(
     finalAddressOutput,
@@ -1487,168 +1584,34 @@ async function main() {
     unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
   );
 
-  let streetNumber = null;
-  let streetPreDirectionalText = null;
-  let streetName = null;
-  let streetSuffixType = null;
-  let streetPostDirectionalText = null;
-  let city_name = null;
-  let state_code = null;
-  let postal_code = null;
-  let plus_four_postal_code = null;
+  const structuredCandidate =
+    pickStructuredAddress(unnormalizedAddressData) ||
+    pickStructuredAddress(baseRequestData.normalized_address);
 
-  if (siteAddress && siteAddress.toLowerCase() !== "tbd") {
-    // Use unnormalizedAddressData.full_address for city, state, zip if available,
-    // otherwise try to parse from siteAddress.
-    let cityStateZipPart = null;
-    if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
-      const parts = unnormalizedAddressData.full_address.split(',');
-      if (parts.length > 1) {
-        cityStateZipPart = parts.slice(1).join(',').trim();
-      }
-    } else {
-      const parts = siteAddress.split(',');
-      if (parts.length > 1) {
-        cityStateZipPart = parts.slice(1).join(',').trim();
-      }
-    }
-
-    // Parse street number, pre-directional, street name, post-directional, suffix from siteAddress
-    // Example: "1133 SW INGRASSINA AVE"
-    const streetPartMatch = siteAddress.match(/^(\d+)\s+((?:N|S|E|W|NE|NW|SE|SW)\s+)?(.+?)(?:\s+([A-Z]{2,}))?$/i);
-
-    if (streetPartMatch) {
-      streetNumber = streetPartMatch[1];
-      streetPreDirectionalText = streetPartMatch[2] ? streetPartMatch[2].trim().toUpperCase() : null;
-      let tempStreetName = streetPartMatch[3].trim();
-      let potentialSuffixOrPostDirectional = streetPartMatch[4] ? streetPartMatch[4].toUpperCase() : null;
-
-      // Common street suffix types (can be expanded)
-      const suffixMap = {
-        "ST": "St", "AVE": "Ave", "RD": "Rd", "DR": "Dr", "BLVD": "Blvd",
-        "LN": "Ln", "CT": "Ct", "CIR": "Cir", "PL": "Pl", "WAY": "Way",
-        "TER": "Ter", "PKWY": "Pkwy", "HWY": "Hwy", "SQ": "Sq", "TRL": "Trl",
-        "ALY": "Aly", "CV": "Cv", "EXPY": "Expy", "FRY": "Fry", "JCT": "Jct",
-        "MTN": "Mtn", "OVAL": "Oval", "PASS": "Pass", "PIKE": "Pike",
-        "PLZ": "Plz", "PT": "Pt", "RMP": "Ramp", "RDG": "Rdg", "RIV": "Riv",
-        "ROW": "Row", "RTE": "Rte", "SHR": "Shr", "SPG": "Spg", "SPUR": "Spur",
-        "UN": "Un", "VIS": "Vis", "VW": "Vw", "XING": "Xing", "EXT": "Ext",
-        "GLN": "Gln", "GRN": "Grn", "HTS": "Hts", "IS": "Is", "LNDG": "Lndg",
-        "LGT": "Lgt", "LCK": "Lck", "MDW": "Mdw", "MNR": "Mnr", "PR": "Pr",
-        "TRCE": "Trce", "VLG": "Vlg", "WLS": "Wls", "WALK": "Walk", "COR": "Cor",
-        "FRK": "Frk", "FRD": "Frd", "BRG": "Brg", "BRK": "Brk", "CLF": "Clf",
-        "CYN": "Cyn", "DL": "Dl", "DM": "Dm", "FLT": "Flt", "FLD": "Fld",
-        "FRST": "Frst", "GRV": "Grv", "HBR": "Hbr", "HL": "Hl", "HVN": "Hvn",
-        "INLT": "Inlt", "KY": "Ky", "LF": "Lf", "LOOP": "Loop", "MALL": "Mall",
-        "ML": "Ml", "NCK": "Nck", "ORCH": "Orch", "PSGE": "Psge", "RADL": "Radl",
-        "RPD": "Rpd", "RST": "Rst", "SHL": "Shl", "SKWY": "Skwy", "SMT": "Smt",
-        "STRA": "Stra", "STRM": "Strm", "TRFY": "Trfy", "TUNL": "Tunl",
-        "VLY": "Vly", "WALL": "Wall", "BYU": "Byu", "CPE": "Cpe", "CRK": "Crk",
-        "CRSE": "Crse", "CRST": "Crst", "DV": "Dv", "FALL": "Fall", "FT": "Ft",
-        "GTWY": "Gtwy", "LKS": "Lks", "LODG": "Ldg", "MWS": "Mews", "OPAS": "Opas",
-        "UPAS": "Upas", "PNE": "Pne", "RUN": "Run", "SPS": "Spgs", "SPUR": "Spur",
-        "TRLR": "Trlr", "TRWY": "Trwy", "VIA": "Via", "XRD": "Xrd", "BCH": "Bch",
-        "BGS": "Bgs", "BLF": "Blf", "BTM": "Btm", "CLB": "Clb", "CMN": "Cmn",
-        "CTS": "Cts", "DLS": "Dls", "DRS": "Drs", "EST": "Est", "FLS": "Fls",
-        "FRDS": "Frds", "FRGS": "Frgs", "GDNS": "Gdns", "GLNS": "Glns",
-        "GRNS": "Grns", "GRVS": "Grvs", "HBRS": "Hbrs", "HLS": "Hls",
-        "HVNS": "Hvns", "INLTS": "Inlts", "KNL": "Knl", "KNLS": "Knls",
-        "KYS": "Kys", "LGS": "Lgs", "LGTS": "Lgts", "LCKS": "Lcks",
-        "MDWS": "Mdw", "MLS": "Mls", "MNRS": "Mnr",
-        "MTNS": "Mtns", "NWS": "Nws", "PLNS": "Plns", "PNES": "Pnes", "PRTS": "Prts",
-        "PTS": "Pt", "RDGS": "Rdgs", "RPDS": "Rpds", "SHLS": "Shl",
-        "SHRS": "Shrs", "SPS": "Spgs", "SQS": "Sqs", "STS": "Sts",
-        "TRLS": "Trls", "VLS": "Vls", "VLGS": "Vlgs", "VWS": "Vws",
-        "WLS": "Wls", "WAYS": "Ways", "XRDS": "Xrds", "BYP": "Byp", "CMNS": "Cmns",
-        "CRKS": "Crks", "CRSS": "Crss",
-        "EXPS": "Exps", "FRYS": "Frys", "GTWYS": "Gtwys", "JCTS": "Jct",
-        "MTWYS": "Mtwys", "PKWYS": "Pkwys", "PLZS": "Plzs", "RMPS": "Rmps",
-        "RDGS": "Rdgs", "RIVS": "Rivs", "ROWS": "Rows", "RTES": "Rtes",
-        "SHRS": "Shrs", "SPS": "Spgs", "SQS": "Sqs", "STS": "Sts",
-        "TRLS": "Trls", "VLS": "Vls", "VLGS": "Vlgs", "VWS": "Vws",
-        "WLS": "Wls", "WAYS": "Ways", "XRDS": "Xrds"
-      };
-
-      let foundSuffix = false;
-      if (potentialSuffixOrPostDirectional) {
-        if (suffixMap[potentialSuffixOrPostDirectional]) {
-          streetSuffixType = suffixMap[potentialSuffixOrPostDirectional];
-          foundSuffix = true;
-        } else if (["N", "S", "E", "W", "NE", "NW", "SE", "SW"].includes(potentialSuffixOrPostDirectional)) {
-          streetPostDirectionalText = potentialSuffixOrPostDirectional;
-        }
-      }
-      streetName = tempStreetName;
-    }
-
-    // Parse city, state, zip from cityStateZipPart
-    if (cityStateZipPart) {
-      const cityStateZipMatch = cityStateZipPart.match(/^([\w\s\-\']+),\s*([A-Z]{2})\s+(\d{5})(?:-(\d{4}))?$/i);
-      if (cityStateZipMatch) {
-        city_name = cityStateZipMatch[1].toUpperCase();
-        state_code = cityStateZipMatch[2].toUpperCase();
-        postal_code = cityStateZipMatch[3];
-        plus_four_postal_code = cityStateZipMatch[4] || null;
-      }
-    }
-
-    // Parse Sec/Town/Range
-    // Sample: "25/37S/39E"
-    if (secTownRange) { // This block is now correctly using the declared variables
-      const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
-      if (strMatch) {
-        section = strMatch[1];
-        township = strMatch[2];
-        range = strMatch[3];
-      }
-    }
-  }
-
-  const hasNormalizedCore =
-    !!(streetNumber && streetName && city_name && state_code && postal_code);
-
-  if (hasNormalizedCore) {
-    finalAddressOutput.country_code = "US";
-    assignIfValue(finalAddressOutput, "street_number", streetNumber);
-    assignIfValue(finalAddressOutput, "street_name", streetName);
-    assignIfValue(
-      finalAddressOutput,
-      "street_post_directional_text",
-      streetPostDirectionalText,
-    );
-    assignIfValue(
-      finalAddressOutput,
-      "street_pre_directional_text",
-      streetPreDirectionalText,
-    );
-    assignIfValue(finalAddressOutput, "street_suffix_type", streetSuffixType);
-    assignIfValue(
-      finalAddressOutput,
-      "plus_four_postal_code",
-      plus_four_postal_code,
-    );
-    assignIfValue(finalAddressOutput, "city_name", city_name);
-    assignIfValue(finalAddressOutput, "state_code", state_code);
-    assignIfValue(finalAddressOutput, "postal_code", postal_code);
-    delete finalAddressOutput.unnormalized_address;
+  if (structuredCandidate) {
+    Object.assign(finalAddressOutput, structuredCandidate);
+    addressHasCoreData = true;
   } else {
     let fallbackAddress = null;
     if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
       fallbackAddress = textClean(unnormalizedAddressData.full_address);
     }
     if (!fallbackAddress && siteAddress) {
-      fallbackAddress = siteAddress;
+      fallbackAddress = textClean(siteAddress);
     }
-    assignIfValue(finalAddressOutput, "unnormalized_address", fallbackAddress);
-    delete finalAddressOutput.street_number;
-    delete finalAddressOutput.street_name;
-    delete finalAddressOutput.street_post_directional_text;
-    delete finalAddressOutput.street_pre_directional_text;
-    delete finalAddressOutput.street_suffix_type;
-    delete finalAddressOutput.plus_four_postal_code;
-    delete finalAddressOutput.city_name;
-    delete finalAddressOutput.state_code;
-    delete finalAddressOutput.postal_code;
+    if (fallbackAddress) {
+      assignIfValue(finalAddressOutput, "unnormalized_address", fallbackAddress);
+      addressHasCoreData = true;
+    }
+  }
+
+  if (secTownRange) {
+    const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
+    if (strMatch) {
+      section = strMatch[1];
+      township = strMatch[2];
+      range = strMatch[3];
+    }
   }
 
   if (township) assignIfValue(finalAddressOutput, "township", township);
@@ -1660,11 +1623,11 @@ async function main() {
     "unnormalized_address",
   );
   const hasStructuredAddress =
-    Object.prototype.hasOwnProperty.call(finalAddressOutput, "street_number") &&
-    Object.prototype.hasOwnProperty.call(finalAddressOutput, "street_name") &&
-    Object.prototype.hasOwnProperty.call(finalAddressOutput, "city_name") &&
-    Object.prototype.hasOwnProperty.call(finalAddressOutput, "state_code");
-  addressHasCoreData = hasUnnormalizedAddress || hasStructuredAddress;
+    ["street_number", "street_name", "city_name", "state_code", "postal_code"].every(
+      (key) => Object.prototype.hasOwnProperty.call(finalAddressOutput, key),
+    );
+  addressHasCoreData =
+    addressHasCoreData || hasUnnormalizedAddress || hasStructuredAddress;
 
   if (addressHasCoreData) {
     await fsp.writeFile(
@@ -1775,18 +1738,8 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
-    if (addressHasCoreData) {
-      const propertyToAddressRel = {
-        from: { "/": "./property.json" },
-        to: { "/": "./address.json" },
-      };
-      await fsp.writeFile(
-        path.join("data", "relationship_property_has_address.json"),
-        JSON.stringify(propertyToAddressRel, null, 2),
-      );
-    }
-
     // Lot data
+
     const lotOut = {
       source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
       request_identifier: baseRequestData.request_identifier || null,
@@ -2436,18 +2389,86 @@ async function main() {
 
     for (const record of ownerRecords.values()) {
       if (record.type === "person") {
+        const fallbackName = getRecordFallbackName(record);
+        const requestIdForPerson = record.person?.request_identifier ?? null;
+        let sanitizedFirst = normalizePersonNameValue(record.person?.first_name);
+        let sanitizedLast = normalizePersonNameValue(record.person?.last_name);
+        let sanitizedMiddle = normalizePersonNameValue(
+          record.person?.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+
+        if (!sanitizedLast && fallbackName) {
+          const parsed = parsePersonNameTokens(fallbackName);
+          if (parsed) {
+            if (!sanitizedFirst && parsed.first_name) {
+              sanitizedFirst = normalizePersonNameValue(parsed.first_name);
+            }
+            if (!sanitizedMiddle && parsed.middle_name) {
+              sanitizedMiddle = normalizePersonNameValue(
+                parsed.middle_name,
+                PERSON_MIDDLE_NAME_PATTERN,
+              );
+            }
+            if (parsed.last_name) {
+              sanitizedLast = normalizePersonNameValue(parsed.last_name);
+            }
+          }
+        }
+
+        if (!sanitizedLast) {
+          const companyName =
+            fallbackName ||
+            buildPersonDisplayName(record.person) ||
+            record.displayName ||
+            null;
+          record.type = "company";
+          record.company = {
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          record.person = undefined;
+          if (!record.displayName && companyName) {
+            record.displayName = companyName;
+          }
+          companyIdx += 1;
+          const companyOut = {
+            source_http_request: sourceHttpRequest,
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          const fileName = `company_${companyIdx}.json`;
+          await fsp.writeFile(
+            path.join("data", fileName),
+            JSON.stringify(companyOut, null, 2),
+          );
+          ownerToFileMap.set(record.id, {
+            fileName,
+            type: "company",
+            index: companyIdx,
+          });
+          continue;
+        }
+
+        record.person = {
+          ...record.person,
+          first_name: sanitizedFirst ?? null,
+          last_name: sanitizedLast,
+          middle_name: sanitizedMiddle ?? null,
+        };
+
         personIdx += 1;
         const personOut = {
-          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+          source_http_request: sourceHttpRequest,
           birth_date: record.person?.birth_date ?? null,
-          first_name: record.person?.first_name ?? null,
-          last_name: record.person?.last_name ?? null,
-          middle_name: record.person?.middle_name ?? null,
+          first_name: sanitizedFirst ?? null,
+          last_name: sanitizedLast,
+          middle_name: sanitizedMiddle ?? null,
           prefix_name: record.person?.prefix_name ?? null,
           suffix_name: record.person?.suffix_name ?? null,
           us_citizenship_status: record.person?.us_citizenship_status ?? null,
           veteran_status: record.person?.veteran_status ?? null,
-          request_identifier: record.person?.request_identifier ?? null,
+          request_identifier: requestIdForPerson,
         };
         const fileName = `person_${personIdx}.json`;
         await fsp.writeFile(
