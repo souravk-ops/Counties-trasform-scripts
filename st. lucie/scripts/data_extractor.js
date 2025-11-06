@@ -209,6 +209,15 @@ const REQUIRED_STRUCTURED_ADDRESS_KEYS = [
   "state_code",
 ];
 
+const ADDRESS_COMMON_KEYS = new Set([
+  "county_name",
+  "latitude",
+  "longitude",
+  "section",
+  "township",
+  "range",
+]);
+
 const ADDRESS_CITY_KEYS = new Set(["city_name", "municipality_name"]);
 
 const DIRECTION_NORMALIZATION_MAP = new Map([
@@ -881,8 +890,58 @@ function convertPersonRecordToCompany(record) {
     record.displayName = companyName;
   }
   if (record.aliasTexts) {
-    record.aliasTexts.add(companyName);
+   record.aliasTexts.add(companyName);
+ }
+}
+
+function buildPersonPayload(record) {
+  if (!record || record.type !== "person" || !record.person) return null;
+  const payload = {
+    birth_date: record.person.birth_date ?? null,
+    first_name: record.person.first_name ?? null,
+    last_name: record.person.last_name ?? null,
+    middle_name: record.person.middle_name ?? null,
+    prefix_name: record.person.prefix_name ?? null,
+    suffix_name: record.person.suffix_name ?? null,
+    us_citizenship_status: record.person.us_citizenship_status ?? null,
+    veteran_status: record.person.veteran_status ?? null,
+  };
+  sanitizePersonIdentity(payload);
+  enforcePersonNamePatterns(payload);
+  if (
+    !payload.last_name ||
+    !PERSON_NAME_PATTERN.test(payload.last_name)
+  ) {
+    return null;
   }
+  if (
+    payload.middle_name &&
+    !PERSON_MIDDLE_NAME_PATTERN.test(payload.middle_name)
+  ) {
+    payload.middle_name = null;
+  }
+  pruneNullish(payload);
+  return payload;
+}
+
+function buildCompanyPayload(record) {
+  if (!record || record.type !== "company") return null;
+  const candidateNames = [];
+  if (record.company?.name) candidateNames.push(record.company.name);
+  if (record.displayName) candidateNames.push(record.displayName);
+  if (record.aliasTexts && record.aliasTexts.size) {
+    for (const alias of record.aliasTexts) {
+      candidateNames.push(alias);
+    }
+  }
+  for (const candidate of candidateNames) {
+    if (typeof candidate !== "string") continue;
+    const cleaned = textClean(candidate);
+    if (cleaned) {
+      return { name: cleaned };
+    }
+  }
+  return { name: `Owner ${record?.id || "unknown"}` };
 }
 
 function slugify(value, fallback = "unspecified") {
@@ -1383,20 +1442,21 @@ function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
   return obj;
 }
 
+function hasMeaningfulValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  return true;
+}
+
 function enforceAddressOneOf(address, { preferUnnormalized = false } = {}) {
   if (!address || typeof address !== "object") return "none";
-  const hasMeaningful = (value) => {
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    return true;
-  };
 
   const structuredKeysPresent = ADDRESS_STRUCTURED_KEYS.filter((key) =>
-    hasMeaningful(address[key]),
+    hasMeaningfulValue(address[key]),
   );
-  const hasUnnormalized = hasMeaningful(address.unnormalized_address);
+  const hasUnnormalized = hasMeaningfulValue(address.unnormalized_address);
   const hasCompleteStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-    hasMeaningful(address[key]),
+    hasMeaningfulValue(address[key]),
   );
 
   if (!structuredKeysPresent.length && !hasUnnormalized) return "none";
@@ -1427,13 +1487,13 @@ function enforceAddressOneOf(address, { preferUnnormalized = false } = {}) {
   // Safety net: if conflicting data remains after the above operations, prefer the representation
   // that still passes basic validation.
   const remainingStructured = ADDRESS_STRUCTURED_KEYS.filter((key) =>
-    hasMeaningful(address[key]),
+    hasMeaningfulValue(address[key]),
   );
-  const stillHasUnnormalized = hasMeaningful(address.unnormalized_address);
+  const stillHasUnnormalized = hasMeaningfulValue(address.unnormalized_address);
   if (remainingStructured.length && stillHasUnnormalized) {
     if (
       REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-        hasMeaningful(address[key]),
+        hasMeaningfulValue(address[key]),
       )
     ) {
       delete address.unnormalized_address;
@@ -1445,12 +1505,53 @@ function enforceAddressOneOf(address, { preferUnnormalized = false } = {}) {
     }
   }
 
-  if (hasMeaningful(address.unnormalized_address)) return "unnormalized";
+  if (hasMeaningfulValue(address.unnormalized_address)) return "unnormalized";
 
   const hasStructuredAfterCleanup = REQUIRED_STRUCTURED_ADDRESS_KEYS.every(
-    (key) => hasMeaningful(address[key]),
+    (key) => hasMeaningfulValue(address[key]),
   );
   return hasStructuredAfterCleanup ? "structured" : "none";
+}
+
+function finalizeAddressVariant(address) {
+  if (!address || typeof address !== "object") return null;
+  const base = {};
+  for (const key of ADDRESS_COMMON_KEYS) {
+    if (!hasMeaningfulValue(address[key])) continue;
+    const value = address[key];
+    base[key] =
+      typeof value === "string" ? value.trim() : value;
+  }
+
+  const hasStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
+    hasMeaningfulValue(address[key]),
+  );
+  const hasUnnormalized = hasMeaningfulValue(address.unnormalized_address);
+
+  if (hasStructured) {
+    const out = { ...base };
+    for (const key of ADDRESS_STRUCTURED_KEYS) {
+      if (!hasMeaningfulValue(address[key])) continue;
+      const value = address[key];
+      out[key] =
+        typeof value === "string" ? value.trim() : value;
+    }
+    return out;
+  }
+
+  if (hasUnnormalized) {
+    const raw = address.unnormalized_address;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      return { ...base, unnormalized_address: trimmed };
+    }
+    if (raw != null) {
+      return { ...base, unnormalized_address: raw };
+    }
+  }
+
+  return null;
 }
 
 async function removeExisting(pattern) {
@@ -2661,20 +2762,12 @@ async function main() {
     structuredAddress &&
     REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
       const value = structuredAddress[key];
-      if (value == null) return false;
-      if (typeof value === "string") return value.trim().length > 0;
-      return true;
+      return hasMeaningfulValue(value);
     });
-
-  const hasMeaningful = (value) => {
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    return true;
-  };
 
   const trimmedBaseAddress = {};
   for (const [key, value] of Object.entries(baseAddress)) {
-    if (!hasMeaningful(value)) continue;
+    if (!hasMeaningfulValue(value)) continue;
     trimmedBaseAddress[key] =
       typeof value === "string" ? value.trim() : value;
   }
@@ -2685,7 +2778,7 @@ async function main() {
       if (!Object.prototype.hasOwnProperty.call(structuredAddress, key))
         continue;
       const value = structuredAddress[key];
-      if (!hasMeaningful(value)) continue;
+      if (!hasMeaningfulValue(value)) continue;
       trimmedStructuredAddress[key] =
         typeof value === "string" ? value.trim() : value;
     }
@@ -2739,6 +2832,11 @@ async function main() {
     });
     if (selectedVariant === "none") {
       addressPayload = null;
+    } else {
+      addressPayload = finalizeAddressVariant(addressPayload);
+      if (!addressPayload) {
+        addressPayload = null;
+      }
     }
   }
 
@@ -3474,66 +3572,19 @@ async function main() {
 
     for (const record of ownerRecords.values()) {
       if (record.type === "person") {
-        const personOut = {
-          birth_date: record.person?.birth_date ?? null,
-          first_name: record.person?.first_name ?? null,
-          last_name: record.person?.last_name ?? null,
-          middle_name: record.person?.middle_name ?? null,
-          prefix_name: record.person?.prefix_name ?? null,
-          suffix_name: record.person?.suffix_name ?? null,
-          us_citizenship_status: record.person?.us_citizenship_status ?? null,
-          veteran_status: record.person?.veteran_status ?? null,
-        };
-        sanitizePersonIdentity(personOut);
-        enforcePersonNamePatterns(personOut);
-        if (
-          typeof personOut.last_name === "string" &&
-          !PERSON_NAME_PATTERN.test(personOut.last_name)
-        ) {
-          personOut.last_name = normalizeNameValue(
-            personOut.last_name,
-            PERSON_NAME_PATTERN,
-          );
-        }
-        if (
-          personOut.last_name == null ||
-          !PERSON_NAME_PATTERN.test(personOut.last_name)
-        ) {
+        const personPayload = buildPersonPayload(record);
+        if (personPayload) {
+          personRecordsToWrite.push({ record, payload: personPayload });
+        } else {
           convertPersonRecordToCompany(record);
-          if (record.type === "company") {
-            const companyOut = {
-              name: record.company?.name ?? record.displayName ?? null,
-            };
-            pruneNullish(companyOut);
-            companyRecordsToWrite.push({ record, payload: companyOut });
-          }
-          continue;
         }
-        if (
-          typeof personOut.middle_name === "string" &&
-          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
-        ) {
-          personOut.middle_name = normalizeNameValue(
-            personOut.middle_name,
-            PERSON_MIDDLE_NAME_PATTERN,
-          );
-          if (
-            personOut.middle_name == null ||
-            !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
-          ) {
-            personOut.middle_name = null;
-          }
-        }
-        pruneNullish(personOut);
-        personRecordsToWrite.push({ record, payload: personOut });
-        continue;
       }
-
-      const companyOut = {
-        name: record.company?.name ?? record.displayName ?? null,
-      };
-      pruneNullish(companyOut);
-      companyRecordsToWrite.push({ record, payload: companyOut });
+      if (record.type === "company") {
+        const companyPayload = buildCompanyPayload(record);
+        if (companyPayload) {
+          companyRecordsToWrite.push({ record, payload: companyPayload });
+        }
+      }
     }
 
     for (const { record, payload } of personRecordsToWrite) {
