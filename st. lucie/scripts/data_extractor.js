@@ -1704,6 +1704,49 @@ function normalizeAddressPayloadForOneOf(address) {
   return { variant: "none", payload: null };
 }
 
+function coerceAddressForSchema(address) {
+  if (!address || typeof address !== "object") return null;
+
+  const base = {};
+  for (const key of ADDRESS_COMMON_KEYS) {
+    if (!hasMeaningfulValue(address[key])) continue;
+    const value = address[key];
+    base[key] =
+      typeof value === "string" ? value.trim() : value;
+  }
+
+  const structured = {};
+  for (const key of ADDRESS_STRUCTURED_KEYS) {
+    if (!hasMeaningfulValue(address[key])) continue;
+    const value = address[key];
+    structured[key] =
+      typeof value === "string" ? value.trim() : value;
+  }
+
+  const hasStructuredRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
+    hasMeaningfulValue(structured[key]),
+  );
+  if (hasStructuredRequired) {
+    return { ...base, ...structured };
+  }
+
+  const unnormalizedRaw = address.unnormalized_address;
+  let normalizedUnnormalized = null;
+  if (typeof unnormalizedRaw === "string") {
+    const trimmed = unnormalizedRaw.trim();
+    normalizedUnnormalized = trimmed.length ? trimmed : null;
+  } else if (unnormalizedRaw != null) {
+    const coerced = String(unnormalizedRaw).trim();
+    normalizedUnnormalized = coerced.length ? coerced : null;
+  }
+
+  if (normalizedUnnormalized) {
+    return { ...base, unnormalized_address: normalizedUnnormalized };
+  }
+
+  return null;
+}
+
 function resolveAddressPayload({
   commonSource,
   structuredSource,
@@ -3046,11 +3089,13 @@ async function main() {
     }
   }
 
+  const coercedAddressPayload = coerceAddressForSchema(addressPayload);
+
   const addressOutputPath = path.join("data", "address.json");
-  if (addressPayload) {
+  if (coercedAddressPayload) {
     await fsp.writeFile(
       addressOutputPath,
-      JSON.stringify(addressPayload, null, 2),
+      JSON.stringify(coercedAddressPayload, null, 2),
     );
   } else {
     await fsp.unlink(addressOutputPath).catch(() => {});
