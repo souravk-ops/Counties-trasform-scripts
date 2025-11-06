@@ -939,8 +939,8 @@ function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
   return obj;
 }
 
-function enforceAddressOneOf(address) {
-  if (!address || typeof address !== "object") return;
+function enforceAddressOneOf(address, { preferUnnormalized = false } = {}) {
+  if (!address || typeof address !== "object") return "none";
   const hasMeaningful = (value) => {
     if (value == null) return false;
     if (typeof value === "string") return value.trim().length > 0;
@@ -955,18 +955,25 @@ function enforceAddressOneOf(address) {
     hasMeaningful(address[key]),
   );
 
-  if (!structuredKeysPresent.length && !hasUnnormalized) return;
+  if (!structuredKeysPresent.length && !hasUnnormalized) return "none";
+
+  if (preferUnnormalized && hasUnnormalized) {
+    for (const key of structuredKeysPresent) {
+      delete address[key];
+    }
+    return "unnormalized";
+  }
 
   if (hasCompleteStructured) {
     if (hasUnnormalized) delete address.unnormalized_address;
-    return;
+    return "structured";
   }
 
   if (!hasUnnormalized) {
     for (const key of structuredKeysPresent) {
       delete address[key];
     }
-    return;
+    return "none";
   }
 
   for (const key of structuredKeysPresent) {
@@ -986,12 +993,20 @@ function enforceAddressOneOf(address) {
       )
     ) {
       delete address.unnormalized_address;
+      return "structured";
     } else {
       for (const key of remainingStructured) {
         delete address[key];
       }
     }
   }
+
+  if (hasMeaningful(address.unnormalized_address)) return "unnormalized";
+
+  const hasStructuredAfterCleanup = REQUIRED_STRUCTURED_ADDRESS_KEYS.every(
+    (key) => hasMeaningful(address[key]),
+  );
+  return hasStructuredAfterCleanup ? "structured" : "none";
 }
 
 async function removeExisting(pattern) {
@@ -2179,7 +2194,12 @@ async function main() {
 
   let addressPayload = null;
 
-  if (structuredAddressCandidate) {
+  if (fallbackUnnormalizedCandidate) {
+    addressPayload = {
+      ...baseAddress,
+      unnormalized_address: fallbackUnnormalizedCandidate,
+    };
+  } else if (structuredAddressCandidate) {
     const structuredAddress = {};
     for (const key of ADDRESS_STRUCTURED_KEYS) {
       if (!Object.prototype.hasOwnProperty.call(structuredAddressCandidate, key))
@@ -2197,11 +2217,6 @@ async function main() {
     if (Object.keys(structuredAddress).length > 0) {
       addressPayload = { ...baseAddress, ...structuredAddress };
     }
-  } else if (fallbackUnnormalizedCandidate) {
-    addressPayload = {
-      ...baseAddress,
-      unnormalized_address: fallbackUnnormalizedCandidate,
-    };
   }
 
   if (secTownRange) {
@@ -2215,29 +2230,41 @@ async function main() {
 
   const addressOutputPath = path.join("data", "address.json");
   if (addressPayload) {
-    enforceAddressOneOf(addressPayload);
+    let representation = enforceAddressOneOf(addressPayload, {
+      preferUnnormalized: Boolean(fallbackUnnormalizedCandidate),
+    });
     pruneNullish(addressPayload);
 
-    const hasStructuredAddressForOutput = REQUIRED_STRUCTURED_ADDRESS_KEYS.every(
-      (key) => {
+    if (representation === "structured") {
+      const hasAllRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
         const value = addressPayload[key];
         if (value == null) return false;
         if (typeof value === "string") return value.trim().length > 0;
         return true;
-      },
-    );
-    const hasUnnormalizedAddressForOutput =
-      typeof addressPayload.unnormalized_address === "string" &&
-      addressPayload.unnormalized_address.trim().length > 0;
+      });
+      if (!hasAllRequired) {
+        representation = "none";
+      }
+    } else if (representation === "unnormalized") {
+      if (
+        typeof addressPayload.unnormalized_address === "string" &&
+        addressPayload.unnormalized_address.trim().length > 0
+      ) {
+        addressPayload.unnormalized_address =
+          addressPayload.unnormalized_address.trim();
+      } else {
+        representation = "none";
+      }
+    }
 
-    if (hasStructuredAddressForOutput || hasUnnormalizedAddressForOutput) {
+    if (representation === "none") {
+      await fsp.unlink(addressOutputPath).catch(() => {});
+    } else {
       await fsp.writeFile(
         addressOutputPath,
         JSON.stringify(addressPayload, null, 2),
       );
       addressWritten = true;
-    } else {
-      await fsp.unlink(addressOutputPath).catch(() => {});
     }
   } else {
     await fsp.unlink(addressOutputPath).catch(() => {});
@@ -2782,17 +2809,12 @@ async function main() {
     // Extract owner name and mailing address from HTML
     const ownerP = $("article#ownership .bottom-text p").first();
     if (ownerP && ownerP.length) {
-      console.log("--- Mailing Address Debugging ---");
-      console.log("Raw HTML of Ownership P tag:", ownerP.html());
-
-      // Replace all <br> tags (with or without attributes) with a newline character
       const htmlContent = ownerP.html();
-      const cleanedHtml = htmlContent.replace(/<br[^>]*>/gi, '\n'); 
-      
-      // Split by newline characters, then clean each line and filter out any empty ones
-      const lines = cleanedHtml.split('\n').map(line => textClean(line)).filter(Boolean);
-
-      console.log("Lines after replacing <br> with \\n and cleaning:", lines);
+      const cleanedHtml = htmlContent.replace(/<br[^>]*>/gi, "\n");
+      const lines = cleanedHtml
+        .split("\n")
+        .map((line) => textClean(line))
+        .filter(Boolean);
 
       if (lines.length > 0) {
         const normalizedLines = lines.map((line, index) => ({
@@ -2837,8 +2859,6 @@ async function main() {
             ? mailingAddressLines.join(" ").trim()
             : null;
       }
-      console.log("Extracted currentOwnerName:", currentOwnerName);
-      console.log("Extracted mailingAddressText (raw):", mailingAddressText);
     }
 
     // If current owner not found from owner_data.json, create from HTML
@@ -2871,16 +2891,29 @@ async function main() {
         // route_number: null,
         // po_box_number: null,
       };
-      enforceAddressOneOf(mailingAddressOut);
+      const mailingRepresentation = enforceAddressOneOf(mailingAddressOut, {
+        preferUnnormalized: true,
+      });
       pruneNullish(mailingAddressOut);
 
-      console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
+      if (
+        mailingRepresentation === "unnormalized" &&
+        typeof mailingAddressOut.unnormalized_address === "string" &&
+        mailingAddressOut.unnormalized_address.trim().length > 0
+      ) {
+        mailingAddressOut.unnormalized_address =
+          mailingAddressOut.unnormalized_address.trim();
 
-      await fsp.writeFile(
-        path.join("data", "mailing_address.json"),
-        JSON.stringify(mailingAddressOut, null, 2),
-      );
-      console.log("mailing_address.json created.");
+        await fsp.writeFile(
+          path.join("data", "mailing_address.json"),
+          JSON.stringify(mailingAddressOut, null, 2),
+        );
+      } else {
+        mailingAddressOut = null;
+        await fsp
+          .unlink(path.join("data", "mailing_address.json"))
+          .catch(() => {});
+      }
     }
 
 
@@ -2959,6 +2992,21 @@ async function main() {
         if (!compliant) {
           convertPersonRecordToCompany(record);
         }
+      }
+    }
+
+    for (const record of ownerRecords.values()) {
+      if (record.type !== "person") continue;
+      const lastName = record.person?.last_name;
+      if (typeof lastName !== "string" || !PERSON_NAME_PATTERN.test(lastName)) {
+        convertPersonRecordToCompany(record);
+        continue;
+      }
+      if (
+        record.person?.middle_name &&
+        !PERSON_MIDDLE_NAME_PATTERN.test(record.person.middle_name)
+      ) {
+        record.person.middle_name = null;
       }
     }
 
@@ -3072,7 +3120,7 @@ async function main() {
     // --- Create relationship between latest owner (if person) and mailing address ---
     // This relationship should only be created if mailingAddressOut was successfully created
     // and ownerToFileMap is now fully populated.
-    if (currentOwnerRecord  && mailingAddressOut) {
+    if (currentOwnerRecord && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
       if (latestOwnerMeta && latestOwnerMeta.type === "person") {
         const relFileName = `relationship_person_${latestOwnerMeta.index}_has_mailing_address.json`;
@@ -3085,25 +3133,11 @@ async function main() {
             path.join("data", relFileName),
             JSON.stringify(relOut, null, 2),
           );
-          console.log(`Created mailing address relationship: ${relFileName}`);
         } else {
           await fsp.unlink(path.join("data", relFileName)).catch(() => {});
         }
-      } else if (latestOwnerMeta) {
-        console.log(
-          "Skipping mailing address relationship for non-person owner.",
-        );
-      } else {
-        console.log("Warning: Could not find metadata for currentOwnerRecord (or it's not a person) to create mailing address relationship.");
       }
-    } else {
-      console.log("Mailing address relationship not created. Conditions not met:", {
-        currentOwnerRecord: !!currentOwnerRecord,
-        isPerson: currentOwnerRecord?.type === "person",
-        mailingAddressOut: !!mailingAddressOut
-      });
     }
-
 
     const propertyRelCounters = { person: 0, company: 0 };
     for (const [recordId, roles] of ownerPropertyRoles.entries()) {
