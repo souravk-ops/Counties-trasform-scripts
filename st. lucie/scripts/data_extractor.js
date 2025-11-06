@@ -1854,6 +1854,7 @@ async function main() {
   await removeExisting(/^relationship_property_has_address.*\.json$/);
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   const propertyImprovementRecords = [];
+  let addressWritten = false;
 
 
   // --- Address extraction ---
@@ -2081,10 +2082,26 @@ async function main() {
   ensureRequestIdentifier(addressPayload);
   pruneNullish(addressPayload);
 
-  await fsp.writeFile(
-    path.join("data", "address.json"),
-    JSON.stringify(addressPayload, null, 2),
-  );
+  const addressOutputPath = path.join("data", "address.json");
+  const hasStructuredAddressForOutput = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
+    const value = addressPayload[key];
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  });
+  const hasUnnormalizedAddressForOutput =
+    typeof addressPayload.unnormalized_address === "string" &&
+    addressPayload.unnormalized_address.trim().length > 0;
+
+  if (hasStructuredAddressForOutput || hasUnnormalizedAddressForOutput) {
+    await fsp.writeFile(
+      addressOutputPath,
+      JSON.stringify(addressPayload, null, 2),
+    );
+    addressWritten = true;
+  } else {
+    await fsp.unlink(addressOutputPath).catch(() => {});
+  }
 
   // --- Parcel extraction ---
   // parcelIdentifierDashed is already extracted from HTML
@@ -2186,6 +2203,17 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+
+    if (addressWritten) {
+      const propertyAddressRel = createRelationshipPayload(
+        "./property.json",
+        "./address.json",
+      );
+      await fsp.writeFile(
+        path.join("data", "relationship_property_has_address.json"),
+        JSON.stringify(propertyAddressRel, null, 2),
+      );
+    }
 
     // Lot data
     const lotOut = {
