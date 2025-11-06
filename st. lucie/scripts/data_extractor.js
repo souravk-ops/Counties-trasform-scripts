@@ -176,6 +176,32 @@ function buildPersonDisplayName(person) {
 const PERSON_NAME_PATTERN = /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
 const PERSON_MIDDLE_NAME_PATTERN = /^[A-Z][a-zA-Z\s\-',.]*$/;
 
+const ADDRESS_STRUCTURED_KEYS = [
+  "street_number",
+  "street_name",
+  "street_post_directional_text",
+  "street_pre_directional_text",
+  "street_suffix_type",
+  "unit_identifier",
+  "route_number",
+  "city_name",
+  "municipality_name",
+  "postal_code",
+  "plus_four_postal_code",
+  "state_code",
+  "country_code",
+  "lot",
+  "block",
+];
+
+const REQUIRED_STRUCTURED_ADDRESS_KEYS = [
+  "street_number",
+  "street_name",
+  "city_name",
+  "postal_code",
+  "state_code",
+];
+
 function normalizeNameValue(raw, pattern) {
   if (!raw || typeof raw !== "string") return null;
   let value = stripNameDesignations(raw);
@@ -742,6 +768,47 @@ function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
     }
   }
   return obj;
+}
+
+function enforceAddressOneOf(address) {
+  if (!address || typeof address !== "object") return;
+  const hasStructuredValue = ADDRESS_STRUCTURED_KEYS.some((key) => {
+    const value = address[key];
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  });
+  const hasCompleteStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
+    const value = address[key];
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  });
+  const hasUnnormalized =
+    typeof address.unnormalized_address === "string" &&
+    address.unnormalized_address.trim().length > 0;
+
+  if (hasCompleteStructured) {
+    if (hasUnnormalized) delete address.unnormalized_address;
+    return;
+  }
+
+  if (hasUnnormalized) {
+    for (const key of ADDRESS_STRUCTURED_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(address, key)) {
+        delete address[key];
+      }
+    }
+    return;
+  }
+
+  if (hasStructuredValue) {
+    for (const key of ADDRESS_STRUCTURED_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(address, key)) {
+        delete address[key];
+      }
+    }
+  }
 }
 
 async function removeExisting(pattern) {
@@ -1914,31 +1981,8 @@ async function main() {
   );
   if (sectionCandidate != null) baseAddress.section = sectionCandidate;
 
-  const structuredKeys = [
-    "street_number",
-    "street_name",
-    "street_post_directional_text",
-    "street_pre_directional_text",
-    "street_suffix_type",
-    "unit_identifier",
-    "route_number",
-    "city_name",
-    "municipality_name",
-    "postal_code",
-    "plus_four_postal_code",
-    "state_code",
-    "country_code",
-    "lot",
-    "block",
-  ];
-
-  const requiredStructuredKeys = [
-    "street_number",
-    "street_name",
-    "city_name",
-    "postal_code",
-    "state_code",
-  ];
+  const structuredKeys = ADDRESS_STRUCTURED_KEYS;
+  const requiredStructuredKeys = REQUIRED_STRUCTURED_ADDRESS_KEYS;
 
   const structuredAddressFields = {};
   if (normalizedAddressSources.length > 0) {
@@ -2033,6 +2077,7 @@ async function main() {
     }
   }
 
+  enforceAddressOneOf(addressPayload);
   ensureRequestIdentifier(addressPayload);
   pruneNullish(addressPayload);
 
@@ -2140,15 +2185,6 @@ async function main() {
     await fsp.writeFile(
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
-    );
-
-    const propertyHasAddressRel = createRelationshipPayload(
-      "./property.json",
-      "./address.json",
-    );
-    await fsp.writeFile(
-      path.join("data", "relationship_property_has_address.json"),
-      JSON.stringify(propertyHasAddressRel, null, 2),
     );
 
     // Lot data
@@ -2603,6 +2639,7 @@ async function main() {
         // route_number: null,
         // po_box_number: null,
       };
+      enforceAddressOneOf(mailingAddressOut);
       ensureRequestIdentifier(mailingAddressOut);
       pruneNullish(mailingAddressOut);
 
