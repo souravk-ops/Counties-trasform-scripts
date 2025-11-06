@@ -13,30 +13,6 @@ function ensureDirSync(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-function normalizeRelationshipEndpoint(ref) {
-  if (ref == null) return null;
-
-  let pointer = null;
-  if (typeof ref === "string") {
-    pointer = ref.trim();
-  } else if (typeof ref === "object" && ref !== null) {
-    const candidate = ref["/"];
-    if (typeof candidate === "string") {
-      pointer = candidate.trim();
-    }
-  }
-
-  if (!pointer) return null;
-  return { "/": pointer };
-}
-
-function createRelationshipPayload(fromPath, toPath) {
-  const from = normalizeRelationshipEndpoint(fromPath);
-  const to = normalizeRelationshipEndpoint(toPath);
-  if (!from || !to) return null;
-  return { from, to };
-}
-
 function textClean(s) {
   // Improved textClean to remove HTML comments and non-breaking spaces more aggressively
   return (s || "")
@@ -44,35 +20,6 @@ function textClean(s) {
     .replace(/\u00a0/g, " ") // Replace non-breaking spaces
     .replace(/\s+/g, " ") // Replace multiple spaces with a single space
     .trim();
-}
-
-const NAME_DESIGNATION_TOKENS =
-  /\b(?:A\/K\/A|AKA|C\/O|DBA|D\/B\/A|DECD|DEC'D|DECEASED|ESQ|EST(?:ATE)?|ET\s*AL|ETAL|FBO|FKA|JR|SR|II|III|IV|IX|MD|MR|MRS|MS|PHD|TR|TRUST(?:EE)?|TTEE|V|VI|VII|VIII)\b\.?/gi;
-
-function stripNameDesignations(value) {
-  if (!value || typeof value !== "string") return value;
-  let cleaned = value;
-  cleaned = cleaned.replace(/\(([^)]*)\)/g, (_, inner) => {
-    const normalized = inner.trim();
-    if (!normalized) return "";
-    NAME_DESIGNATION_TOKENS.lastIndex = 0;
-    return NAME_DESIGNATION_TOKENS.test(normalized.toUpperCase())
-      ? ""
-      : ` ${normalized}`;
-  });
-  NAME_DESIGNATION_TOKENS.lastIndex = 0;
-  cleaned = cleaned.replace(NAME_DESIGNATION_TOKENS, " ");
-  cleaned = cleaned.replace(/\bN\/?K\/?A\b\.?/gi, " ");
-  const result = cleaned.replace(/\s+/g, " ").trim();
-  NAME_DESIGNATION_TOKENS.lastIndex = 0;
-  return result;
-}
-
-function stripDiacritics(value) {
-  if (!value || typeof value !== "string" || typeof value.normalize !== "function") {
-    return value;
-  }
-  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function parseCurrencyToNumber(str) {
@@ -118,8 +65,6 @@ function parsePersonNameTokens(name) {
   // Also remove common suffixes that might be mistaken for middle names or part of the last name
   cleaned = cleaned.replace(/,?\s*(JR|SR|II|III|IV)\.?$/i, '').trim();
 
-  cleaned = stripNameDesignations(cleaned);
-
 
   if (cleaned.includes(",")) {
     const [lastPart, rest] = cleaned.split(",", 2);
@@ -148,48 +93,22 @@ function parsePersonNameTokens(name) {
     return { first_name: null, middle_name: null, last_name: null };
   }
   if (tokens.length === 1) {
-    const singlePerson = {
-      first_name: tokens[0],
-      middle_name: null,
-      last_name: null,
-    };
-    sanitizePersonIdentity(singlePerson);
-    return singlePerson;
+    return { first_name: tokens[0], middle_name: null, last_name: null };
   }
-  let first = tokens[0];
-  let last = tokens[tokens.length - 1];
-  let middle =
+  const first = tokens[0];
+  const last = tokens[tokens.length - 1];
+  const middle =
     tokens.length > 2 ? tokens.slice(1, -1).join(" ") || null : null;
 
-  const trailingInitialRegex = /^[A-Z]\.?$/;
-  const hasTrailingInitial =
-    tokens.length >= 3 && trailingInitialRegex.test(last);
-  if (hasTrailingInitial) {
-    const potentialFirst = tokens[tokens.length - 2];
-    const lastTokens = tokens.slice(0, tokens.length - 2);
-    first = potentialFirst;
-    last = lastTokens.length ? lastTokens.join(" ") : tokens[0];
-    middle = tokens[tokens.length - 1].replace(/\./g, "") || null;
-  } else if (last.length <= 1 && tokens.length >= 2) {
-    const altLastTokens = tokens.slice(0, tokens.length - 1);
-    const altFirst = tokens[tokens.length - 1];
-    if (altLastTokens.length) {
-      first = altFirst;
-      last = altLastTokens.join(" ");
-      middle =
-        altLastTokens.length > 1
-          ? altLastTokens.slice(1).join(" ") || null
-          : null;
-    }
-  }
+  // Validate middle name against the pattern if it exists
+  const middleNamePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
+  const validatedMiddle = (middle && middleNamePattern.test(middle)) ? middle : null;
 
-  const result = {
+  return {
     first_name: first || null,
-    middle_name: middle,
+    middle_name: validatedMiddle, // Use the validated middle name
     last_name: last || null,
   };
-  sanitizePersonIdentity(result);
-  return result;
 }
 
 function buildPersonDisplayName(person) {
@@ -200,836 +119,6 @@ function buildPersonDisplayName(person) {
     person.last_name,
   ].filter(Boolean);
   return parts.length ? parts.join(" ") : null;
-}
-
-const PERSON_NAME_PATTERN = /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
-const PERSON_MIDDLE_NAME_PATTERN = /^[A-Z][a-zA-Z\s\-',.]*$/;
-
-const ADDRESS_STRUCTURED_KEYS = [
-  "street_number",
-  "street_name",
-  "street_post_directional_text",
-  "street_pre_directional_text",
-  "street_suffix_type",
-  "unit_identifier",
-  "route_number",
-  "city_name",
-  "municipality_name",
-  "postal_code",
-  "plus_four_postal_code",
-  "state_code",
-  "country_code",
-  "lot",
-  "block",
-];
-
-const REQUIRED_STRUCTURED_ADDRESS_KEYS = [
-  "street_number",
-  "street_name",
-  "city_name",
-  "postal_code",
-  "state_code",
-];
-
-const ADDRESS_COMMON_KEYS = new Set([
-  "county_name",
-  "latitude",
-  "longitude",
-  "section",
-  "township",
-  "range",
-]);
-
-const ADDRESS_CITY_KEYS = new Set(["city_name", "municipality_name"]);
-
-const DIRECTION_NORMALIZATION_MAP = new Map([
-  ["N", "N"],
-  ["NORTH", "N"],
-  ["S", "S"],
-  ["SOUTH", "S"],
-  ["E", "E"],
-  ["EAST", "E"],
-  ["W", "W"],
-  ["WEST", "W"],
-  ["NE", "NE"],
-  ["NORTHEAST", "NE"],
-  ["NORTHE", "NE"],
-  ["NW", "NW"],
-  ["NORTHWEST", "NW"],
-  ["NORTHW", "NW"],
-  ["SE", "SE"],
-  ["SOUTHEAST", "SE"],
-  ["SOUTHE", "SE"],
-  ["SW", "SW"],
-  ["SOUTHWEST", "SW"],
-  ["SOUTHW", "SW"],
-]);
-
-const STREET_SUFFIX_ALLOWED = new Set([
-  "Rds",
-  "Blvd",
-  "Lk",
-  "Pike",
-  "Ky",
-  "Vw",
-  "Curv",
-  "Psge",
-  "Ldg",
-  "Mt",
-  "Un",
-  "Mdw",
-  "Via",
-  "Cor",
-  "Kys",
-  "Vl",
-  "Pr",
-  "Cv",
-  "Isle",
-  "Lgt",
-  "Hbr",
-  "Btm",
-  "Hl",
-  "Mews",
-  "Hls",
-  "Pnes",
-  "Lgts",
-  "Strm",
-  "Hwy",
-  "Trwy",
-  "Skwy",
-  "Is",
-  "Est",
-  "Vws",
-  "Ave",
-  "Exts",
-  "Cvs",
-  "Row",
-  "Rte",
-  "Fall",
-  "Gtwy",
-  "Wls",
-  "Clb",
-  "Frk",
-  "Cpe",
-  "Fwy",
-  "Knls",
-  "Rdg",
-  "Jct",
-  "Rst",
-  "Spgs",
-  "Cir",
-  "Crst",
-  "Expy",
-  "Smt",
-  "Trfy",
-  "Cors",
-  "Land",
-  "Uns",
-  "Jcts",
-  "Ways",
-  "Trl",
-  "Way",
-  "Trlr",
-  "Aly",
-  "Spg",
-  "Pkwy",
-  "Cmn",
-  "Dr",
-  "Grns",
-  "Oval",
-  "Cirs",
-  "Pt",
-  "Shls",
-  "Vly",
-  "Hts",
-  "Clf",
-  "Flt",
-  "Mall",
-  "Frds",
-  "Cyn",
-  "Lndg",
-  "Mdws",
-  "Rd",
-  "Xrds",
-  "Ter",
-  "Prt",
-  "Radl",
-  "Grvs",
-  "Rdgs",
-  "Inlt",
-  "Trak",
-  "Byu",
-  "Vlgs",
-  "Ctr",
-  "Ml",
-  "Cts",
-  "Arc",
-  "Bnd",
-  "Riv",
-  "Flds",
-  "Mtwy",
-  "Msn",
-  "Shrs",
-  "Rue",
-  "Crse",
-  "Cres",
-  "Anx",
-  "Drs",
-  "Sts",
-  "Holw",
-  "Vlg",
-  "Prts",
-  "Sta",
-  "Fld",
-  "Xrd",
-  "Wall",
-  "Tpke",
-  "Ft",
-  "Bg",
-  "Knl",
-  "Plz",
-  "St",
-  "Cswy",
-  "Bgs",
-  "Rnch",
-  "Frks",
-  "Ln",
-  "Mtn",
-  "Ctrs",
-  "Orch",
-  "Iss",
-  "Brks",
-  "Br",
-  "Fls",
-  "Trce",
-  "Park",
-  "Gdns",
-  "Rpds",
-  "Shl",
-  "Lf",
-  "Rpd",
-  "Lcks",
-  "Gln",
-  "Pl",
-  "Path",
-  "Vis",
-  "Lks",
-  "Run",
-  "Frg",
-  "Brg",
-  "Sqs",
-  "Xing",
-  "Pln",
-  "Glns",
-  "Blfs",
-  "Plns",
-  "Dl",
-  "Clfs",
-  "Ext",
-  "Pass",
-  "Gdn",
-  "Brk",
-  "Grn",
-  "Mnr",
-  "Cp",
-  "Pne",
-  "Spur",
-  "Opas",
-  "Upas",
-  "Tunl",
-  "Sq",
-  "Lck",
-  "Ests",
-  "Shr",
-  "Dm",
-  "Mls",
-  "Wl",
-  "Mnrs",
-  "Stra",
-  "Frgs",
-  "Frst",
-  "Flts",
-  "Ct",
-  "Mtns",
-  "Frd",
-  "Nck",
-  "Ramp",
-  "Vlys",
-  "Pts",
-  "Bch",
-  "Loop",
-  "Byp",
-  "Cmns",
-  "Fry",
-  "Walk",
-  "Hbrs",
-  "Dv",
-  "Hvn",
-  "Blf",
-  "Grv",
-  "Crk",
-]);
-
-const STREET_SUFFIX_ALIAS_MAP = new Map([
-  ["STREET", "St"],
-  ["ST", "St"],
-  ["AVENUE", "Ave"],
-  ["AVE", "Ave"],
-  ["ROAD", "Rd"],
-  ["RD", "Rd"],
-  ["BOULEVARD", "Blvd"],
-  ["BLVD", "Blvd"],
-  ["DRIVE", "Dr"],
-  ["DR", "Dr"],
-  ["COURT", "Ct"],
-  ["CT", "Ct"],
-  ["LANE", "Ln"],
-  ["LN", "Ln"],
-  ["TERRACE", "Ter"],
-  ["TERR", "Ter"],
-  ["PARKWAY", "Pkwy"],
-  ["PKWY", "Pkwy"],
-  ["PLACE", "Pl"],
-  ["PL", "Pl"],
-  ["SQUARE", "Sq"],
-  ["SQ", "Sq"],
-  ["TRAIL", "Trl"],
-  ["TRL", "Trl"],
-  ["HIGHWAY", "Hwy"],
-  ["HWY", "Hwy"],
-  ["CIRCLE", "Cir"],
-  ["CIR", "Cir"],
-  ["CRESCENT", "Cres"],
-  ["CRES", "Cres"],
-  ["EXPRESSWAY", "Expy"],
-  ["EXPY", "Expy"],
-  ["FERRY", "Fry"],
-  ["PASS", "Pass"],
-  ["PASSES", "Pass"],
-  ["MOUNT", "Mt"],
-  ["MOUNTAIN", "Mtn"],
-  ["MOUNTAINS", "Mtns"],
-  ["MANOR", "Mnr"],
-  ["MANORS", "Mnrs"],
-  ["RIDGE", "Rdg"],
-  ["RIDGES", "Rdgs"],
-  ["HEIGHTS", "Hts"],
-  ["VALLEY", "Vly"],
-  ["VALLEYS", "Vlys"],
-  ["MEADOW", "Mdw"],
-  ["MEADOWS", "Mdws"],
-  ["GARDEN", "Gdn"],
-  ["GARDENS", "Gdns"],
-  ["FOREST", "Frst"],
-  ["FORESTS", "Frst"],
-  ["PRAIRIE", "Pr"],
-  ["PRAIRIES", "Pr"],
-  ["ESTATE", "Est"],
-  ["ESTATES", "Ests"],
-  ["ORCHARD", "Orch"],
-  ["ORCHARDS", "Orch"],
-  ["RANCH", "Rnch"],
-  ["RANCHES", "Rnch"],
-  ["VILLAGE", "Vlg"],
-  ["VILLAGES", "Vlgs"],
-  ["HARBOR", "Hbr"],
-  ["HARBORS", "Hbrs"],
-  ["POINT", "Pt"],
-  ["POINTS", "Pts"],
-  ["BROOK", "Brk"],
-  ["BROOKS", "Brks"],
-  ["COVE", "Cv"],
-  ["COVES", "Cvs"],
-  ["SPRING", "Spg"],
-  ["SPRINGS", "Spgs"],
-  ["LOCK", "Lck"],
-  ["LOCKS", "Lcks"],
-  ["PINE", "Pne"],
-  ["PINES", "Pnes"],
-  ["BRANCH", "Br"],
-  ["BRANCHES", "Br"],
-  ["CAUSEWAY", "Cswy"],
-  ["RIDGEWAY", "Rdg"],
-  ["RIDGEWAYS", "Rdgs"],
-  ["BAYOU", "Byu"],
-  ["BAYOUS", "Byu"],
-  ["DALE", "Dl"],
-  ["DALES", "Dl"],
-  ["FIELD", "Fld"],
-  ["FIELDS", "Flds"],
-  ["GATEWAY", "Gtwy"],
-  ["GATEWAYS", "Gtwy"],
-  ["MALL", "Mall"],
-  ["COURTYARD", "Ct"],
-  ["COURTYARDS", "Cts"],
-]);
-
-function normalizeDirectionalText(value) {
-  if (!value || typeof value !== "string") return null;
-  const compact = value.replace(/\./g, "").replace(/[^A-Za-z]/g, "").toUpperCase();
-  if (!compact) return null;
-  return DIRECTION_NORMALIZATION_MAP.get(compact) || null;
-}
-
-function normalizeStreetSuffix(value) {
-  if (!value || typeof value !== "string") return null;
-  let cleaned = value.trim();
-  if (!cleaned) return null;
-  cleaned = cleaned.replace(/\./g, "");
-  const simpleCamel =
-    cleaned[0].toUpperCase() + cleaned.slice(1).toLowerCase();
-  if (STREET_SUFFIX_ALLOWED.has(simpleCamel)) return simpleCamel;
-  const token = cleaned.replace(/[^A-Za-z]/g, "").toUpperCase();
-  if (!token) return null;
-  const alias = STREET_SUFFIX_ALIAS_MAP.get(token);
-  if (alias && STREET_SUFFIX_ALLOWED.has(alias)) return alias;
-  const camelFromToken =
-    token[0].toUpperCase() + token.slice(1).toLowerCase();
-  return STREET_SUFFIX_ALLOWED.has(camelFromToken) ? camelFromToken : null;
-}
-
-const ADDRESS_UPPERCASE_KEYS = new Set([
-  "city_name",
-  "municipality_name",
-  "state_code",
-  "country_code",
-  "street_pre_directional_text",
-  "street_post_directional_text",
-]);
-
-function normalizeStructuredAddressSource(source) {
-  if (!source || typeof source !== "object") return null;
-  const normalized = {};
-
-  for (const key of ADDRESS_STRUCTURED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-    let value = source[key];
-    if (value == null) continue;
-
-    if (typeof value === "string") {
-      value = value.trim();
-      if (!value) continue;
-    } else if (typeof value === "number" || typeof value === "boolean") {
-      value = String(value);
-    }
-
-    if (typeof value !== "string") continue;
-
-    if (ADDRESS_UPPERCASE_KEYS.has(key)) {
-      value = value.toUpperCase();
-    }
-
-    if (ADDRESS_CITY_KEYS.has(key)) {
-      value = value.replace(/[^A-Z\s\-']/g, " ").replace(/\s+/g, " ").trim();
-      if (!value) continue;
-    }
-
-    if (
-      key === "street_pre_directional_text" ||
-      key === "street_post_directional_text"
-    ) {
-      const normalizedDirectional = normalizeDirectionalText(value);
-      if (!normalizedDirectional) continue;
-      value = normalizedDirectional;
-    } else if (key === "street_suffix_type") {
-      const normalizedSuffix = normalizeStreetSuffix(value);
-      if (!normalizedSuffix) continue;
-      value = normalizedSuffix;
-    }
-
-    if (key === "state_code") {
-      const letters = value.replace(/[^A-Za-z]/g, "").toUpperCase();
-      if (letters.length !== 2) continue;
-      value = letters;
-    }
-
-    if (key === "country_code") {
-      let country = value.replace(/[^A-Za-z]/g, "").toUpperCase();
-      if (!country) continue;
-      if (country === "USA") country = "US";
-      if (country.length > 2) country = country.slice(0, 2);
-      value = country;
-    }
-
-    if (key === "postal_code") {
-      const digits = value.replace(/\D/g, "");
-      if (digits.length < 5) continue;
-
-      normalized.postal_code = digits.slice(0, 5);
-
-      if (
-        !Object.prototype.hasOwnProperty.call(normalized, "plus_four_postal_code") &&
-        digits.length >= 9
-      ) {
-        normalized.plus_four_postal_code = digits.slice(5, 9);
-      }
-      continue;
-    }
-
-    if (key === "plus_four_postal_code") {
-      const digits = value.replace(/\D/g, "");
-      if (digits.length < 4) continue;
-      normalized.plus_four_postal_code = digits.slice(0, 4);
-      continue;
-    }
-
-    if (value.length === 0) continue;
-    normalized[key] = value;
-  }
-
-  if (Object.keys(normalized).length === 0) return null;
-  return normalized;
-}
-
-function selectStructuredAddressCandidate(sources) {
-  if (!Array.isArray(sources)) return null;
-
-  for (const source of sources) {
-    const candidate = normalizeStructuredAddressSource(source);
-    if (!candidate) continue;
-    const hasAllRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
-      const value = candidate[key];
-      if (value == null) return false;
-      if (typeof value === "string") return value.trim().length > 0;
-      return true;
-    });
-    if (!hasAllRequired) continue;
-    return candidate;
-  }
-
-  return null;
-}
-
-function formatNameToPattern(name) {
-  if (!name || typeof name !== "string") return null;
-  let cleaned = name.trim();
-  if (!cleaned) return null;
-  cleaned = cleaned.replace(/\//g, "-");
-  cleaned = cleaned.replace(/\s+/g, " ");
-  const formatted = cleaned
-    .split(/([ \-',.])/)
-    .map((part) => {
-      if (!part) return "";
-      if (/[ \-',.]/.test(part)) return part;
-      return part[0].toUpperCase() + part.slice(1).toLowerCase();
-    })
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
-  return formatted || null;
-}
-
-function normalizeNameValue(raw, pattern) {
-  if (!raw || typeof raw !== "string") return null;
-  let value = stripNameDesignations(raw);
-  if (!value) return null;
-  value = stripDiacritics(value);
-  value = value.trim();
-  value = value.replace(/[^A-Za-z\s\-',.]/g, " ");
-  value = value
-    .replace(/\s+/g, " ")
-    .replace(/^[',.\- ]+|[',.\- ]+$/g, "");
-  value = value.replace(/([',.\-])(?=\s|$)/g, "");
-  if (!value) return null;
-  value = value.replace(/([A-Za-z]+)/g, (segment) => {
-    if (!segment) return segment;
-    return segment[0].toUpperCase() + segment.slice(1).toLowerCase();
-  });
-  value = value.replace(/\s+/g, " ").trim();
-  value = formatNameToPattern(value) ?? value;
-  if (!value) return null;
-  if (!pattern || pattern.test(value)) return value;
-
-  const simpleTokens = value
-    .split(/[^A-Za-z]+/)
-    .filter(Boolean)
-    .map((segment) => segment[0].toUpperCase() + segment.slice(1).toLowerCase());
-  if (simpleTokens.length) {
-    const candidate = formatNameToPattern(simpleTokens.join(" ")) ?? simpleTokens.join(" ");
-    if (!pattern || pattern.test(candidate)) return candidate;
-  }
-
-  const fallbackBase = value.replace(/['.,-]/g, " ").replace(/\s+/g, " ").trim();
-  const fallback = formatNameToPattern(fallbackBase) ?? fallbackBase;
-  if (fallback && (!pattern || pattern.test(fallback))) return fallback;
-  return null;
-}
-
-function sanitizePersonIdentity(target) {
-  if (!target || typeof target !== "object") return;
-  target.first_name = normalizeNameValue(target.first_name, PERSON_NAME_PATTERN);
-  target.last_name = normalizeNameValue(target.last_name, PERSON_NAME_PATTERN);
-  target.middle_name = normalizeNameValue(
-    target.middle_name,
-    PERSON_MIDDLE_NAME_PATTERN,
-  );
-  if (target.first_name && !PERSON_NAME_PATTERN.test(target.first_name)) {
-    target.first_name = null;
-  }
-  if (target.last_name && !PERSON_NAME_PATTERN.test(target.last_name)) {
-    target.last_name = null;
-  }
-  if (target.middle_name && !PERSON_MIDDLE_NAME_PATTERN.test(target.middle_name)) {
-    target.middle_name = null;
-  }
-  if (typeof target.prefix_name === "string") {
-    target.prefix_name =
-      normalizeNameValue(target.prefix_name, PERSON_NAME_PATTERN) ??
-      target.prefix_name;
-  }
-  if (typeof target.suffix_name === "string") {
-    target.suffix_name =
-      normalizeNameValue(target.suffix_name, PERSON_NAME_PATTERN) ??
-      target.suffix_name;
-  }
-}
-
-function enforcePersonNamePatterns(person) {
-  if (!person || typeof person !== "object") return;
-
-  if (typeof person.first_name === "string") {
-    if (!PERSON_NAME_PATTERN.test(person.first_name)) {
-      const normalized = normalizeNameValue(
-        person.first_name,
-        PERSON_NAME_PATTERN,
-      );
-      person.first_name =
-        normalized && PERSON_NAME_PATTERN.test(normalized) ? normalized : null;
-    }
-  }
-
-  if (typeof person.last_name === "string") {
-    if (!PERSON_NAME_PATTERN.test(person.last_name)) {
-      const normalized = normalizeNameValue(
-        person.last_name,
-        PERSON_NAME_PATTERN,
-      );
-      person.last_name =
-        normalized && PERSON_NAME_PATTERN.test(normalized) ? normalized : null;
-    }
-  }
-
-  if (typeof person.middle_name === "string") {
-    if (!PERSON_MIDDLE_NAME_PATTERN.test(person.middle_name)) {
-      const normalized = normalizeNameValue(
-        person.middle_name,
-        PERSON_MIDDLE_NAME_PATTERN,
-      );
-      person.middle_name =
-        normalized && PERSON_MIDDLE_NAME_PATTERN.test(normalized)
-          ? normalized
-          : null;
-    }
-  }
-
-  if (typeof person.prefix_name === "string") {
-    if (!PERSON_NAME_PATTERN.test(person.prefix_name)) {
-      const normalized = normalizeNameValue(
-        person.prefix_name,
-        PERSON_NAME_PATTERN,
-      );
-      person.prefix_name =
-        normalized && PERSON_NAME_PATTERN.test(normalized)
-          ? normalized
-          : null;
-    }
-  }
-
-  if (typeof person.suffix_name === "string") {
-    if (!PERSON_NAME_PATTERN.test(person.suffix_name)) {
-      const normalized = normalizeNameValue(
-        person.suffix_name,
-        PERSON_NAME_PATTERN,
-      );
-      person.suffix_name =
-        normalized && PERSON_NAME_PATTERN.test(normalized)
-          ? normalized
-          : null;
-    }
-  }
-}
-
-function enforcePersonPayloadForSchema(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  const normalized = { ...payload };
-
-  const firstValid =
-    typeof normalized.first_name === "string" &&
-    PERSON_NAME_PATTERN.test(normalized.first_name);
-  const lastValid =
-    typeof normalized.last_name === "string" &&
-    PERSON_NAME_PATTERN.test(normalized.last_name);
-
-  if (!firstValid || !lastValid) {
-    return null;
-  }
-
-  if (
-    typeof normalized.middle_name === "string" &&
-    !PERSON_MIDDLE_NAME_PATTERN.test(normalized.middle_name)
-  ) {
-    delete normalized.middle_name;
-  }
-
-  if (
-    typeof normalized.prefix_name === "string" &&
-    !PERSON_NAME_PATTERN.test(normalized.prefix_name)
-  ) {
-    delete normalized.prefix_name;
-  }
-
-  if (
-    typeof normalized.suffix_name === "string" &&
-    !PERSON_NAME_PATTERN.test(normalized.suffix_name)
-  ) {
-    delete normalized.suffix_name;
-  }
-
-  return normalized;
-}
-
-function ensurePersonRecordSchemaCompliance(record) {
-  if (!record || record.type !== "person" || !record.person) return false;
-  sanitizePersonIdentity(record.person);
-  enforcePersonNamePatterns(record.person);
-
-  if (
-    record.person.first_name &&
-    PERSON_NAME_PATTERN.test(record.person.first_name) &&
-    record.person.last_name &&
-    PERSON_NAME_PATTERN.test(record.person.last_name)
-  ) {
-    return true;
-  }
-
-  const candidateStrings = new Set();
-  if (record.displayName) candidateStrings.add(record.displayName);
-  const builtDisplay = buildPersonDisplayName(record.person);
-  if (builtDisplay) candidateStrings.add(builtDisplay);
-  if (record.aliasTexts && record.aliasTexts.size) {
-    for (const alias of record.aliasTexts) {
-      candidateStrings.add(alias);
-    }
-  }
-
-  for (const candidate of candidateStrings) {
-    if (!candidate) continue;
-    const parsed = parsePersonNameTokens(candidate);
-    if (!parsed) continue;
-    if (!record.person.first_name && parsed.first_name) {
-      record.person.first_name = parsed.first_name;
-    }
-    if (!record.person.middle_name && parsed.middle_name) {
-      record.person.middle_name = parsed.middle_name;
-    }
-    if (parsed.last_name) {
-      record.person.last_name = parsed.last_name;
-    }
-    sanitizePersonIdentity(record.person);
-    if (
-      record.person.first_name &&
-      PERSON_NAME_PATTERN.test(record.person.first_name) &&
-      record.person.last_name &&
-      PERSON_NAME_PATTERN.test(record.person.last_name)
-    ) {
-      if (!record.displayName) {
-        const refreshedDisplay = buildPersonDisplayName(record.person);
-        if (refreshedDisplay) record.displayName = refreshedDisplay;
-      }
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function convertPersonRecordToCompany(record) {
-  if (!record) return;
-  const candidateNames = [];
-  if (record.displayName) candidateNames.push(record.displayName);
-  if (record.person) {
-    const personDisplay = buildPersonDisplayName(record.person);
-    if (personDisplay) candidateNames.push(personDisplay);
-    if (record.person.last_name) candidateNames.push(record.person.last_name);
-    if (record.person.first_name) candidateNames.push(record.person.first_name);
-  }
-  if (record.aliasTexts && record.aliasTexts.size) {
-    for (const alias of record.aliasTexts) {
-      candidateNames.push(alias);
-    }
-  }
-  let companyName = null;
-  for (const candidate of candidateNames) {
-    const cleaned = textClean(candidate);
-    if (cleaned) {
-      companyName = cleaned;
-      break;
-    }
-  }
-  if (!companyName) {
-    companyName = `Owner ${record.id}`;
-  }
-  record.type = "company";
-  record.company = { name: companyName };
-  record.person = undefined;
-  if (!record.displayName) {
-    record.displayName = companyName;
-  }
-  if (record.aliasTexts) {
-   record.aliasTexts.add(companyName);
- }
-}
-
-function buildPersonPayload(record) {
-  if (!record || record.type !== "person" || !record.person) return null;
-  const payload = {
-    birth_date: record.person.birth_date ?? null,
-    first_name: record.person.first_name ?? null,
-    last_name: record.person.last_name ?? null,
-    middle_name: record.person.middle_name ?? null,
-    prefix_name: record.person.prefix_name ?? null,
-    suffix_name: record.person.suffix_name ?? null,
-    us_citizenship_status: record.person.us_citizenship_status ?? null,
-    veteran_status: record.person.veteran_status ?? null,
-  };
-  sanitizePersonIdentity(payload);
-  enforcePersonNamePatterns(payload);
-  if (
-    !payload.first_name ||
-    !PERSON_NAME_PATTERN.test(payload.first_name) ||
-    !payload.last_name ||
-    !PERSON_NAME_PATTERN.test(payload.last_name)
-  ) {
-    return null;
-  }
-  if (
-    payload.middle_name &&
-    !PERSON_MIDDLE_NAME_PATTERN.test(payload.middle_name)
-  ) {
-    payload.middle_name = null;
-  }
-  pruneNullish(payload, { preserve: new Set(["first_name", "last_name"]) });
-  return payload;
-}
-
-function buildCompanyPayload(record) {
-  if (!record || record.type !== "company") return null;
-  const candidateNames = [];
-  if (record.company?.name) candidateNames.push(record.company.name);
-  if (record.displayName) candidateNames.push(record.displayName);
-  if (record.aliasTexts && record.aliasTexts.size) {
-    for (const alias of record.aliasTexts) {
-      candidateNames.push(alias);
-    }
-  }
-  for (const candidate of candidateNames) {
-    if (typeof candidate !== "string") continue;
-    const cleaned = textClean(candidate);
-    if (cleaned) {
-      return { name: cleaned };
-    }
-  }
-  return { name: `Owner ${record?.id || "unknown"}` };
 }
 
 function slugify(value, fallback = "unspecified") {
@@ -1195,616 +284,6 @@ function mapImprovementAction(description) {
     return "Remove";
   }
   return null;
-}
-
-const FLOOR_LEVEL_ENUM = ["1st Floor", "2nd Floor", "3rd Floor", "4th Floor"];
-const FLOOR_LEVEL_ALLOWED = new Set(FLOOR_LEVEL_ENUM);
-const STORY_TYPE_ENUM = ["Full", "Half Story", "Three-Quarter Story"];
-const STORY_TYPE_ALLOWED = new Set(STORY_TYPE_ENUM);
-const ROMAN_TO_NUMBER = new Map([
-  ["i", 1],
-  ["ii", 2],
-  ["iii", 3],
-  ["iv", 4],
-]);
-
-function normalizeLayoutFloorLevel(value) {
-  if (value == null) return null;
-
-  if (Array.isArray(value)) {
-    for (const candidate of value) {
-      if (candidate == null || candidate === "") continue;
-      const normalized = normalizeLayoutFloorLevel(candidate);
-      if (normalized != null) return normalized;
-    }
-    return null;
-  }
-
-  if (typeof value === "object") {
-    const candidates = [];
-    if (value.value != null) candidates.push(value.value);
-    if (value.text != null) candidates.push(value.text);
-    if (Array.isArray(value.values)) candidates.push(...value.values);
-    if (value.floor_level != null) candidates.push(value.floor_level);
-    if (value.floorLevel != null) candidates.push(value.floorLevel);
-    if (value.level != null) candidates.push(value.level);
-    if (value.floor != null) candidates.push(value.floor);
-    if (value.label != null) candidates.push(value.label);
-    if (value.description != null) candidates.push(value.description);
-    for (const candidate of candidates) {
-      const normalized = normalizeLayoutFloorLevel(candidate);
-      if (normalized != null) return normalized;
-    }
-    return null;
-  }
-
-  const text = String(value).trim();
-  if (!text) return null;
-
-  const lower = text.toLowerCase();
-  const lowerSpaced = lower.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-  const lowerCompact = lowerSpaced.replace(/\s+/g, "");
-  const lowerAlphaNumeric = lowerSpaced.replace(/[^a-z0-9]/g, "");
-  const hasFloorKeyword = /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/.test(
-    lowerSpaced,
-  );
-
-  const wordMappings = [
-    [/(?:first|^one\b|main|ground|lower)(?!\s*flooring)/, "1st Floor"],
-    [/(?:second|^two\b|upper\b)/, "2nd Floor"],
-    [/(?:third|^three\b)/, "3rd Floor"],
-    [/(?:fourth|^four\b)/, "4th Floor"],
-  ];
-  const aliasPatterns = [
-    [/\b(?:main|entry|ground)\s+(?:level|floor)\b/, "1st Floor"],
-    [/\blower\s+(?:level|floor)\b/, "1st Floor"],
-    [/\b(?:mid|middle)\s+(?:level|floor)\b/, "2nd Floor"],
-    [/\bsecond\s+level\b/, "2nd Floor"],
-    [/\bupper\s+(?:level|floor)\b/, "2nd Floor"],
-    [/\bmezzanine\b/, "2nd Floor"],
-    [/\bthird\s+level\b/, "3rd Floor"],
-    [/\b(?:top|penthouse)\s+(?:level|floor)?\b/, "4th Floor"],
-  ];
-
-  let mappedValue = null;
-  for (const [pattern, mapped] of wordMappings) {
-    if (pattern.test(lowerSpaced)) {
-      mappedValue = mapped;
-      break;
-    }
-  }
-
-  if (!mappedValue) {
-    for (const [pattern, mapped] of aliasPatterns) {
-      if (pattern.test(lowerSpaced)) {
-        mappedValue = mapped;
-        break;
-      }
-    }
-  }
-
-  if (!mappedValue) {
-    const candidateMatches = [
-      lowerSpaced.match(
-        /\b(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\s*[-#:]*\s*0*(\d{1,2})\b/,
-      ),
-      lowerSpaced.match(
-        /\b0*(\d{1,2})\s*(?:fl|flr|floor|lvl|level|levels|story|stories|storey)\b/,
-      ),
-      lowerAlphaNumeric.match(
-        /^(?:fl|flr|floor|lvl|level|levels)?0*(\d{1,2})(?:st|nd|rd|th)?(?:floor|fl|flr|lvl|level|levels)?$/,
-      ),
-      hasFloorKeyword
-        ? lowerSpaced.match(/\b0*(\d{1,2})\s*(?:of|\/)\s*\d{1,2}\b/)
-        : null,
-    ];
-
-    for (const match of candidateMatches) {
-      if (!match) continue;
-      const num = Number(match[1]);
-      if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
-        mappedValue = FLOOR_LEVEL_ENUM[num - 1];
-        break;
-      }
-    }
-  }
-
-  if (!mappedValue && hasFloorKeyword) {
-    const looseNumberMatch = lowerSpaced.match(/\b0*(\d{1,2})\b/);
-    if (looseNumberMatch) {
-      const num = Number(looseNumberMatch[1]);
-      if (Number.isFinite(num) && num >= 1 && num <= FLOOR_LEVEL_ENUM.length) {
-        mappedValue = FLOOR_LEVEL_ENUM[num - 1];
-      }
-    }
-  }
-
-  if (!mappedValue) {
-    const romanMatch = lowerSpaced.match(/\b(?:level|lvl|fl|floor)?\s*(i{1,3}|iv)\b/);
-    if (romanMatch) {
-      const roman = romanMatch[1].toLowerCase();
-      if (ROMAN_TO_NUMBER.has(roman)) {
-        const candidate = ROMAN_TO_NUMBER.get(roman);
-        mappedValue =
-          candidate && candidate >= 1 && candidate <= FLOOR_LEVEL_ENUM.length
-            ? FLOOR_LEVEL_ENUM[candidate - 1]
-            : null;
-      }
-    }
-  }
-
-  if (!mappedValue) {
-    if (lowerSpaced.includes("1st") || lowerCompact.includes("1st")) {
-      mappedValue = "1st Floor";
-    } else if (
-      lowerSpaced.includes("2nd") ||
-      lowerCompact.includes("2nd")
-    ) {
-      mappedValue = "2nd Floor";
-    } else if (
-      lowerSpaced.includes("3rd") ||
-      lowerCompact.includes("3rd")
-    ) {
-      mappedValue = "3rd Floor";
-    } else if (
-      lowerSpaced.includes("4th") ||
-      lowerCompact.includes("4th")
-    ) {
-      mappedValue = "4th Floor";
-    }
-  }
-
-  if (
-    !mappedValue &&
-    /(^|\b)(level\s*1|1level|lvl1|fl1)(\b|$)/.test(lowerCompact)
-  ) {
-    mappedValue = "1st Floor";
-  }
-
-  if (
-    !mappedValue &&
-    /(^|\b)(level\s*2|2level|lvl2|fl2)(\b|$)/.test(lowerCompact)
-  ) {
-    mappedValue = "2nd Floor";
-  }
-
-  if (
-    !mappedValue &&
-    /(^|\b)(level\s*3|3level|lvl3|fl3)(\b|$)/.test(lowerCompact)
-  ) {
-    mappedValue = "3rd Floor";
-  }
-
-  if (
-    !mappedValue &&
-    /(^|\b)(level\s*4|4level|lvl4|fl4)(\b|$)/.test(lowerCompact)
-  ) {
-    mappedValue = "4th Floor";
-  }
-
-  return mappedValue && FLOOR_LEVEL_ALLOWED.has(mappedValue)
-    ? mappedValue
-    : null;
-}
-
-function normalizeLayoutStoryType(value) {
-  if (value == null) return null;
-
-  if (Array.isArray(value)) {
-    for (const candidate of value) {
-      if (candidate == null || candidate === "") continue;
-      const normalized = normalizeLayoutStoryType(candidate);
-      if (normalized != null) return normalized;
-    }
-    return null;
-  }
-
-  if (typeof value === "object") {
-    const candidates = [];
-    if (value.value != null) candidates.push(value.value);
-    if (value.text != null) candidates.push(value.text);
-    if (Array.isArray(value.values)) candidates.push(...value.values);
-    if (value.story_type != null) candidates.push(value.story_type);
-    if (value.storyType != null) candidates.push(value.storyType);
-    if (value.description != null) candidates.push(value.description);
-    if (value.label != null) candidates.push(value.label);
-    for (const candidate of candidates) {
-      const normalized = normalizeLayoutStoryType(candidate);
-      if (normalized != null) return normalized;
-    }
-    return null;
-  }
-
-  const normalized = String(value).toLowerCase();
-  const normalizedSpaced = normalized.replace(/[-_]+/g, " ");
-  const normalizedCompact = normalizedSpaced.replace(/\s+/g, "");
-
-  let mappedStory = null;
-  if (/(?:half|1\/2|one-half|½)/.test(normalized)) {
-    mappedStory = "Half Story";
-  } else if (/(?:three\s*(?:quarter|qtr)|3\/4|¾)/.test(normalized)) {
-    mappedStory = "Three-Quarter Story";
-  } else if (/\b0\s*(?:story|stories)\b/.test(normalizedSpaced)) {
-    mappedStory = null;
-  } else if (normalized.includes("full")) {
-    mappedStory = "Full";
-  }
-
-  if (!mappedStory) {
-    const fullStoryTokens = [
-      "onestory",
-      "twostory",
-      "threestory",
-      "fourstory",
-      "singlestory",
-      "doublestory",
-      "triplestory",
-      "onestories",
-      "twostories",
-      "threestories",
-      "fourstories",
-      "singlestories",
-      "doublestories",
-      "triplestories",
-      "multistory",
-      "multistories",
-      "multilevel",
-      "multilevels",
-      "splitlevel",
-      "bilevel",
-      "trilevel",
-      "bi-level",
-      "tri-level",
-      "bi level",
-      "tri level",
-      "split level",
-    ];
-    if (
-      fullStoryTokens.some((token) =>
-        normalizedCompact.includes(token.replace(/[\s_-]+/g, "")),
-      )
-    ) {
-      mappedStory = "Full";
-    }
-  }
-
-  if (
-    !mappedStory &&
-    /\b(?:multi[\s-]*level|split\s+foyer|split\s+level)\b/.test(
-      normalizedSpaced,
-    )
-  ) {
-    mappedStory = "Full";
-  }
-
-  if (!mappedStory) {
-    const numberMatch = normalizedSpaced.match(/(\d+(?:\.\d+)?)/);
-    if (numberMatch) {
-      const num = Number(numberMatch[1]);
-      if (Number.isFinite(num) && num > 0) {
-        mappedStory = "Full";
-      } else {
-        mappedStory = null;
-      }
-    }
-  }
-
-  if (!mappedStory) {
-    const romanStoryMatch = normalizedSpaced.match(/\b(i{1,3}|iv)\s*(?:story|stories)?\b/);
-    if (romanStoryMatch) {
-      mappedStory = "Full";
-    }
-  }
-
-  if (
-    !mappedStory &&
-    /\bstor(?:y|ies)\b/.test(normalizedSpaced) &&
-    !/\bno\s+stor(?:y|ies)\b/.test(normalizedSpaced) &&
-    !/\bn\/?a\b/.test(normalizedSpaced)
-  ) {
-    mappedStory = "Full";
-  }
-
-  return mappedStory && STORY_TYPE_ALLOWED.has(mappedStory)
-    ? mappedStory
-    : null;
-}
-
-function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
-  if (!obj || typeof obj !== "object") return obj;
-  for (const key of Object.keys(obj)) {
-    if (preserve.has(key)) continue;
-    const value = obj[key];
-    if (value === undefined || value === null) {
-      delete obj[key];
-      continue;
-    }
-    if (
-      trimStrings &&
-      typeof value === "string" &&
-      value.trim().length === 0
-    ) {
-      delete obj[key];
-    }
-  }
-  return obj;
-}
-
-function hasMeaningfulValue(value) {
-  if (value == null) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  return true;
-}
-
-function enforceAddressOneOf(address, { preferUnnormalized = false } = {}) {
-  if (!address || typeof address !== "object") return "none";
-
-  const structuredKeysPresent = ADDRESS_STRUCTURED_KEYS.filter((key) =>
-    hasMeaningfulValue(address[key]),
-  );
-  const hasUnnormalized = hasMeaningfulValue(address.unnormalized_address);
-  const hasCompleteStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-    hasMeaningfulValue(address[key]),
-  );
-
-  if (!structuredKeysPresent.length && !hasUnnormalized) return "none";
-
-  if (preferUnnormalized && hasUnnormalized) {
-    for (const key of structuredKeysPresent) {
-      delete address[key];
-    }
-    return "unnormalized";
-  }
-
-  if (hasCompleteStructured) {
-    if (hasUnnormalized) delete address.unnormalized_address;
-    return "structured";
-  }
-
-  if (!hasUnnormalized) {
-    for (const key of structuredKeysPresent) {
-      delete address[key];
-    }
-    return "none";
-  }
-
-  for (const key of structuredKeysPresent) {
-    delete address[key];
-  }
-
-  // Safety net: if conflicting data remains after the above operations, prefer the representation
-  // that still passes basic validation.
-  const remainingStructured = ADDRESS_STRUCTURED_KEYS.filter((key) =>
-    hasMeaningfulValue(address[key]),
-  );
-  const stillHasUnnormalized = hasMeaningfulValue(address.unnormalized_address);
-  if (remainingStructured.length && stillHasUnnormalized) {
-    if (
-      REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-        hasMeaningfulValue(address[key]),
-      )
-    ) {
-      delete address.unnormalized_address;
-      return "structured";
-    } else {
-      for (const key of remainingStructured) {
-        delete address[key];
-      }
-    }
-  }
-
-  if (hasMeaningfulValue(address.unnormalized_address)) return "unnormalized";
-
-  const hasStructuredAfterCleanup = REQUIRED_STRUCTURED_ADDRESS_KEYS.every(
-    (key) => hasMeaningfulValue(address[key]),
-  );
-  return hasStructuredAfterCleanup ? "structured" : "none";
-}
-
-function finalizeAddressVariant(address) {
-  if (!address || typeof address !== "object") return null;
-  const base = {};
-  for (const key of ADDRESS_COMMON_KEYS) {
-    if (!hasMeaningfulValue(address[key])) continue;
-    const value = address[key];
-    base[key] =
-      typeof value === "string" ? value.trim() : value;
-  }
-
-  const hasStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-    hasMeaningfulValue(address[key]),
-  );
-  const hasUnnormalized = hasMeaningfulValue(address.unnormalized_address);
-
-  if (hasStructured) {
-    const out = { ...base };
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      if (!hasMeaningfulValue(address[key])) continue;
-      const value = address[key];
-      out[key] =
-        typeof value === "string" ? value.trim() : value;
-    }
-    return out;
-  }
-
-  if (hasUnnormalized) {
-    const raw = address.unnormalized_address;
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      if (!trimmed) return null;
-      return { ...base, unnormalized_address: trimmed };
-    }
-    if (raw != null) {
-      return { ...base, unnormalized_address: raw };
-    }
-  }
-
-  return null;
-}
-
-function filterAddressByVariant(address, variant) {
-  if (!address || typeof address !== "object") return null;
-  const allowedKeys = new Set();
-  for (const key of ADDRESS_COMMON_KEYS) {
-    allowedKeys.add(key);
-  }
-  if (variant === "structured") {
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      allowedKeys.add(key);
-    }
-  } else if (variant === "unnormalized") {
-    allowedKeys.add("unnormalized_address");
-  } else {
-    return null;
-  }
-  for (const key of Object.keys(address)) {
-    if (!allowedKeys.has(key)) {
-      delete address[key];
-    }
-  }
-  return Object.keys(address).length ? address : null;
-}
-
-function normalizeAddressPayloadForOneOf(address) {
-  if (!address || typeof address !== "object") {
-    return { variant: "none", payload: null };
-  }
-
-  const cleaned = {};
-  for (const [key, value] of Object.entries(address)) {
-    if (!hasMeaningfulValue(value)) continue;
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) continue;
-      cleaned[key] = trimmed;
-    } else {
-      cleaned[key] = value;
-    }
-  }
-
-  const hasStructuredRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-    hasMeaningfulValue(cleaned[key]),
-  );
-  const hasUnnormalized = hasMeaningfulValue(cleaned.unnormalized_address);
-
-  if (hasStructuredRequired) {
-    const filtered = filterAddressByVariant({ ...cleaned }, "structured");
-    return filtered
-      ? { variant: "structured", payload: filtered }
-      : { variant: "none", payload: null };
-  }
-
-  if (hasUnnormalized) {
-    const filtered = filterAddressByVariant({ ...cleaned }, "unnormalized");
-    return filtered
-      ? { variant: "unnormalized", payload: filtered }
-      : { variant: "none", payload: null };
-  }
-
-  return { variant: "none", payload: null };
-}
-
-function coerceAddressForSchema(address) {
-  if (!address || typeof address !== "object") return null;
-
-  const base = {};
-  for (const key of ADDRESS_COMMON_KEYS) {
-    if (!hasMeaningfulValue(address[key])) continue;
-    const value = address[key];
-    base[key] =
-      typeof value === "string" ? value.trim() : value;
-  }
-
-  const structured = {};
-  for (const key of ADDRESS_STRUCTURED_KEYS) {
-    if (!hasMeaningfulValue(address[key])) continue;
-    const value = address[key];
-    structured[key] =
-      typeof value === "string" ? value.trim() : value;
-  }
-
-  const hasStructuredRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-    hasMeaningfulValue(structured[key]),
-  );
-  if (hasStructuredRequired) {
-    return { ...base, ...structured };
-  }
-
-  const unnormalizedRaw = address.unnormalized_address;
-  let normalizedUnnormalized = null;
-  if (typeof unnormalizedRaw === "string") {
-    const trimmed = unnormalizedRaw.trim();
-    normalizedUnnormalized = trimmed.length ? trimmed : null;
-  } else if (unnormalizedRaw != null) {
-    const coerced = String(unnormalizedRaw).trim();
-    normalizedUnnormalized = coerced.length ? coerced : null;
-  }
-
-  if (normalizedUnnormalized) {
-    return { ...base, unnormalized_address: normalizedUnnormalized };
-  }
-
-  return null;
-}
-
-function resolveAddressPayload({
-  commonSource,
-  structuredSource,
-  unnormalizedValue,
-}) {
-  const base = {};
-  if (commonSource && typeof commonSource === "object") {
-    for (const key of ADDRESS_COMMON_KEYS) {
-      if (!Object.prototype.hasOwnProperty.call(commonSource, key)) continue;
-      const value = commonSource[key];
-      if (!hasMeaningfulValue(value)) continue;
-      base[key] = typeof value === "string" ? value.trim() : value;
-    }
-  }
-
-  const structured = {};
-  if (structuredSource && typeof structuredSource === "object") {
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      if (!Object.prototype.hasOwnProperty.call(structuredSource, key)) continue;
-      const value = structuredSource[key];
-      if (!hasMeaningfulValue(value)) continue;
-      structured[key] = typeof value === "string" ? value.trim() : value;
-    }
-  }
-
-  const hasStructuredRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
-    hasMeaningfulValue(structured[key]),
-  );
-
-  const normalizedUnnormalized =
-    typeof unnormalizedValue === "string" && unnormalizedValue.trim().length
-      ? unnormalizedValue.trim()
-      : null;
-
-  if (hasStructuredRequired) {
-    return {
-      variant: "structured",
-      payload: {
-        ...base,
-        ...structured,
-      },
-    };
-  }
-
-  if (normalizedUnnormalized) {
-    return {
-      variant: "unnormalized",
-      payload: {
-        ...base,
-        unnormalized_address: normalizedUnnormalized,
-      },
-    };
-  }
-
-  return {
-    variant: "none",
-    payload: null,
-  };
 }
 
 async function removeExisting(pattern) {
@@ -2845,18 +1324,15 @@ async function main() {
   const unnormalizedAddressData = await readJson(unnormalizedAddressPath).catch(() => null);
   const propertySeedData = await readJson(propertySeedPath).catch(() => null); // Read property_seed.json
 
+  // Base data for address output, derived from property_seed or unnormalized_address
+  // Ensure source_http_request is taken from property_seed if available, otherwise unnormalized_address
+  const baseRequestData = propertySeedData || unnormalizedAddressData || {};
+  const sourceHttpRequest = baseRequestData.source_http_request || null;
+  const sourceHttpRequestUrl = sourceHttpRequest ? sourceHttpRequest.url : null;
+
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
-  await removeExisting(/^relationship_property_has_address.*\.json$/);
-  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
-  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
-  await removeExisting(/^relationship_fact_sheet_has_property.*\.json$/);
-  const factSheetFileName = "fact_sheet.json";
-  const factSheetOutputPath = path.join("data", factSheetFileName);
-  await fsp.unlink(factSheetOutputPath).catch(() => {});
   const propertyImprovementRecords = [];
-  let factSheetWritten = false;
-  let addressWasWritten = false;
 
 
   // --- Address extraction ---
@@ -2866,6 +1342,9 @@ async function main() {
   let parcelIdentifierDashed = null; // Also extract parcel ID from HTML
 
   // Declare these variables at a higher scope
+  let township = null;
+  let range = null;
+  let section = null;
 
   if (!isMulti) {
     $("article#property-identification table.container tr").each((i, tr) => {
@@ -2882,242 +1361,175 @@ async function main() {
     });
   }
 
-  const cleanedSiteAddress = siteAddress ? textClean(siteAddress) : null;
-  const normalizedSiteAddress =
-    cleanedSiteAddress && cleanedSiteAddress.toLowerCase() !== "tbd"
-      ? cleanedSiteAddress
-      : null;
-  const cleanedUnnormalizedAddress =
-    unnormalizedAddressData &&
-    typeof unnormalizedAddressData.full_address === "string"
-      ? textClean(unnormalizedAddressData.full_address)
-      : null;
-  const rawUnnormalizedAddress =
-    cleanedUnnormalizedAddress && cleanedUnnormalizedAddress.length > 0
-      ? cleanedUnnormalizedAddress
-      : null;
-
-  const normalizedAddressSources = [];
-  if (
-    unnormalizedAddressData &&
-    typeof unnormalizedAddressData === "object" &&
-    unnormalizedAddressData.normalized_address &&
-    typeof unnormalizedAddressData.normalized_address === "object"
-  ) {
-    normalizedAddressSources.push(unnormalizedAddressData.normalized_address);
-  }
-  if (
-    propertySeedData &&
-    typeof propertySeedData === "object" &&
-    propertySeedData.normalized_address &&
-    typeof propertySeedData.normalized_address === "object"
-  ) {
-    normalizedAddressSources.push(propertySeedData.normalized_address);
-  }
-
-  const addressFallbackSources = [];
-  if (unnormalizedAddressData && typeof unnormalizedAddressData === "object") {
-    addressFallbackSources.push(unnormalizedAddressData);
-  }
-  if (propertySeedData && typeof propertySeedData === "object") {
-    addressFallbackSources.push(propertySeedData);
-  }
-
-  const pickValueFromSources = (sources, key) => {
-    for (const candidate of sources) {
-      if (!candidate || typeof candidate !== "object") continue;
-      if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
-      const value = candidate[key];
-      if (value === undefined || value === null) continue;
-      if (typeof value === "string") {
-        const trimmed = value.trim();
-        if (!trimmed) continue;
-        return trimmed;
-      }
-      return value;
-    }
-    return null;
+  let finalAddressOutput = {
+    source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+    request_identifier: baseRequestData.request_identifier || null,
+    county_name:"St. Lucie",
+    latitude: unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
+    longitude: unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
+    // Initialize all structured fields to null as per schema
+    city_name: null,
+    country_code: null,
+    postal_code: null,
+    plus_four_postal_code: null,
+    state_code: null,
+    street_number: null,
+    street_name: null,
+    street_post_directional_text: null,
+    street_pre_directional_text: null,
+    street_suffix_type: null,
+    unit_identifier: null,
+    route_number: null,
+    township: null, // Now correctly referenced
+    range: null,    // Now correctly referenced
+    section: null,  // Now correctly referenced
+    block: null,
   };
 
-  const baseAddress = {
-    county_name: "St. Lucie",
-  };
-
-  const latCandidate = pickValueFromSources(
-    [...normalizedAddressSources, ...addressFallbackSources],
-    "latitude",
-  );
-  if (latCandidate != null) baseAddress.latitude = latCandidate;
-
-  const lonCandidate = pickValueFromSources(
-    [...normalizedAddressSources, ...addressFallbackSources],
-    "longitude",
-  );
-  if (lonCandidate != null) baseAddress.longitude = lonCandidate;
-
-  const townshipCandidate = pickValueFromSources(
-    [...normalizedAddressSources, ...addressFallbackSources],
-    "township",
-  );
-  if (townshipCandidate != null) baseAddress.township = townshipCandidate;
-
-  const rangeCandidate = pickValueFromSources(
-    [...normalizedAddressSources, ...addressFallbackSources],
-    "range",
-  );
-  if (rangeCandidate != null) baseAddress.range = rangeCandidate;
-
-  const sectionCandidate = pickValueFromSources(
-    [...normalizedAddressSources, ...addressFallbackSources],
-    "section",
-  );
-  if (sectionCandidate != null) baseAddress.section = sectionCandidate;
-
-  const structuredAddressCandidate =
-    selectStructuredAddressCandidate(normalizedAddressSources);
-
-  const fallbackUnnormalizedCandidate = (() => {
-    const candidates = [
-      rawUnnormalizedAddress,
-      normalizedSiteAddress,
-      pickValueFromSources(addressFallbackSources, "unnormalized_address"),
-    ];
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      const trimmed = String(candidate).trim();
-      if (trimmed.length > 0) return trimmed;
-    }
-    return null;
-  })();
-
-  let structuredAddress = null;
-  if (structuredAddressCandidate) {
-    const candidateStructured = {};
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      if (!Object.prototype.hasOwnProperty.call(structuredAddressCandidate, key))
-        continue;
-      const candidateValue = structuredAddressCandidate[key];
-      if (candidateValue == null) continue;
-      if (typeof candidateValue === "string") {
-        const trimmed = candidateValue.trim();
-        if (!trimmed) continue;
-        candidateStructured[key] = trimmed;
-      } else {
-        candidateStructured[key] = candidateValue;
+  if (siteAddress && siteAddress.toLowerCase() !== "tbd") {
+    // Use unnormalizedAddressData.full_address for city, state, zip if available,
+    // otherwise try to parse from siteAddress.
+    let cityStateZipPart = null;
+    if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
+      const parts = unnormalizedAddressData.full_address.split(',');
+      if (parts.length > 1) {
+        cityStateZipPart = parts.slice(1).join(',').trim();
       }
-    }
-    if (Object.keys(candidateStructured).length > 0) {
-      structuredAddress = candidateStructured;
-    }
-  }
-
-  const normalizedFallbackUnnormalized =
-    typeof fallbackUnnormalizedCandidate === "string" &&
-    fallbackUnnormalizedCandidate.trim().length > 0
-      ? fallbackUnnormalizedCandidate.trim()
-      : null;
-
-  const addressResolution = resolveAddressPayload({
-    commonSource: baseAddress,
-    structuredSource: structuredAddress,
-    unnormalizedValue: normalizedFallbackUnnormalized,
-  });
-
-  let addressPayload = addressResolution.payload;
-  let addressVariant = addressResolution.variant !== "none" ? addressResolution.variant : null;
-
-  if (secTownRange && addressPayload) {
-    const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
-    if (strMatch) {
-      if (!addressPayload.section) addressPayload.section = strMatch[1];
-      if (!addressPayload.township) addressPayload.township = strMatch[2];
-      if (!addressPayload.range) addressPayload.range = strMatch[3];
-    }
-  }
-
-  if (addressPayload) {
-    const variantPreference = addressVariant === "unnormalized";
-    const validationCandidate = { ...addressPayload };
-    const validatedVariant = enforceAddressOneOf(validationCandidate, {
-      preferUnnormalized: variantPreference,
-    });
-    if (validatedVariant === "none") {
-      addressPayload = null;
-      addressVariant = null;
     } else {
-      const finalized = finalizeAddressVariant(validationCandidate);
-      if (finalized) {
-        const filtered = filterAddressByVariant(finalized, validatedVariant);
-        if (filtered) {
-          addressPayload = filtered;
-          addressVariant = validatedVariant;
-        } else {
-          addressPayload = null;
-          addressVariant = null;
-        }
-      } else {
-        addressPayload = null;
-        addressVariant = null;
+      const parts = siteAddress.split(',');
+      if (parts.length > 1) {
+        cityStateZipPart = parts.slice(1).join(',').trim();
       }
     }
-  }
 
-  if (addressPayload) {
-    const normalizedAddress = normalizeAddressPayloadForOneOf(addressPayload);
-    addressPayload = normalizedAddress.payload;
-    addressVariant =
-      normalizedAddress.variant !== "none" ? normalizedAddress.variant : null;
-  }
+    let streetNumber = null;
+    let streetPreDirectionalText = null;
+    let streetName = null;
+    let streetSuffixType = null;
+    let streetPostDirectionalText = null;
+    let city_name = null;
+    let state_code = null;
+    let postal_code = null;
+    let plus_four_postal_code = null;
 
-  if (addressPayload && addressVariant) {
-    if (addressVariant === "structured") {
-      delete addressPayload.unnormalized_address;
-    } else if (addressVariant === "unnormalized") {
-      for (const key of ADDRESS_STRUCTURED_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
-          delete addressPayload[key];
+    // Parse street number, pre-directional, street name, post-directional, suffix from siteAddress
+    // Example: "1133 SW INGRASSINA AVE"
+    const streetPartMatch = siteAddress.match(/^(\d+)\s+((?:N|S|E|W|NE|NW|SE|SW)\s+)?(.+?)(?:\s+([A-Z]{2,}))?$/i);
+
+    if (streetPartMatch) {
+      streetNumber = streetPartMatch[1];
+      streetPreDirectionalText = streetPartMatch[2] ? streetPartMatch[2].trim().toUpperCase() : null;
+      let tempStreetName = streetPartMatch[3].trim();
+      let potentialSuffixOrPostDirectional = streetPartMatch[4] ? streetPartMatch[4].toUpperCase() : null;
+
+      // Common street suffix types (can be expanded)
+      const suffixMap = {
+        "ST": "St", "AVE": "Ave", "RD": "Rd", "DR": "Dr", "BLVD": "Blvd",
+        "LN": "Ln", "CT": "Ct", "CIR": "Cir", "PL": "Pl", "WAY": "Way",
+        "TER": "Ter", "PKWY": "Pkwy", "HWY": "Hwy", "SQ": "Sq", "TRL": "Trl",
+        "ALY": "Aly", "CV": "Cv", "EXPY": "Expy", "FRY": "Fry", "JCT": "Jct",
+        "MTN": "Mtn", "OVAL": "Oval", "PASS": "Pass", "PIKE": "Pike",
+        "PLZ": "Plz", "PT": "Pt", "RMP": "Ramp", "RDG": "Rdg", "RIV": "Riv",
+        "ROW": "Row", "RTE": "Rte", "SHR": "Shr", "SPG": "Spg", "SPUR": "Spur",
+        "UN": "Un", "VIS": "Vis", "VW": "Vw", "XING": "Xing", "EXT": "Ext",
+        "GLN": "Gln", "GRN": "Grn", "HTS": "Hts", "IS": "Is", "LNDG": "Lndg",
+        "LGT": "Lgt", "LCK": "Lck", "MDW": "Mdw", "MNR": "Mnr", "PR": "Pr",
+        "TRCE": "Trce", "VLG": "Vlg", "WLS": "Wls", "WALK": "Walk", "COR": "Cor",
+        "FRK": "Frk", "FRD": "Frd", "BRG": "Brg", "BRK": "Brk", "CLF": "Clf",
+        "CYN": "Cyn", "DL": "Dl", "DM": "Dm", "FLT": "Flt", "FLD": "Fld",
+        "FRST": "Frst", "GRV": "Grv", "HBR": "Hbr", "HL": "Hl", "HVN": "Hvn",
+        "INLT": "Inlt", "KY": "Ky", "LF": "Lf", "LOOP": "Loop", "MALL": "Mall",
+        "ML": "Ml", "NCK": "Nck", "ORCH": "Orch", "PSGE": "Psge", "RADL": "Radl",
+        "RPD": "Rpd", "RST": "Rst", "SHL": "Shl", "SKWY": "Skwy", "SMT": "Smt",
+        "STRA": "Stra", "STRM": "Strm", "TRFY": "Trfy", "TUNL": "Tunl",
+        "VLY": "Vly", "WALL": "Wall", "BYU": "Byu", "CPE": "Cpe", "CRK": "Crk",
+        "CRSE": "Crse", "CRST": "Crst", "DV": "Dv", "FALL": "Fall", "FT": "Ft",
+        "GTWY": "Gtwy", "LKS": "Lks", "LODG": "Ldg", "MWS": "Mews", "OPAS": "Opas",
+        "UPAS": "Upas", "PNE": "Pne", "RUN": "Run", "SPS": "Spgs", "SPUR": "Spur",
+        "TRLR": "Trlr", "TRWY": "Trwy", "VIA": "Via", "XRD": "Xrd", "BCH": "Bch",
+        "BGS": "Bgs", "BLF": "Blf", "BTM": "Btm", "CLB": "Clb", "CMN": "Cmn",
+        "CTS": "Cts", "DLS": "Dls", "DRS": "Drs", "EST": "Est", "FLS": "Fls",
+        "FRDS": "Frds", "FRGS": "Frgs", "GDNS": "Gdns", "GLNS": "Glns",
+        "GRNS": "Grns", "GRVS": "Grvs", "HBRS": "Hbrs", "HLS": "Hls",
+        "HVNS": "Hvns", "INLTS": "Inlts", "KNL": "Knl", "KNLS": "Knls",
+        "KYS": "Kys", "LGS": "Lgs", "LGTS": "Lgts", "LCKS": "Lcks",
+        "MDWS": "Mdw", "MLS": "Mls", "MNRS": "Mnr",
+        "MTNS": "Mtns", "NWS": "Nws", "PLNS": "Plns", "PNES": "Pnes", "PRTS": "Prts",
+        "PTS": "Pt", "RDGS": "Rdgs", "RPDS": "Rpds", "SHLS": "Shl",
+        "SHRS": "Shrs", "SPS": "Spgs", "SQS": "Sqs", "STS": "Sts",
+        "TRLS": "Trls", "VLS": "Vls", "VLGS": "Vlgs", "VWS": "Vws",
+        "WLS": "Wls", "WAYS": "Ways", "XRDS": "Xrds", "BYP": "Byp", "CMNS": "Cmns",
+        "CRKS": "Crks", "CRSS": "Crss",
+        "EXPS": "Exps", "FRYS": "Frys", "GTWYS": "Gtwys", "JCTS": "Jct",
+        "MTWYS": "Mtwys", "PKWYS": "Pkwys", "PLZS": "Plzs", "RMPS": "Rmps",
+        "RDGS": "Rdgs", "RIVS": "Rivs", "ROWS": "Rows", "RTES": "Rtes",
+        "SHRS": "Shrs", "SPS": "Spgs", "SQS": "Sqs", "STS": "Sts",
+        "TRLS": "Trls", "VLS": "Vls", "VLGS": "Vlgs", "VWS": "Vws",
+        "WLS": "Wls", "WAYS": "Ways", "XRDS": "Xrds"
+      };
+
+      let foundSuffix = false;
+      if (potentialSuffixOrPostDirectional) {
+        if (suffixMap[potentialSuffixOrPostDirectional]) {
+          streetSuffixType = suffixMap[potentialSuffixOrPostDirectional];
+          foundSuffix = true;
+        } else if (["N", "S", "E", "W", "NE", "NW", "SE", "SW"].includes(potentialSuffixOrPostDirectional)) {
+          streetPostDirectionalText = potentialSuffixOrPostDirectional;
         }
       }
+      streetName = tempStreetName;
     }
 
-    const finalNormalized = normalizeAddressPayloadForOneOf(addressPayload);
-    if (finalNormalized.variant === "none" || !finalNormalized.payload) {
-      addressPayload = null;
-      addressVariant = null;
-    } else {
-      addressPayload = finalNormalized.payload;
-      addressVariant = finalNormalized.variant;
+    // Parse city, state, zip from cityStateZipPart
+    if (cityStateZipPart) {
+      const cityStateZipMatch = cityStateZipPart.match(/^([\w\s\-\']+),\s*([A-Z]{2})\s+(\d{5})(?:-(\d{4}))?$/i);
+      if (cityStateZipMatch) {
+        city_name = cityStateZipMatch[1].toUpperCase();
+        state_code = cityStateZipMatch[2].toUpperCase();
+        postal_code = cityStateZipMatch[3];
+        plus_four_postal_code = cityStateZipMatch[4] || null;
+      }
     }
+
+    // Parse Sec/Town/Range
+    // Sample: "25/37S/39E"
+    if (secTownRange) { // This block is now correctly using the declared variables
+      const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
+      if (strMatch) {
+        section = strMatch[1];
+        township = strMatch[2];
+        range = strMatch[3];
+      }
+    }
+
+    // Populate finalAddressOutput with parsed structured data
+    finalAddressOutput.city_name = city_name;
+    finalAddressOutput.country_code = "US"; // Assuming US for now
+    finalAddressOutput.postal_code = postal_code;
+    finalAddressOutput.plus_four_postal_code = plus_four_postal_code;
+    finalAddressOutput.state_code = state_code;
+    finalAddressOutput.street_number = streetNumber;
+    finalAddressOutput.street_name = streetName;
+    finalAddressOutput.street_post_directional_text = streetPostDirectionalText;
+    finalAddressOutput.street_pre_directional_text = streetPreDirectionalText;
+    finalAddressOutput.street_suffix_type = streetSuffixType;
+    finalAddressOutput.township = township; // Now correctly referenced
+    finalAddressOutput.range = range;    // Now correctly referenced
+    finalAddressOutput.section = section;  // Now correctly referenced
+    // unit_identifier, route_number, block remain null as they are not in the sample HTML
   }
+  // We are explicitly NOT adding unnormalized_address.
 
-  const coercedAddressPayload = coerceAddressForSchema(addressPayload);
-
-  const addressOutputPath = path.join("data", "address.json");
-  const propertyHasAddressRelPath = path.join(
-    "data",
-    "relationship_property_has_address.json",
+  await fsp.writeFile(
+    path.join("data", "address.json"),
+    JSON.stringify(finalAddressOutput, null, 2),
   );
-  const addressHasFactSheetRelPath = path.join(
-    "data",
-    "relationship_address_has_fact_sheet.json",
-  );
-
-  if (coercedAddressPayload) {
-    addressWasWritten = true;
-    await fsp.writeFile(
-      addressOutputPath,
-      JSON.stringify(coercedAddressPayload, null, 2),
-    );
-  } else {
-    addressWasWritten = false;
-    await fsp.unlink(addressOutputPath).catch(() => {});
-    await fsp.unlink(propertyHasAddressRelPath).catch(() => {});
-    await fsp.unlink(addressHasFactSheetRelPath).catch(() => {});
-  }
 
   // --- Parcel extraction ---
   // parcelIdentifierDashed is already extracted from HTML
   const parcelOut = {
+    source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+    request_identifier: baseRequestData.request_identifier || null,
     parcel_identifier: parcelIdentifierDashed || null,
   };
   await fsp.writeFile(
@@ -3191,6 +1603,8 @@ async function main() {
     });
 
     propertyOut = {
+      source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+      request_identifier: baseRequestData.request_identifier || null,
       parcel_identifier: parcelIdentifierDashed || null, // Use the extracted parcel ID
       property_legal_description_text: legalDescription || null,
       property_type: mappedPropertyDetails.property_type || "LandParcel", // Default if not found
@@ -3214,68 +1628,10 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (!factSheetWritten) {
-      await fsp.writeFile(
-        factSheetOutputPath,
-        JSON.stringify({}, null, 2),
-      );
-      factSheetWritten = true;
-    }
-
-    if (factSheetWritten) {
-      const factSheetPropertyRel = createRelationshipPayload(
-        `./${factSheetFileName}`,
-        "./property.json",
-      );
-      if (factSheetPropertyRel) {
-        await fsp.writeFile(
-          path.join("data", "relationship_fact_sheet_has_property.json"),
-          JSON.stringify(factSheetPropertyRel, null, 2),
-        );
-      } else {
-        await fsp
-          .unlink(
-            path.join("data", "relationship_fact_sheet_has_property.json"),
-          )
-          .catch(() => {});
-      }
-    }
-
-    if (addressWasWritten) {
-      const propertyHasAddressRel = createRelationshipPayload(
-        "./property.json",
-        "./address.json",
-      );
-      if (propertyHasAddressRel) {
-        await fsp.writeFile(
-          propertyHasAddressRelPath,
-          JSON.stringify(propertyHasAddressRel, null, 2),
-        );
-      } else {
-        await fsp.unlink(propertyHasAddressRelPath).catch(() => {});
-      }
-
-      if (factSheetWritten) {
-        const addressHasFactSheetRel = createRelationshipPayload(
-          "./address.json",
-          `./${factSheetFileName}`,
-        );
-        if (addressHasFactSheetRel) {
-          await fsp.writeFile(
-            addressHasFactSheetRelPath,
-            JSON.stringify(addressHasFactSheetRel, null, 2),
-          );
-        } else {
-          await fsp.unlink(addressHasFactSheetRelPath).catch(() => {});
-        }
-      }
-    } else {
-      await fsp.unlink(propertyHasAddressRelPath).catch(() => {});
-      await fsp.unlink(addressHasFactSheetRelPath).catch(() => {});
-    }
-
     // Lot data
     const lotOut = {
+      source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+      request_identifier: baseRequestData.request_identifier || null,
       lot_type: null,
       lot_length_feet: null,
       lot_width_feet: null,
@@ -3322,6 +1678,8 @@ async function main() {
       const improvementAction = mapImprovementAction(descriptionText);
 
       const improvementOut = {
+        source_http_request: sourceHttpRequest,
+        request_identifier: baseRequestData.request_identifier || null,
         permit_number: permitNumber || null,
         permit_issue_date: permitIssueDate || null,
         permit_close_date: null,
@@ -3373,17 +1731,13 @@ async function main() {
 
     function registerAlias(record, alias) {
       if (!record || !alias) return;
-      const cleanedAlias = textClean(alias);
-      const key = normalizeOwnerKey(cleanedAlias || alias);
+      const key = normalizeOwnerKey(alias);
       if (!key) return;
       if (!ownerAliasToId.has(key)) {
         ownerAliasToId.set(key, record.id);
       }
       record.aliases.add(key);
-      if (cleanedAlias) {
-        if (record.aliasTexts) record.aliasTexts.add(cleanedAlias);
-        if (!record.displayName) record.displayName = cleanedAlias;
-      }
+      if (!record.displayName) record.displayName = textClean(alias) || record.displayName;
     }
 
     function createOwnerRecord(type, initial = {}) {
@@ -3392,7 +1746,6 @@ async function main() {
         id: `owner_${ownerRecordSerial}`,
         type,
         aliases: new Set(),
-        aliasTexts: new Set(),
         displayName: initial.displayName || null,
         person:
           type === "person"
@@ -3405,26 +1758,17 @@ async function main() {
                 suffix_name: initial.person?.suffix_name ?? null,
                 us_citizenship_status: initial.person?.us_citizenship_status ?? null,
                 veteran_status: initial.person?.veteran_status ?? null,
+                request_identifier: initial.person?.request_identifier ?? null,
               }
             : undefined,
         company:
           type === "company"
             ? {
                 name: initial.company?.name ?? null,
+                request_identifier: initial.company?.request_identifier ?? null,
               }
             : undefined,
       };
-  if (record.person) {
-    sanitizePersonIdentity(record.person);
-    enforcePersonNamePatterns(record.person);
-  }
-      if (record.displayName) {
-        const cleanedDisplay = textClean(record.displayName);
-        if (cleanedDisplay) {
-          record.displayName = cleanedDisplay;
-          record.aliasTexts.add(cleanedDisplay);
-        }
-      }
       ownerRecords.set(record.id, record);
       return record;
     }
@@ -3442,9 +1786,8 @@ async function main() {
           suffix_name: ownerEntry.suffix_name ?? null,
           us_citizenship_status: ownerEntry.us_citizenship_status ?? null,
           veteran_status: ownerEntry.veteran_status ?? null,
+          request_identifier: ownerEntry.request_identifier ?? null,
         };
-        sanitizePersonIdentity(personData);
-        enforcePersonNamePatterns(personData);
         const candidateDisplay =
           ownerEntry.full_name ||
           buildPersonDisplayName(personData) ||
@@ -3469,17 +1812,6 @@ async function main() {
             record.displayName = candidateDisplay;
           }
         }
-        if (record && record.person) {
-          const stillCompliant = ensurePersonRecordSchemaCompliance(record);
-          if (!stillCompliant) {
-            convertPersonRecordToCompany(record);
-          } else {
-            sanitizePersonIdentity(record.person);
-            enforcePersonNamePatterns(record.person);
-          }
-        } else if (record && record.type === "company") {
-          // Company path retains any previously captured person aliases.
-        }
         if (candidateDisplay) registerAlias(record, candidateDisplay);
         if (ownerEntry.raw_name) registerAlias(record, ownerEntry.raw_name);
         if (!record.displayName) {
@@ -3496,6 +1828,7 @@ async function main() {
           ownerEntry.full_name ??
           ownerEntry.raw_name ??
           null,
+        request_identifier: ownerEntry.request_identifier ?? null,
       };
       const candidateDisplay = companyData.name || ownerEntry.raw_name || null;
       let record = candidateDisplay
@@ -3509,6 +1842,12 @@ async function main() {
       } else if (record.company) {
         if (!record.company.name && companyData.name) {
           record.company.name = companyData.name;
+        }
+        if (
+          record.company.request_identifier == null &&
+          companyData.request_identifier != null
+        ) {
+          record.company.request_identifier = companyData.request_identifier;
         }
         if (!record.displayName && candidateDisplay) {
           record.displayName = candidateDisplay;
@@ -3546,30 +1885,11 @@ async function main() {
         middle_name: parsed?.middle_name ?? null,
         // Other fields are null by default in createOwnerRecord
       };
-      sanitizePersonIdentity(personData);
-      enforcePersonNamePatterns(personData);
-      if (!personData.first_name && !personData.last_name) {
-        const companyRecord = createOwnerRecord("company", {
-          company: { name: cleaned },
-          displayName: cleaned,
-        });
-        registerAlias(companyRecord, cleaned);
-        return companyRecord;
-      }
-      const normalizedDisplay =
-        buildPersonDisplayName(personData) || cleaned || null;
       const record = createOwnerRecord("person", {
         person: personData,
-        displayName: normalizedDisplay || cleaned,
+        displayName: cleaned,
       });
-      if (normalizedDisplay) registerAlias(record, normalizedDisplay);
       registerAlias(record, cleaned);
-      if (record.type === "person") {
-        const compliant = ensurePersonRecordSchemaCompliance(record);
-        if (!compliant) {
-          convertPersonRecordToCompany(record);
-        }
-      }
       return record;
     }
 
@@ -3662,12 +1982,17 @@ async function main() {
     // Extract owner name and mailing address from HTML
     const ownerP = $("article#ownership .bottom-text p").first();
     if (ownerP && ownerP.length) {
+      console.log("--- Mailing Address Debugging ---");
+      console.log("Raw HTML of Ownership P tag:", ownerP.html());
+
+      // Replace all <br> tags (with or without attributes) with a newline character
       const htmlContent = ownerP.html();
-      const cleanedHtml = htmlContent.replace(/<br[^>]*>/gi, "\n");
-      const lines = cleanedHtml
-        .split("\n")
-        .map((line) => textClean(line))
-        .filter(Boolean);
+      const cleanedHtml = htmlContent.replace(/<br[^>]*>/gi, '\n'); 
+      
+      // Split by newline characters, then clean each line and filter out any empty ones
+      const lines = cleanedHtml.split('\n').map(line => textClean(line)).filter(Boolean);
+
+      console.log("Lines after replacing <br> with \\n and cleaning:", lines);
 
       if (lines.length > 0) {
         const normalizedLines = lines.map((line, index) => ({
@@ -3712,6 +2037,8 @@ async function main() {
             ? mailingAddressLines.join(" ").trim()
             : null;
       }
+      console.log("Extracted currentOwnerName:", currentOwnerName);
+      console.log("Extracted mailingAddressText (raw):", mailingAddressText);
     }
 
     // If current owner not found from owner_data.json, create from HTML
@@ -3724,21 +2051,36 @@ async function main() {
 
     // --- Mailing Address File Creation ---
     if (mailingAddressText) {
-      const trimmedMailing = mailingAddressText.trim();
-      if (trimmedMailing.length > 0) {
-        mailingAddressOut = {
-          unnormalized_address: trimmedMailing,
-        };
-        await fsp.writeFile(
-          path.join("data", "mailing_address.json"),
-          JSON.stringify(mailingAddressOut, null, 2),
-        );
-      } else {
-        mailingAddressOut = null;
-        await fsp
-          .unlink(path.join("data", "mailing_address.json"))
-          .catch(() => {});
-      }
+      // No need to break down, just store the full text in unnormalized_address
+      mailingAddressOut = {
+        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+        request_identifier: baseRequestData.request_identifier || null,
+        unnormalized_address: mailingAddressText, // Store the full cleaned text here
+        // All other structured fields are null as per instruction
+        latitude:  null,
+        longitude: null
+        // country_code: null,
+        // city_name: null,
+        // postal_code: null,
+        // plus_four_postal_code: null,
+        // state_code: null,
+        // street_number: null,
+        // street_name: null,
+        // street_post_directional_text: null,
+        // street_pre_directional_text: null,
+        // street_suffix_type: null,
+        // unit_identifier: null,
+        // route_number: null,
+        // po_box_number: null,
+      };
+
+      console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
+
+      await fsp.writeFile(
+        path.join("data", "mailing_address.json"),
+        JSON.stringify(mailingAddressOut, null, 2),
+      );
+      console.log("mailing_address.json created.");
     }
 
 
@@ -3808,149 +2150,81 @@ async function main() {
     await removeExisting(/^relationship_person_.*_has_mailing_address\.json$/); 
 
     const ownerToFileMap = new Map();
-    const validPersonFiles = new Set();
     let personIdx = 0;
     let companyIdx = 0;
 
     for (const record of ownerRecords.values()) {
       if (record.type === "person") {
-        const compliant = ensurePersonRecordSchemaCompliance(record);
-        if (!compliant) {
-          convertPersonRecordToCompany(record);
-        }
-      }
-    }
-
-    for (const record of ownerRecords.values()) {
-      if (record.type !== "person") continue;
-      const lastName = record.person?.last_name;
-      if (typeof lastName !== "string" || !PERSON_NAME_PATTERN.test(lastName)) {
-        convertPersonRecordToCompany(record);
-        continue;
-      }
-      if (
-        record.person?.middle_name &&
-        !PERSON_MIDDLE_NAME_PATTERN.test(record.person.middle_name)
-      ) {
-        record.person.middle_name = null;
-      }
-    }
-
-    const personRecordsToWrite = [];
-    const companyRecordsToWrite = [];
-
-    for (const record of ownerRecords.values()) {
-      if (record.type === "person") {
-        const personPayload = buildPersonPayload(record);
-        const safePayload =
-          personPayload && enforcePersonPayloadForSchema(personPayload);
-        if (safePayload) {
-          personRecordsToWrite.push({ record, payload: safePayload });
-        } else {
-          convertPersonRecordToCompany(record);
-        }
-      }
-      if (record.type === "company") {
-        const companyPayload = buildCompanyPayload(record);
-        if (companyPayload) {
-          companyRecordsToWrite.push({ record, payload: companyPayload });
-        }
-      }
-    }
-
-    for (const { record, payload } of personRecordsToWrite) {
-      personIdx += 1;
-      const fileName = `person_${personIdx}.json`;
-      await fsp.writeFile(
-        path.join("data", fileName),
-        JSON.stringify(payload, null, 2),
-      );
-      validPersonFiles.add(fileName);
-      ownerToFileMap.set(record.id, {
-        fileName,
-        type: "person",
-        index: personIdx,
-      });
-    }
-
-    for (const { record, payload } of companyRecordsToWrite) {
-      companyIdx += 1;
-      const fileName = `company_${companyIdx}.json`;
-      await fsp.writeFile(
-        path.join("data", fileName),
-        JSON.stringify(payload, null, 2),
-      );
-      ownerToFileMap.set(record.id, {
-        fileName,
-        type: "company",
-        index: companyIdx,
-      });
-    }
-
-    if (factSheetWritten) {
-      const factSheetPersonIds = new Set();
-      for (const [recordId, roles] of ownerPropertyRoles.entries()) {
-        if (!roles || roles.size === 0) continue;
-        for (const role of roles) {
-          if (typeof role === "string" && role.toLowerCase() === "current") {
-            factSheetPersonIds.add(recordId);
-            break;
-          }
-        }
-      }
-      if (currentOwnerRecord) {
-        factSheetPersonIds.add(currentOwnerRecord.id);
-      }
-      for (const recordId of factSheetPersonIds) {
-        const meta = ownerToFileMap.get(recordId);
-        if (
-          !meta ||
-          meta.type !== "person" ||
-          !validPersonFiles.has(meta.fileName)
-        ) {
-          continue;
-        }
-        const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
-        const relOut = createRelationshipPayload(
-          `./${meta.fileName}`,
-          `./${factSheetFileName}`,
+        personIdx += 1;
+        const personOut = {
+          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+          birth_date: record.person?.birth_date ?? null,
+          first_name: record.person?.first_name ?? null,
+          last_name: record.person?.last_name ?? null,
+          middle_name: record.person?.middle_name ?? null,
+          prefix_name: record.person?.prefix_name ?? null,
+          suffix_name: record.person?.suffix_name ?? null,
+          us_citizenship_status: record.person?.us_citizenship_status ?? null,
+          veteran_status: record.person?.veteran_status ?? null,
+          request_identifier: record.person?.request_identifier ?? null,
+        };
+        const fileName = `person_${personIdx}.json`;
+        await fsp.writeFile(
+          path.join("data", fileName),
+          JSON.stringify(personOut, null, 2),
         );
-        if (relOut) {
-          await fsp.writeFile(
-            path.join("data", relFileName),
-            JSON.stringify(relOut, null, 2),
-          );
-        } else {
-          await fsp.unlink(path.join("data", relFileName)).catch(() => {});
-        }
+        ownerToFileMap.set(record.id, {
+          fileName,
+          type: "person",
+          index: personIdx,
+        });
+      } else {
+        companyIdx += 1;
+        const companyOut = {
+          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+          name: record.company?.name ?? record.displayName ?? null,
+          request_identifier: record.company?.request_identifier ?? null,
+        };
+        const fileName = `company_${companyIdx}.json`;
+        await fsp.writeFile(
+          path.join("data", fileName),
+          JSON.stringify(companyOut, null, 2),
+        );
+        ownerToFileMap.set(record.id, {
+          fileName,
+          type: "company",
+          index: companyIdx,
+        });
       }
     }
 
     // --- Create relationship between latest owner (if person) and mailing address ---
     // This relationship should only be created if mailingAddressOut was successfully created
     // and ownerToFileMap is now fully populated.
-    if (currentOwnerRecord && mailingAddressOut) {
+    if (currentOwnerRecord  && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
-      if (
-        latestOwnerMeta &&
-        latestOwnerMeta.type === "person" &&
-        validPersonFiles.has(latestOwnerMeta.fileName)
-      ) {
-        const relFileName = `relationship_person_${latestOwnerMeta.index}_has_mailing_address.json`;
-        const relOut = createRelationshipPayload(
-          `./${latestOwnerMeta.fileName}`,
-          "./mailing_address.json",
+      if (latestOwnerMeta) { // Ensure it's a person for this relationship
+        const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
+        const relOut = {
+          from: { "/": `./${latestOwnerMeta.fileName}` },
+          to: { "/": "./mailing_address.json" },
+        };
+        await fsp.writeFile(
+          path.join("data", relFileName),
+          JSON.stringify(relOut, null, 2),
         );
-        if (relOut) {
-          await fsp.writeFile(
-            path.join("data", relFileName),
-            JSON.stringify(relOut, null, 2),
-          );
-        } else {
-          await fsp.unlink(path.join("data", relFileName)).catch(() => {});
-        }
+        console.log(`Created mailing address relationship: ${relFileName}`);
+      } else {
+        console.log("Warning: Could not find metadata for currentOwnerRecord (or it's not a person) to create mailing address relationship.");
       }
+    } else {
+      console.log("Mailing address relationship not created. Conditions not met:", {
+        currentOwnerRecord: !!currentOwnerRecord,
+        isPerson: currentOwnerRecord?.type === "person",
+        mailingAddressOut: !!mailingAddressOut
+      });
     }
+
 
     const propertyRelCounters = { person: 0, company: 0 };
     for (const [recordId, roles] of ownerPropertyRoles.entries()) {
@@ -3961,18 +2235,15 @@ async function main() {
         for (const role of roles) {
           propertyRelCounters[meta.type] += 1;
           const relFileName = `relationship_property_has_${meta.type}_${propertyRelCounters[meta.type]}_${slugify(role)}.json`;
-          const relOut = createRelationshipPayload(
-            "./property.json",
-            `./${meta.fileName}`,
+          const relOut = {
+            from: { "/": "./property.json" },
+            to: { "/": `./${meta.fileName}` },
+            // type: "property_has_company", // Removed 'type' property
+          };
+          await fsp.writeFile(
+            path.join("data", relFileName),
+            JSON.stringify(relOut, null, 2),
           );
-          if (relOut) {
-            await fsp.writeFile(
-              path.join("data", relFileName),
-              JSON.stringify(relOut, null, 2),
-            );
-          } else {
-            await fsp.unlink(path.join("data", relFileName)).catch(() => {});
-          }
         }
       }
     }
@@ -4135,6 +2406,8 @@ async function main() {
       const sale = sales[i];
       const saleFileName = `sales_history_${i + 1}.json`;
       const saleOut = {
+        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+        request_identifier: baseRequestData.request_identifier || null,
         ownership_transfer_date: sale.ownership_transfer_date,
         purchase_price_amount: sale.purchase_price_amount,
       };
@@ -4149,6 +2422,7 @@ async function main() {
       if (deedType !== null) {
         const deedFileName = `deed_${i + 1}.json`;
         const deedOut = {
+          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
           deed_type: deedType,
         };
         await fsp.writeFile(
@@ -4156,22 +2430,17 @@ async function main() {
           JSON.stringify(deedOut, null, 2),
         );
 
-        const relSalesDeed = createRelationshipPayload(
-          `./${saleFileName}`,
-          `./${deedFileName}`,
+        const relSalesDeed = {
+          from: { "/": `./${saleFileName}` },
+          to: { "/": `./${deedFileName}` },
+        };
+        await fsp.writeFile(
+          path.join(
+            "data",
+            `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
+          ),
+          JSON.stringify(relSalesDeed, null, 2),
         );
-        const salesToDeedPath = path.join(
-          "data",
-          `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
-        );
-        if (relSalesDeed) {
-          await fsp.writeFile(
-            salesToDeedPath,
-            JSON.stringify(relSalesDeed, null, 2),
-          );
-        } else {
-          await fsp.unlink(salesToDeedPath).catch(() => {});
-        }
 
         // --- Create sales_history_has_person/company relationships ---
         // if (sale._grantor_record_id) {
@@ -4194,23 +2463,15 @@ async function main() {
           const granteeMeta = ownerToFileMap.get(sale._grantee_record_id);
           if (granteeMeta) {
             const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
-            const shouldCreateRel =
-              granteeMeta.type !== "person" ||
-              validPersonFiles.has(granteeMeta.fileName);
-            const relOut = shouldCreateRel
-              ? createRelationshipPayload(
-                `./${saleFileName}`,
-                `./${granteeMeta.fileName}`,
-              )
-              : null;
-            if (relOut) {
-              await fsp.writeFile(
-                path.join("data", relFileName),
-                JSON.stringify(relOut, null, 2),
-              );
-            } else {
-              await fsp.unlink(path.join("data", relFileName)).catch(() => {});
-            }
+            const relOut = {
+              from: { "/": `./${saleFileName}` },
+              to: { "/": `./${granteeMeta.fileName}` },
+              // type: `sales_history_has_${granteeMeta.type}`, // Removed 'type' property
+            };
+            await fsp.writeFile(
+              path.join("data", relFileName),
+              JSON.stringify(relOut, null, 2),
+            );
           }
         }
         // --- End of sales_history_has_person/company relationships ---
@@ -4220,8 +2481,12 @@ async function main() {
           fileIdx += 1;
           const fileFileName = `file_${fileIdx}.json`;
           const fileOut = {
+            source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+            request_identifier: baseRequestData.request_identifier || null,
             file_format: getFileFormatFromUrl(sale._book_page_url),
-            name: path.basename(sale._book_page_url || "") || null,
+            name: path.basename(sale._book_page_url) || null,
+            original_url: sale._book_page_url,
+            ipfs_url: null,
             document_type: "ConveyanceDeed",
           };
           await fsp.writeFile(
@@ -4229,22 +2494,14 @@ async function main() {
             JSON.stringify(fileOut, null, 2),
           );
 
-          const relDeedFile = createRelationshipPayload(
-            `./${deedFileName}`,
-            `./${fileFileName}`,
+          const relDeedFile = {
+            from: { "/": `./${deedFileName}` },
+            to: { "/": `./${fileFileName}` },
+          };
+          await fsp.writeFile(
+            path.join("data", `relationship_deed_${i + 1}_to_file_${fileIdx}.json`),
+            JSON.stringify(relDeedFile, null, 2),
           );
-          const deedFilePath = path.join(
-            "data",
-            `relationship_deed_${i + 1}_to_file_${fileIdx}.json`,
-          );
-          if (relDeedFile) {
-            await fsp.writeFile(
-              deedFilePath,
-              JSON.stringify(relDeedFile, null, 2),
-            );
-          } else {
-            await fsp.unlink(deedFilePath).catch(() => {});
-          }
         }
       } // End of if (deedType !== null)
     }
@@ -4260,7 +2517,6 @@ async function main() {
 
   // Tax extraction: clear old and create one file per year option present
   await removeExisting(/^tax_.*\.json$/);
-  await removeExisting(/^relationship_property_has_tax_.*\.json$/);
   if (!isMulti) {
     const targetTaxYear = 2025; // Only include tax for 2025
 
@@ -4294,7 +2550,17 @@ async function main() {
     if (foundTargetYear) { // Only write tax data if 2025 is found
       const taxFileName = `tax_${targetTaxYear}.json`;
       const taxOut = {
+        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+        request_identifier: baseRequestData.request_identifier || null,
         tax_year: targetTaxYear,
+        property_assessed_value_amount:
+          assessedVal && assessedVal > 0 ? assessedVal : null,
+        property_market_value_amount: justVal && justVal > 0 ? justVal : null,
+        property_building_amount:
+          buildingVal && buildingVal > 0 ? buildingVal : null,
+        property_land_amount: landVal && landVal > 0 ? landVal : null,
+        property_taxable_value_amount:
+          taxableVal && taxableVal > 0 ? taxableVal : null,
         monthly_tax_amount: null,
         period_end_date: null,
         period_start_date: null,
@@ -4302,59 +2568,10 @@ async function main() {
         first_year_on_tax_roll: null,
         yearly_tax_amount: null,
       };
-      if (Number.isFinite(assessedVal)) {
-        taxOut.property_assessed_value_amount = assessedVal;
-      }
-      if (Number.isFinite(justVal)) {
-        taxOut.property_market_value_amount = justVal;
-      }
-      if (Number.isFinite(buildingVal)) {
-        taxOut.property_building_amount = buildingVal;
-      }
-      if (Number.isFinite(landVal)) {
-        taxOut.property_land_amount = landVal;
-      }
-      if (Number.isFinite(taxableVal)) {
-        taxOut.property_taxable_value_amount = Number(taxableVal);
-      }
-      const numericTaxFields = [
-        "property_assessed_value_amount",
-        "property_market_value_amount",
-        "property_building_amount",
-        "property_land_amount",
-        "property_taxable_value_amount",
-      ];
-      for (const field of numericTaxFields) {
-        if (!Object.prototype.hasOwnProperty.call(taxOut, field)) continue;
-        const value = taxOut[field];
-        const coerced =
-          typeof value === "number" && Number.isFinite(value)
-            ? value
-            : parseCurrencyToNumber(value);
-        if (typeof coerced === "number" && Number.isFinite(coerced)) {
-          taxOut[field] = coerced;
-        } else {
-          delete taxOut[field];
-        }
-      }
-      const taxFilePath = path.join("data", taxFileName);
-      await fsp.writeFile(taxFilePath, JSON.stringify(taxOut, null, 2));
-
-      if (propertyOut) {
-        const relFileName = `relationship_property_has_tax_${targetTaxYear}.json`;
-        const relOut = createRelationshipPayload(
-          "./property.json",
-          `./${taxFileName}`,
-        );
-        if (relOut) {
-          await fsp.writeFile(
-            path.join("data", relFileName),
-            JSON.stringify(relOut, null, 2),
-          );
-        } else {
-          await fsp.unlink(path.join("data", relFileName)).catch(() => {});
-        }
-      }
+      await fsp.writeFile(
+        path.join("data", taxFileName),
+        JSON.stringify(taxOut, null, 2),
+      );
     }
   }
 
@@ -4424,9 +2641,11 @@ async function main() {
       delete utilityOut.number_of_buildings;
     }
 
-    if (Object.prototype.hasOwnProperty.call(utilityOut, "url")) {
-      delete utilityOut.url;
+    if (utilityOut.url && utilityOut.url.includes("placeholder")) {
+      utilityOut.url = sourceHttpRequestUrl;
     }
+    utilityOut.source_http_request = sourceHttpRequest;
+    utilityOut.request_identifier = baseRequestData.request_identifier || null;
 
     await fsp.writeFile(
       path.join("data", fileName),
@@ -4507,9 +2726,11 @@ async function main() {
       delete structureOut.number_of_buildings;
     }
 
-    if (Object.prototype.hasOwnProperty.call(structureOut, "url")) {
-      delete structureOut.url;
+    if (structureOut.url && structureOut.url.includes("placeholder")) {
+      structureOut.url = sourceHttpRequestUrl;
     }
+    structureOut.source_http_request = sourceHttpRequest;
+    structureOut.request_identifier = baseRequestData.request_identifier || null;
 
     await fsp.writeFile(
       path.join("data", fileName),
@@ -4556,27 +2777,11 @@ async function main() {
     const fileName = `layout_${i + 1}.json`;
 
     const layoutOut = { ...layout };
-    if (Object.prototype.hasOwnProperty.call(layoutOut, "floor_level")) {
-      const normalizedFloor = normalizeLayoutFloorLevel(layoutOut.floor_level);
-      layoutOut.floor_level =
-        typeof normalizedFloor === "string" && FLOOR_LEVEL_ALLOWED.has(normalizedFloor)
-          ? normalizedFloor
-          : null;
-    } else {
-      layoutOut.floor_level = null;
+    if (layoutOut.url && layoutOut.url.includes("placeholder")) {
+      layoutOut.url = sourceHttpRequestUrl;
     }
-    if (Object.prototype.hasOwnProperty.call(layoutOut, "story_type")) {
-      const normalizedStory = normalizeLayoutStoryType(layoutOut.story_type);
-      layoutOut.story_type =
-        typeof normalizedStory === "string" && STORY_TYPE_ALLOWED.has(normalizedStory)
-          ? normalizedStory
-          : null;
-    } else {
-      layoutOut.story_type = null;
-    }
-    if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
-      delete layoutOut.url;
-    }
+    layoutOut.source_http_request = sourceHttpRequest;
+    layoutOut.request_identifier = baseRequestData.request_identifier || null;
 
     if (layoutOut.space_type === "Building") {
       if (layoutOut.building_number == null) {
@@ -4651,22 +2856,18 @@ async function main() {
       layoutIndexToFile.has(parentIndex)
     ) {
       const relFile = `relationship_layout_${parentIndex}_has_layout_${record.index}.json`;
-      const relOut = createRelationshipPayload(
-        `./${layoutIndexToFile.get(parentIndex)}`,
-        `./${record.file}`,
+      const relOut = {
+        from: { "/": `./${layoutIndexToFile.get(parentIndex)}` },
+        to: { "/": `./${record.file}` },
+      };
+      await fsp.writeFile(
+        path.join("data", relFile),
+        JSON.stringify(relOut, null, 2),
       );
-      if (relOut) {
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
-      } else {
-        await fsp.unlink(path.join("data", relFile)).catch(() => {});
-      }
     }
   }
 
-  const propertyRef = "./property.json";
+  const propertyRef = { "/": "./property.json" };
 
   // if (propertyOut) {
   //   for (const record of propertyImprovementRecords) {
@@ -4683,7 +2884,7 @@ async function main() {
   // }
 
   for (const record of utilityRecords) {
-    const utilityRef = `./${record.file}`;
+    const utilityRef = { "/": `./${record.file}` };
     let linkedToLayout = false;
 
     if (multiBuilding) {
@@ -4695,18 +2896,14 @@ async function main() {
         const layoutFile = layoutIndexToFile.get(parentIndex);
         if (layoutFile) {
           const relFile = `relationship_layout_${parentIndex}_has_utility_${record.index}.json`;
-          const relOut = createRelationshipPayload(
-            `./${layoutFile}`,
-            utilityRef,
+          const relOut = {
+            from: { "/": `./${layoutFile}` },
+            to: utilityRef,
+          };
+          await fsp.writeFile(
+            path.join("data", relFile),
+            JSON.stringify(relOut, null, 2),
           );
-          if (relOut) {
-            await fsp.writeFile(
-              path.join("data", relFile),
-              JSON.stringify(relOut, null, 2),
-            );
-          } else {
-            await fsp.unlink(path.join("data", relFile)).catch(() => {});
-          }
           linkedToLayout = true;
         }
       }
@@ -4714,41 +2911,33 @@ async function main() {
       const layoutFile = layoutIndexToFile.get(primaryBuildingIndex);
       if (layoutFile) {
         const relFile = `relationship_layout_${primaryBuildingIndex}_has_utility_${record.index}.json`;
-        const relOut = createRelationshipPayload(
-          `./${layoutFile}`,
-          utilityRef,
+        const relOut = {
+          from: { "/": `./${layoutFile}` },
+          to: utilityRef,
+        };
+        await fsp.writeFile(
+          path.join("data", relFile),
+          JSON.stringify(relOut, null, 2),
         );
-        if (relOut) {
-          await fsp.writeFile(
-            path.join("data", relFile),
-            JSON.stringify(relOut, null, 2),
-          );
-        } else {
-          await fsp.unlink(path.join("data", relFile)).catch(() => {});
-        }
         linkedToLayout = true;
       }
     }
 
     if (!linkedToLayout && propertyOut) {
       const relFile = `relationship_property_has_utility_${record.index}.json`;
-      const relOut = createRelationshipPayload(
-        propertyRef,
-        utilityRef,
+      const relOut = {
+        from: propertyRef,
+        to: utilityRef,
+      };
+      await fsp.writeFile(
+        path.join("data", relFile),
+        JSON.stringify(relOut, null, 2),
       );
-      if (relOut) {
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
-      } else {
-        await fsp.unlink(path.join("data", relFile)).catch(() => {});
-      }
     }
   }
 
   for (const record of structureRecords) {
-    const structureRef = `./${record.file}`;
+    const structureRef = { "/": `./${record.file}` };
     let linkedToLayout = false;
 
     if (multiBuilding) {
@@ -4760,18 +2949,14 @@ async function main() {
         const layoutFile = layoutIndexToFile.get(parentIndex);
         if (layoutFile) {
           const relFile = `relationship_layout_${parentIndex}_has_structure_${record.index}.json`;
-          const relOut = createRelationshipPayload(
-            `./${layoutFile}`,
-            structureRef,
+          const relOut = {
+            from: { "/": `./${layoutFile}` },
+            to: structureRef,
+          };
+          await fsp.writeFile(
+            path.join("data", relFile),
+            JSON.stringify(relOut, null, 2),
           );
-          if (relOut) {
-            await fsp.writeFile(
-              path.join("data", relFile),
-              JSON.stringify(relOut, null, 2),
-            );
-          } else {
-            await fsp.unlink(path.join("data", relFile)).catch(() => {});
-          }
           linkedToLayout = true;
         }
       }
@@ -4779,36 +2964,28 @@ async function main() {
       const layoutFile = layoutIndexToFile.get(primaryBuildingIndex);
       if (layoutFile) {
         const relFile = `relationship_layout_${primaryBuildingIndex}_has_structure_${record.index}.json`;
-        const relOut = createRelationshipPayload(
-          `./${layoutFile}`,
-          structureRef,
+        const relOut = {
+          from: { "/": `./${layoutFile}` },
+          to: structureRef,
+        };
+        await fsp.writeFile(
+          path.join("data", relFile),
+          JSON.stringify(relOut, null, 2),
         );
-        if (relOut) {
-          await fsp.writeFile(
-            path.join("data", relFile),
-            JSON.stringify(relOut, null, 2),
-          );
-        } else {
-          await fsp.unlink(path.join("data", relFile)).catch(() => {});
-        }
         linkedToLayout = true;
       }
     }
 
     if (!linkedToLayout && propertyOut) {
       const relFile = `relationship_property_has_structure_${record.index}.json`;
-      const relOut = createRelationshipPayload(
-        propertyRef,
-        structureRef,
+      const relOut = {
+        from: propertyRef,
+        to: structureRef,
+      };
+      await fsp.writeFile(
+        path.join("data", relFile),
+        JSON.stringify(relOut, null, 2),
       );
-      if (relOut) {
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
-      } else {
-        await fsp.unlink(path.join("data", relFile)).catch(() => {});
-      }
     }
   }
 
@@ -4832,8 +3009,12 @@ async function main() {
       currentFileIdx += 1;
       const fileFileName = `file_${currentFileIdx}.json`;
       const rec = {
+        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+        request_identifier: baseRequestData.request_identifier || null,
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
+        original_url: u || null,
+        ipfs_url: null,
         document_type: null,
       };
       // Map document_type to schema-compliant values
