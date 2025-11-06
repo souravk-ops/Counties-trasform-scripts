@@ -2856,6 +2856,7 @@ async function main() {
   await fsp.unlink(factSheetOutputPath).catch(() => {});
   const propertyImprovementRecords = [];
   let factSheetWritten = false;
+  let addressWasWritten = false;
 
 
   // --- Address extraction ---
@@ -3092,13 +3093,26 @@ async function main() {
   const coercedAddressPayload = coerceAddressForSchema(addressPayload);
 
   const addressOutputPath = path.join("data", "address.json");
+  const propertyHasAddressRelPath = path.join(
+    "data",
+    "relationship_property_has_address.json",
+  );
+  const addressHasFactSheetRelPath = path.join(
+    "data",
+    "relationship_address_has_fact_sheet.json",
+  );
+
   if (coercedAddressPayload) {
+    addressWasWritten = true;
     await fsp.writeFile(
       addressOutputPath,
       JSON.stringify(coercedAddressPayload, null, 2),
     );
   } else {
+    addressWasWritten = false;
     await fsp.unlink(addressOutputPath).catch(() => {});
+    await fsp.unlink(propertyHasAddressRelPath).catch(() => {});
+    await fsp.unlink(addressHasFactSheetRelPath).catch(() => {});
   }
 
   // --- Parcel extraction ---
@@ -3227,18 +3241,38 @@ async function main() {
       }
     }
 
-    const propertyHasAddressPath = path.join(
-      "data",
-      "relationship_property_has_address.json",
-    );
-    const addressHasFactSheetPath = path.join(
-      "data",
-      "relationship_address_has_fact_sheet.json",
-    );
+    if (addressWasWritten) {
+      const propertyHasAddressRel = createRelationshipPayload(
+        "./property.json",
+        "./address.json",
+      );
+      if (propertyHasAddressRel) {
+        await fsp.writeFile(
+          propertyHasAddressRelPath,
+          JSON.stringify(propertyHasAddressRel, null, 2),
+        );
+      } else {
+        await fsp.unlink(propertyHasAddressRelPath).catch(() => {});
+      }
 
-    // Downstream orchestration populates address relationships; remove local copies to avoid duplicates.
-    await fsp.unlink(propertyHasAddressPath).catch(() => {});
-    await fsp.unlink(addressHasFactSheetPath).catch(() => {});
+      if (factSheetWritten) {
+        const addressHasFactSheetRel = createRelationshipPayload(
+          "./address.json",
+          `./${factSheetFileName}`,
+        );
+        if (addressHasFactSheetRel) {
+          await fsp.writeFile(
+            addressHasFactSheetRelPath,
+            JSON.stringify(addressHasFactSheetRel, null, 2),
+          );
+        } else {
+          await fsp.unlink(addressHasFactSheetRelPath).catch(() => {});
+        }
+      }
+    } else {
+      await fsp.unlink(propertyHasAddressRelPath).catch(() => {});
+      await fsp.unlink(addressHasFactSheetRelPath).catch(() => {});
+    }
 
     // Lot data
     const lotOut = {
