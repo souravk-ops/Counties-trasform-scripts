@@ -209,6 +209,354 @@ const REQUIRED_STRUCTURED_ADDRESS_KEYS = [
   "state_code",
 ];
 
+const ADDRESS_CITY_KEYS = new Set(["city_name", "municipality_name"]);
+
+const DIRECTION_NORMALIZATION_MAP = new Map([
+  ["N", "N"],
+  ["NORTH", "N"],
+  ["S", "S"],
+  ["SOUTH", "S"],
+  ["E", "E"],
+  ["EAST", "E"],
+  ["W", "W"],
+  ["WEST", "W"],
+  ["NE", "NE"],
+  ["NORTHEAST", "NE"],
+  ["NORTHE", "NE"],
+  ["NW", "NW"],
+  ["NORTHWEST", "NW"],
+  ["NORTHW", "NW"],
+  ["SE", "SE"],
+  ["SOUTHEAST", "SE"],
+  ["SOUTHE", "SE"],
+  ["SW", "SW"],
+  ["SOUTHWEST", "SW"],
+  ["SOUTHW", "SW"],
+]);
+
+const STREET_SUFFIX_ALLOWED = new Set([
+  "Rds",
+  "Blvd",
+  "Lk",
+  "Pike",
+  "Ky",
+  "Vw",
+  "Curv",
+  "Psge",
+  "Ldg",
+  "Mt",
+  "Un",
+  "Mdw",
+  "Via",
+  "Cor",
+  "Kys",
+  "Vl",
+  "Pr",
+  "Cv",
+  "Isle",
+  "Lgt",
+  "Hbr",
+  "Btm",
+  "Hl",
+  "Mews",
+  "Hls",
+  "Pnes",
+  "Lgts",
+  "Strm",
+  "Hwy",
+  "Trwy",
+  "Skwy",
+  "Is",
+  "Est",
+  "Vws",
+  "Ave",
+  "Exts",
+  "Cvs",
+  "Row",
+  "Rte",
+  "Fall",
+  "Gtwy",
+  "Wls",
+  "Clb",
+  "Frk",
+  "Cpe",
+  "Fwy",
+  "Knls",
+  "Rdg",
+  "Jct",
+  "Rst",
+  "Spgs",
+  "Cir",
+  "Crst",
+  "Expy",
+  "Smt",
+  "Trfy",
+  "Cors",
+  "Land",
+  "Uns",
+  "Jcts",
+  "Ways",
+  "Trl",
+  "Way",
+  "Trlr",
+  "Aly",
+  "Spg",
+  "Pkwy",
+  "Cmn",
+  "Dr",
+  "Grns",
+  "Oval",
+  "Cirs",
+  "Pt",
+  "Shls",
+  "Vly",
+  "Hts",
+  "Clf",
+  "Flt",
+  "Mall",
+  "Frds",
+  "Cyn",
+  "Lndg",
+  "Mdws",
+  "Rd",
+  "Xrds",
+  "Ter",
+  "Prt",
+  "Radl",
+  "Grvs",
+  "Rdgs",
+  "Inlt",
+  "Trak",
+  "Byu",
+  "Vlgs",
+  "Ctr",
+  "Ml",
+  "Cts",
+  "Arc",
+  "Bnd",
+  "Riv",
+  "Flds",
+  "Mtwy",
+  "Msn",
+  "Shrs",
+  "Rue",
+  "Crse",
+  "Cres",
+  "Anx",
+  "Drs",
+  "Sts",
+  "Holw",
+  "Vlg",
+  "Prts",
+  "Sta",
+  "Fld",
+  "Xrd",
+  "Wall",
+  "Tpke",
+  "Ft",
+  "Bg",
+  "Knl",
+  "Plz",
+  "St",
+  "Cswy",
+  "Bgs",
+  "Rnch",
+  "Frks",
+  "Ln",
+  "Mtn",
+  "Ctrs",
+  "Orch",
+  "Iss",
+  "Brks",
+  "Br",
+  "Fls",
+  "Trce",
+  "Park",
+  "Gdns",
+  "Rpds",
+  "Shl",
+  "Lf",
+  "Rpd",
+  "Lcks",
+  "Gln",
+  "Pl",
+  "Path",
+  "Vis",
+  "Lks",
+  "Run",
+  "Frg",
+  "Brg",
+  "Sqs",
+  "Xing",
+  "Pln",
+  "Glns",
+  "Blfs",
+  "Plns",
+  "Dl",
+  "Clfs",
+  "Ext",
+  "Pass",
+  "Gdn",
+  "Brk",
+  "Grn",
+  "Mnr",
+  "Cp",
+  "Pne",
+  "Spur",
+  "Opas",
+  "Upas",
+  "Tunl",
+  "Sq",
+  "Lck",
+  "Ests",
+  "Shr",
+  "Dm",
+  "Mls",
+  "Wl",
+  "Mnrs",
+  "Stra",
+  "Frgs",
+  "Frst",
+  "Flts",
+  "Ct",
+  "Mtns",
+  "Frd",
+  "Nck",
+  "Ramp",
+  "Vlys",
+  "Pts",
+  "Bch",
+  "Loop",
+  "Byp",
+  "Cmns",
+  "Fry",
+  "Walk",
+  "Hbrs",
+  "Dv",
+  "Hvn",
+  "Blf",
+  "Grv",
+  "Crk",
+]);
+
+const STREET_SUFFIX_ALIAS_MAP = new Map([
+  ["STREET", "St"],
+  ["ST", "St"],
+  ["AVENUE", "Ave"],
+  ["AVE", "Ave"],
+  ["ROAD", "Rd"],
+  ["RD", "Rd"],
+  ["BOULEVARD", "Blvd"],
+  ["BLVD", "Blvd"],
+  ["DRIVE", "Dr"],
+  ["DR", "Dr"],
+  ["COURT", "Ct"],
+  ["CT", "Ct"],
+  ["LANE", "Ln"],
+  ["LN", "Ln"],
+  ["TERRACE", "Ter"],
+  ["TERR", "Ter"],
+  ["PARKWAY", "Pkwy"],
+  ["PKWY", "Pkwy"],
+  ["PLACE", "Pl"],
+  ["PL", "Pl"],
+  ["SQUARE", "Sq"],
+  ["SQ", "Sq"],
+  ["TRAIL", "Trl"],
+  ["TRL", "Trl"],
+  ["HIGHWAY", "Hwy"],
+  ["HWY", "Hwy"],
+  ["CIRCLE", "Cir"],
+  ["CIR", "Cir"],
+  ["CRESCENT", "Cres"],
+  ["CRES", "Cres"],
+  ["EXPRESSWAY", "Expy"],
+  ["EXPY", "Expy"],
+  ["FERRY", "Fry"],
+  ["PASS", "Pass"],
+  ["PASSES", "Pass"],
+  ["MOUNT", "Mt"],
+  ["MOUNTAIN", "Mtn"],
+  ["MOUNTAINS", "Mtns"],
+  ["MANOR", "Mnr"],
+  ["MANORS", "Mnrs"],
+  ["RIDGE", "Rdg"],
+  ["RIDGES", "Rdgs"],
+  ["HEIGHTS", "Hts"],
+  ["VALLEY", "Vly"],
+  ["VALLEYS", "Vlys"],
+  ["MEADOW", "Mdw"],
+  ["MEADOWS", "Mdws"],
+  ["GARDEN", "Gdn"],
+  ["GARDENS", "Gdns"],
+  ["FOREST", "Frst"],
+  ["FORESTS", "Frst"],
+  ["PRAIRIE", "Pr"],
+  ["PRAIRIES", "Pr"],
+  ["ESTATE", "Est"],
+  ["ESTATES", "Ests"],
+  ["ORCHARD", "Orch"],
+  ["ORCHARDS", "Orch"],
+  ["RANCH", "Rnch"],
+  ["RANCHES", "Rnch"],
+  ["VILLAGE", "Vlg"],
+  ["VILLAGES", "Vlgs"],
+  ["HARBOR", "Hbr"],
+  ["HARBORS", "Hbrs"],
+  ["POINT", "Pt"],
+  ["POINTS", "Pts"],
+  ["BROOK", "Brk"],
+  ["BROOKS", "Brks"],
+  ["COVE", "Cv"],
+  ["COVES", "Cvs"],
+  ["SPRING", "Spg"],
+  ["SPRINGS", "Spgs"],
+  ["LOCK", "Lck"],
+  ["LOCKS", "Lcks"],
+  ["PINE", "Pne"],
+  ["PINES", "Pnes"],
+  ["BRANCH", "Br"],
+  ["BRANCHES", "Br"],
+  ["CAUSEWAY", "Cswy"],
+  ["RIDGEWAY", "Rdg"],
+  ["RIDGEWAYS", "Rdgs"],
+  ["BAYOU", "Byu"],
+  ["BAYOUS", "Byu"],
+  ["DALE", "Dl"],
+  ["DALES", "Dl"],
+  ["FIELD", "Fld"],
+  ["FIELDS", "Flds"],
+  ["GATEWAY", "Gtwy"],
+  ["GATEWAYS", "Gtwy"],
+  ["MALL", "Mall"],
+  ["COURTYARD", "Ct"],
+  ["COURTYARDS", "Cts"],
+]);
+
+function normalizeDirectionalText(value) {
+  if (!value || typeof value !== "string") return null;
+  const compact = value.replace(/\./g, "").replace(/[^A-Za-z]/g, "").toUpperCase();
+  if (!compact) return null;
+  return DIRECTION_NORMALIZATION_MAP.get(compact) || null;
+}
+
+function normalizeStreetSuffix(value) {
+  if (!value || typeof value !== "string") return null;
+  let cleaned = value.trim();
+  if (!cleaned) return null;
+  cleaned = cleaned.replace(/\./g, "");
+  const simpleCamel =
+    cleaned[0].toUpperCase() + cleaned.slice(1).toLowerCase();
+  if (STREET_SUFFIX_ALLOWED.has(simpleCamel)) return simpleCamel;
+  const token = cleaned.replace(/[^A-Za-z]/g, "").toUpperCase();
+  if (!token) return null;
+  const alias = STREET_SUFFIX_ALIAS_MAP.get(token);
+  if (alias && STREET_SUFFIX_ALLOWED.has(alias)) return alias;
+  const camelFromToken =
+    token[0].toUpperCase() + token.slice(1).toLowerCase();
+  return STREET_SUFFIX_ALLOWED.has(camelFromToken) ? camelFromToken : null;
+}
+
 const ADDRESS_UPPERCASE_KEYS = new Set([
   "city_name",
   "municipality_name",
@@ -238,8 +586,38 @@ function normalizeStructuredAddressSource(source) {
 
     if (ADDRESS_UPPERCASE_KEYS.has(key)) {
       value = value.toUpperCase();
+    }
+
+    if (ADDRESS_CITY_KEYS.has(key)) {
+      value = value.replace(/[^A-Z\s\-']/g, " ").replace(/\s+/g, " ").trim();
+      if (!value) continue;
+    }
+
+    if (
+      key === "street_pre_directional_text" ||
+      key === "street_post_directional_text"
+    ) {
+      const normalizedDirectional = normalizeDirectionalText(value);
+      if (!normalizedDirectional) continue;
+      value = normalizedDirectional;
     } else if (key === "street_suffix_type") {
-      value = value[0].toUpperCase() + value.slice(1).toLowerCase();
+      const normalizedSuffix = normalizeStreetSuffix(value);
+      if (!normalizedSuffix) continue;
+      value = normalizedSuffix;
+    }
+
+    if (key === "state_code") {
+      const letters = value.replace(/[^A-Za-z]/g, "").toUpperCase();
+      if (letters.length !== 2) continue;
+      value = letters;
+    }
+
+    if (key === "country_code") {
+      let country = value.replace(/[^A-Za-z]/g, "").toUpperCase();
+      if (!country) continue;
+      if (country === "USA") country = "US";
+      if (country.length > 2) country = country.slice(0, 2);
+      value = country;
     }
 
     if (key === "postal_code") {
