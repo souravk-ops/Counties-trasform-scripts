@@ -2076,30 +2076,35 @@ async function main() {
         addressPayload[key] = candidateValue;
       }
     }
+    // Structured addresses and unnormalized strings are mutually exclusive per
+    // the schema's oneOf, so drop any stale unnormalized payload whenever we
+    // successfully build the structured variant.
+    delete addressPayload.unnormalized_address;
   } else {
     const fallbackUnnormalized =
       rawUnnormalizedAddress ||
       normalizedSiteAddress ||
       pickValueFromSources(addressFallbackSources, "unnormalized_address");
     if (fallbackUnnormalized) {
-      addressPayload.unnormalized_address = String(fallbackUnnormalized).trim();
+      const trimmed = String(fallbackUnnormalized).trim();
+      if (trimmed) {
+        addressPayload.unnormalized_address = trimmed;
+      }
     }
-  }
-
-  if (typeof addressPayload.unnormalized_address === "string") {
-    addressPayload.unnormalized_address =
-      addressPayload.unnormalized_address.trim();
-    if (addressPayload.unnormalized_address.length === 0) {
-      delete addressPayload.unnormalized_address;
-    }
-  }
-
-  if (!structuredAddressCandidate && !addressPayload.unnormalized_address) {
+    // Guard against accidentally leaking partially structured keys when only
+    // an unnormalized address is available.
     for (const key of ADDRESS_STRUCTURED_KEYS) {
       if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
         delete addressPayload[key];
       }
     }
+  }
+
+  if (
+    typeof addressPayload.unnormalized_address === "string" &&
+    addressPayload.unnormalized_address.trim().length === 0
+  ) {
+    delete addressPayload.unnormalized_address;
   }
 
   if (secTownRange) {
