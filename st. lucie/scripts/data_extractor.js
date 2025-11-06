@@ -2279,24 +2279,40 @@ async function main() {
     }
   }
 
+  const structuredHasRequired =
+    structuredAddress &&
+    REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
+      const value = structuredAddress[key];
+      if (value == null) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      return true;
+    });
+
   let addressPayload = null;
   let preferredRepresentation = null;
 
-  if (fallbackUnnormalizedCandidate) {
+  if (structuredHasRequired) {
+    addressPayload = { ...baseAddress, ...structuredAddress };
+    preferredRepresentation = "structured";
+  } else if (fallbackUnnormalizedCandidate) {
     addressPayload = {
       ...baseAddress,
       unnormalized_address: fallbackUnnormalizedCandidate,
     };
     preferredRepresentation = "unnormalized";
   } else if (structuredAddress) {
-    addressPayload = { ...baseAddress, ...structuredAddress };
-    preferredRepresentation = "structured";
-  }
-
-  if (addressPayload && !preferredRepresentation) {
-    preferredRepresentation = fallbackUnnormalizedCandidate
-      ? "unnormalized"
-      : "structured";
+    // Structured data exists but is incomplete; fall back to unnormalized string if any
+    const backup =
+      typeof rawUnnormalizedAddress === "string"
+        ? rawUnnormalizedAddress
+        : normalizedSiteAddress;
+    if (backup) {
+      addressPayload = {
+        ...baseAddress,
+        unnormalized_address: backup.trim(),
+      };
+      preferredRepresentation = "unnormalized";
+    }
   }
 
   if (secTownRange && addressPayload) {
