@@ -142,6 +142,81 @@ function parsePersonNameTokens(name) {
   };
 }
 
+const PERSON_NAME_PATTERN =
+  /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
+const PERSON_MIDDLE_NAME_PATTERN =
+  /^[A-Z][a-zA-Z\s\-',.]*$/;
+
+function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
+  if (!value) return null;
+  const cleaned = textClean(String(value))
+    .replace(/[^A-Za-z \-',.]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  const titleCased = toTitleCaseName(cleaned);
+  if (!titleCased) return null;
+  return pattern.test(titleCased) ? titleCased : null;
+}
+
+function sanitizePersonData(raw, fallbackDisplay) {
+  if (!raw || typeof raw !== "object") return null;
+  const base = {
+    birth_date: raw.birth_date ?? null,
+    prefix_name: raw.prefix_name ?? null,
+    suffix_name: raw.suffix_name ?? null,
+    us_citizenship_status: raw.us_citizenship_status ?? null,
+    veteran_status: raw.veteran_status ?? null,
+    request_identifier: raw.request_identifier ?? null,
+  };
+
+  base.first_name = normalizePersonNameValue(raw.first_name);
+  base.last_name = normalizePersonNameValue(raw.last_name);
+  base.middle_name = normalizePersonNameValue(
+    raw.middle_name,
+    PERSON_MIDDLE_NAME_PATTERN,
+  );
+
+  const fallbackSource =
+    fallbackDisplay ||
+    buildPersonDisplayName(raw) ||
+    null;
+  if ((!base.first_name || !base.last_name) && fallbackSource) {
+    const parsed = parsePersonNameTokens(fallbackSource);
+    if (parsed) {
+      if (!base.first_name && parsed.first_name) {
+        base.first_name = normalizePersonNameValue(parsed.first_name);
+      }
+      if (!base.last_name && parsed.last_name) {
+        base.last_name = normalizePersonNameValue(parsed.last_name);
+      }
+      if (!base.middle_name && parsed.middle_name) {
+        base.middle_name = normalizePersonNameValue(
+          parsed.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+      }
+    }
+  }
+
+  if (!base.last_name || !PERSON_NAME_PATTERN.test(base.last_name)) {
+    return null;
+  }
+
+  if (base.first_name && !PERSON_NAME_PATTERN.test(base.first_name)) {
+    base.first_name = normalizePersonNameValue(base.first_name);
+    if (base.first_name && !PERSON_NAME_PATTERN.test(base.first_name)) {
+      base.first_name = null;
+    }
+  }
+
+  if (base.middle_name && !PERSON_MIDDLE_NAME_PATTERN.test(base.middle_name)) {
+    base.middle_name = null;
+  }
+
+  return base;
+}
+
 function buildPersonDisplayName(person) {
   if (!person) return null;
   const parts = [
@@ -1851,7 +1926,7 @@ async function main() {
       if (!ownerEntry || typeof ownerEntry !== "object") return null;
       const ownerType = ownerEntry.type === "company" ? "company" : "person";
       if (ownerType === "person") {
-        const personData = {
+        const rawPersonData = {
           birth_date: ownerEntry.birth_date ?? null,
           first_name: ownerEntry.first_name ?? null,
           last_name: ownerEntry.last_name ?? null,
@@ -1864,29 +1939,65 @@ async function main() {
         };
         const candidateDisplay =
           ownerEntry.full_name ||
-          buildPersonDisplayName(personData) ||
+          buildPersonDisplayName(rawPersonData) ||
           ownerEntry.name ||
           ownerEntry.raw_name ||
           null;
-        let record = candidateDisplay
-          ? getOwnerRecordByAlias(candidateDisplay)
-          : null;
+
+        const sanitizedPerson =
+          sanitizePersonData(
+            rawPersonData,
+            candidateDisplay ||
+              ownerEntry.raw_name ||
+              ownerEntry.name ||
+              null,
+          ) || null;
+
+        if (!sanitizedPerson) {
+          const fallbackName =
+            candidateDisplay ||
+            ownerEntry.raw_name ||
+            ownerEntry.name ||
+            null;
+          if (!fallbackName) return null;
+          return ensureOwnerRecordFromOwnerData({
+            type: "company",
+            name: fallbackName,
+            company_name: fallbackName,
+            raw_name: ownerEntry.raw_name || fallbackName,
+            request_identifier: ownerEntry.request_identifier ?? null,
+          });
+        }
+
+        const primaryDisplay =
+          buildPersonDisplayName(sanitizedPerson) ||
+          candidateDisplay ||
+          null;
+
+        let record =
+          (primaryDisplay ? getOwnerRecordByAlias(primaryDisplay) : null) ||
+          (candidateDisplay && primaryDisplay !== candidateDisplay
+            ? getOwnerRecordByAlias(candidateDisplay)
+            : null);
         if (!record) {
           record = createOwnerRecord("person", {
-            person: personData,
-            displayName: candidateDisplay,
+            person: sanitizedPerson,
+            displayName: primaryDisplay,
           });
         } else if (record.person) {
-          for (const [k, v] of Object.entries(personData)) {
+          for (const [k, v] of Object.entries(sanitizedPerson)) {
             if (record.person[k] == null && v != null) {
               record.person[k] = v;
             }
           }
-          if (!record.displayName && candidateDisplay) {
-            record.displayName = candidateDisplay;
+          if (!record.displayName && primaryDisplay) {
+            record.displayName = primaryDisplay;
           }
         }
-        if (candidateDisplay) registerAlias(record, candidateDisplay);
+        if (primaryDisplay) registerAlias(record, primaryDisplay);
+        if (candidateDisplay && candidateDisplay !== primaryDisplay) {
+          registerAlias(record, candidateDisplay);
+        }
         if (ownerEntry.raw_name) registerAlias(record, ownerEntry.raw_name);
         if (!record.displayName) {
           record.displayName =
@@ -1952,18 +2063,38 @@ async function main() {
         registerAlias(record, cleaned);
         return record;
       }
-      const parsed = parsePersonNameTokens(cleaned);
-      const personData = {
-        first_name: parsed?.first_name ?? null,
-        last_name: parsed?.last_name ?? null,
-        middle_name: parsed?.middle_name ?? null,
-        // Other fields are null by default in createOwnerRecord
-      };
+      const parsed = parsePersonNameTokens(cleaned) || null;
+      const sanitizedPerson =
+        sanitizePersonData(
+          {
+            first_name: parsed?.first_name ?? null,
+            last_name: parsed?.last_name ?? null,
+            middle_name: parsed?.middle_name ?? null,
+            birth_date: null,
+            prefix_name: null,
+            suffix_name: null,
+            us_citizenship_status: null,
+            veteran_status: null,
+            request_identifier: null,
+          },
+          cleaned,
+        ) || null;
+      if (!sanitizedPerson) {
+        const record = createOwnerRecord("company", {
+          company: { name: cleaned },
+          displayName: cleaned,
+        });
+        registerAlias(record, cleaned);
+        return record;
+      }
+      const display =
+        buildPersonDisplayName(sanitizedPerson) || cleaned;
       const record = createOwnerRecord("person", {
-        person: personData,
-        displayName: cleaned,
+        person: sanitizedPerson,
+        displayName: display,
       });
-      registerAlias(record, cleaned);
+      if (display) registerAlias(record, display);
+      if (cleaned !== display) registerAlias(record, cleaned);
       return record;
     }
 
