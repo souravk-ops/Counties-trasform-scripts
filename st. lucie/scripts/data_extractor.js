@@ -354,6 +354,93 @@ function sanitizePersonIdentity(target) {
   }
 }
 
+function ensurePersonRecordSchemaCompliance(record) {
+  if (!record || record.type !== "person" || !record.person) return false;
+  sanitizePersonIdentity(record.person);
+
+  if (
+    record.person.last_name &&
+    PERSON_NAME_PATTERN.test(record.person.last_name)
+  ) {
+    return true;
+  }
+
+  const candidateStrings = new Set();
+  if (record.displayName) candidateStrings.add(record.displayName);
+  const builtDisplay = buildPersonDisplayName(record.person);
+  if (builtDisplay) candidateStrings.add(builtDisplay);
+  if (record.aliasTexts && record.aliasTexts.size) {
+    for (const alias of record.aliasTexts) {
+      candidateStrings.add(alias);
+    }
+  }
+
+  for (const candidate of candidateStrings) {
+    if (!candidate) continue;
+    const parsed = parsePersonNameTokens(candidate);
+    if (!parsed) continue;
+    if (!record.person.first_name && parsed.first_name) {
+      record.person.first_name = parsed.first_name;
+    }
+    if (!record.person.middle_name && parsed.middle_name) {
+      record.person.middle_name = parsed.middle_name;
+    }
+    if (parsed.last_name) {
+      record.person.last_name = parsed.last_name;
+    }
+    sanitizePersonIdentity(record.person);
+    if (
+      record.person.last_name &&
+      PERSON_NAME_PATTERN.test(record.person.last_name)
+    ) {
+      if (!record.displayName) {
+        const refreshedDisplay = buildPersonDisplayName(record.person);
+        if (refreshedDisplay) record.displayName = refreshedDisplay;
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function convertPersonRecordToCompany(record) {
+  if (!record) return;
+  const candidateNames = [];
+  if (record.displayName) candidateNames.push(record.displayName);
+  if (record.person) {
+    const personDisplay = buildPersonDisplayName(record.person);
+    if (personDisplay) candidateNames.push(personDisplay);
+    if (record.person.last_name) candidateNames.push(record.person.last_name);
+    if (record.person.first_name) candidateNames.push(record.person.first_name);
+  }
+  if (record.aliasTexts && record.aliasTexts.size) {
+    for (const alias of record.aliasTexts) {
+      candidateNames.push(alias);
+    }
+  }
+  let companyName = null;
+  for (const candidate of candidateNames) {
+    const cleaned = textClean(candidate);
+    if (cleaned) {
+      companyName = cleaned;
+      break;
+    }
+  }
+  if (!companyName) {
+    companyName = `Owner ${record.id}`;
+  }
+  record.type = "company";
+  record.company = { name: companyName };
+  record.person = undefined;
+  if (!record.displayName) {
+    record.displayName = companyName;
+  }
+  if (record.aliasTexts) {
+    record.aliasTexts.add(companyName);
+  }
+}
+
 function slugify(value, fallback = "unspecified") {
   if (!value || typeof value !== "string") return fallback;
   const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, "_");
@@ -2060,9 +2147,10 @@ async function main() {
   const structuredAddressCandidate =
     selectStructuredAddressCandidate(normalizedAddressSources);
 
-  let addressPayload = { ...baseAddress };
+  let addressPayload = null;
 
   if (structuredAddressCandidate) {
+    const structuredAddress = {};
     for (const key of ADDRESS_STRUCTURED_KEYS) {
       if (!Object.prototype.hasOwnProperty.call(structuredAddressCandidate, key))
         continue;
@@ -2071,15 +2159,14 @@ async function main() {
       if (typeof candidateValue === "string") {
         const trimmed = candidateValue.trim();
         if (!trimmed) continue;
-        addressPayload[key] = trimmed;
+        structuredAddress[key] = trimmed;
       } else {
-        addressPayload[key] = candidateValue;
+        structuredAddress[key] = candidateValue;
       }
     }
-    // Structured addresses and unnormalized strings are mutually exclusive per
-    // the schema's oneOf, so drop any stale unnormalized payload whenever we
-    // successfully build the structured variant.
-    delete addressPayload.unnormalized_address;
+    if (Object.keys(structuredAddress).length > 0) {
+      addressPayload = { ...baseAddress, ...structuredAddress };
+    }
   } else {
     const fallbackUnnormalized =
       rawUnnormalizedAddress ||
@@ -2088,54 +2175,49 @@ async function main() {
     if (fallbackUnnormalized) {
       const trimmed = String(fallbackUnnormalized).trim();
       if (trimmed) {
-        addressPayload.unnormalized_address = trimmed;
+        addressPayload = {
+          ...baseAddress,
+          unnormalized_address: trimmed,
+        };
       }
     }
-    // Guard against accidentally leaking partially structured keys when only
-    // an unnormalized address is available.
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
-        delete addressPayload[key];
-      }
-    }
-  }
-
-  if (
-    typeof addressPayload.unnormalized_address === "string" &&
-    addressPayload.unnormalized_address.trim().length === 0
-  ) {
-    delete addressPayload.unnormalized_address;
   }
 
   if (secTownRange) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
-    if (strMatch) {
+    if (strMatch && addressPayload) {
       if (!addressPayload.section) addressPayload.section = strMatch[1];
       if (!addressPayload.township) addressPayload.township = strMatch[2];
       if (!addressPayload.range) addressPayload.range = strMatch[3];
     }
   }
 
-  enforceAddressOneOf(addressPayload);
-  pruneNullish(addressPayload);
-
   const addressOutputPath = path.join("data", "address.json");
-  const hasStructuredAddressForOutput = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
-    const value = addressPayload[key];
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    return true;
-  });
-  const hasUnnormalizedAddressForOutput =
-    typeof addressPayload.unnormalized_address === "string" &&
-    addressPayload.unnormalized_address.trim().length > 0;
+  if (addressPayload) {
+    enforceAddressOneOf(addressPayload);
+    pruneNullish(addressPayload);
 
-  if (hasStructuredAddressForOutput || hasUnnormalizedAddressForOutput) {
-    await fsp.writeFile(
-      addressOutputPath,
-      JSON.stringify(addressPayload, null, 2),
+    const hasStructuredAddressForOutput = REQUIRED_STRUCTURED_ADDRESS_KEYS.every(
+      (key) => {
+        const value = addressPayload[key];
+        if (value == null) return false;
+        if (typeof value === "string") return value.trim().length > 0;
+        return true;
+      },
     );
-    addressWritten = true;
+    const hasUnnormalizedAddressForOutput =
+      typeof addressPayload.unnormalized_address === "string" &&
+      addressPayload.unnormalized_address.trim().length > 0;
+
+    if (hasStructuredAddressForOutput || hasUnnormalizedAddressForOutput) {
+      await fsp.writeFile(
+        addressOutputPath,
+        JSON.stringify(addressPayload, null, 2),
+      );
+      addressWritten = true;
+    } else {
+      await fsp.unlink(addressOutputPath).catch(() => {});
+    }
   } else {
     await fsp.unlink(addressOutputPath).catch(() => {});
   }
@@ -2368,13 +2450,17 @@ async function main() {
 
     function registerAlias(record, alias) {
       if (!record || !alias) return;
-      const key = normalizeOwnerKey(alias);
+      const cleanedAlias = textClean(alias);
+      const key = normalizeOwnerKey(cleanedAlias || alias);
       if (!key) return;
       if (!ownerAliasToId.has(key)) {
         ownerAliasToId.set(key, record.id);
       }
       record.aliases.add(key);
-      if (!record.displayName) record.displayName = textClean(alias) || record.displayName;
+      if (cleanedAlias) {
+        if (record.aliasTexts) record.aliasTexts.add(cleanedAlias);
+        if (!record.displayName) record.displayName = cleanedAlias;
+      }
     }
 
     function createOwnerRecord(type, initial = {}) {
@@ -2383,6 +2469,7 @@ async function main() {
         id: `owner_${ownerRecordSerial}`,
         type,
         aliases: new Set(),
+        aliasTexts: new Set(),
         displayName: initial.displayName || null,
         person:
           type === "person"
@@ -2406,6 +2493,13 @@ async function main() {
       };
       if (record.person) {
         sanitizePersonIdentity(record.person);
+      }
+      if (record.displayName) {
+        const cleanedDisplay = textClean(record.displayName);
+        if (cleanedDisplay) {
+          record.displayName = cleanedDisplay;
+          record.aliasTexts.add(cleanedDisplay);
+        }
       }
       ownerRecords.set(record.id, record);
       return record;
@@ -2798,6 +2892,15 @@ async function main() {
     const ownerToFileMap = new Map();
     let personIdx = 0;
     let companyIdx = 0;
+
+    for (const record of ownerRecords.values()) {
+      if (record.type === "person") {
+        const compliant = ensurePersonRecordSchemaCompliance(record);
+        if (!compliant) {
+          convertPersonRecordToCompany(record);
+        }
+      }
+    }
 
     for (const record of ownerRecords.values()) {
       if (record.type === "person") {
