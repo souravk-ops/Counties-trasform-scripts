@@ -13,6 +13,17 @@ function ensureDirSync(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+function assignIfValue(target, key, value) {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    target[key] = trimmed;
+    return;
+  }
+  target[key] = value;
+}
+
 function textClean(s) {
   // Improved textClean to remove HTML comments and non-breaking spaces more aggressively
   return (s || "")
@@ -39,6 +50,24 @@ function parseDateToISO(dateStr) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function toTitleCaseName(part) {
+  if (!part) return null;
+  const normalized = part.trim().toLowerCase();
+  if (!normalized) return null;
+  let result = "";
+  let shouldCapitalize = true;
+  for (const ch of normalized) {
+    if (/[a-z]/.test(ch)) {
+      result += shouldCapitalize ? ch.toUpperCase() : ch;
+      shouldCapitalize = false;
+    } else {
+      result += ch;
+      shouldCapitalize = /[\s'.-]/.test(ch);
+    }
+  }
+  return result;
 }
 
 function normalizeOwnerKey(name) {
@@ -75,16 +104,17 @@ function parsePersonNameTokens(name) {
       return {
         first_name: null,
         middle_name: null,
-        last_name: textClean(lastPart) || null,
+        last_name: toTitleCaseName(textClean(lastPart)) || null,
       };
     }
-    const first = restTokens[0] || null;
-    const middle =
+    const first = toTitleCaseName(restTokens[0] || null);
+    const middleRaw =
       restTokens.length > 1 ? restTokens.slice(1).join(" ") : null;
+    const middle = toTitleCaseName(middleRaw);
     return {
       first_name: first || null,
       middle_name: middle || null,
-      last_name: textClean(lastPart) || null,
+      last_name: toTitleCaseName(textClean(lastPart)) || null,
     };
   }
 
@@ -93,12 +123,13 @@ function parsePersonNameTokens(name) {
     return { first_name: null, middle_name: null, last_name: null };
   }
   if (tokens.length === 1) {
-    return { first_name: tokens[0], middle_name: null, last_name: null };
+    return { first_name: toTitleCaseName(tokens[0]), middle_name: null, last_name: null };
   }
-  const first = tokens[0];
-  const last = tokens[tokens.length - 1];
-  const middle =
+  const first = toTitleCaseName(tokens[0]);
+  const last = toTitleCaseName(tokens[tokens.length - 1]);
+  const middleRaw =
     tokens.length > 2 ? tokens.slice(1, -1).join(" ") || null : null;
+  const middle = toTitleCaseName(middleRaw);
 
   // Validate middle name against the pattern if it exists
   const middleNamePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
@@ -1333,6 +1364,7 @@ async function main() {
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_address.*\.json$/);
+  await removeExisting(/^address\.json$/);
   const propertyImprovementRecords = [];
 
 
@@ -1363,30 +1395,32 @@ async function main() {
     });
   }
 
-  let finalAddressOutput = {
-    source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+  const finalAddressOutput = {
+    source_http_request: sourceHttpRequest || null,
     request_identifier: baseRequestData.request_identifier || null,
-    county_name:"St. Lucie",
-    latitude: unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
-    longitude: unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
-    // Initialize all structured fields to null as per schema
-    city_name: null,
-    country_code: null,
-    postal_code: null,
-    plus_four_postal_code: null,
-    state_code: null,
-    street_number: null,
-    street_name: null,
-    street_post_directional_text: null,
-    street_pre_directional_text: null,
-    street_suffix_type: null,
-    unit_identifier: null,
-    route_number: null,
-    township: null, // Now correctly referenced
-    range: null,    // Now correctly referenced
-    section: null,  // Now correctly referenced
-    block: null,
+    county_name: "St. Lucie",
   };
+
+  assignIfValue(
+    finalAddressOutput,
+    "latitude",
+    unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
+  );
+  assignIfValue(
+    finalAddressOutput,
+    "longitude",
+    unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
+  );
+
+  let streetNumber = null;
+  let streetPreDirectionalText = null;
+  let streetName = null;
+  let streetSuffixType = null;
+  let streetPostDirectionalText = null;
+  let city_name = null;
+  let state_code = null;
+  let postal_code = null;
+  let plus_four_postal_code = null;
 
   if (siteAddress && siteAddress.toLowerCase() !== "tbd") {
     // Use unnormalizedAddressData.full_address for city, state, zip if available,
@@ -1403,16 +1437,6 @@ async function main() {
         cityStateZipPart = parts.slice(1).join(',').trim();
       }
     }
-
-    let streetNumber = null;
-    let streetPreDirectionalText = null;
-    let streetName = null;
-    let streetSuffixType = null;
-    let streetPostDirectionalText = null;
-    let city_name = null;
-    let state_code = null;
-    let postal_code = null;
-    let plus_four_postal_code = null;
 
     // Parse street number, pre-directional, street name, post-directional, suffix from siteAddress
     // Example: "1133 SW INGRASSINA AVE"
@@ -1503,47 +1527,67 @@ async function main() {
         range = strMatch[3];
       }
     }
-
-    // Populate finalAddressOutput with parsed structured data
-    finalAddressOutput.city_name = city_name;
-    finalAddressOutput.country_code = "US"; // Assuming US for now
-    finalAddressOutput.postal_code = postal_code;
-    finalAddressOutput.plus_four_postal_code = plus_four_postal_code;
-    finalAddressOutput.state_code = state_code;
-    finalAddressOutput.street_number = streetNumber;
-    finalAddressOutput.street_name = streetName;
-    finalAddressOutput.street_post_directional_text = streetPostDirectionalText;
-    finalAddressOutput.street_pre_directional_text = streetPreDirectionalText;
-    finalAddressOutput.street_suffix_type = streetSuffixType;
-    finalAddressOutput.township = township; // Now correctly referenced
-    finalAddressOutput.range = range;    // Now correctly referenced
-    finalAddressOutput.section = section;  // Now correctly referenced
-    // unit_identifier, route_number, block remain null as they are not in the sample HTML
   }
-  // We are explicitly NOT adding unnormalized_address.
 
-  const addressRelationshipKeys = [
+  const hasNormalizedCore =
+    !!(streetNumber && streetName && city_name && state_code && postal_code);
+
+  if (hasNormalizedCore) {
+    finalAddressOutput.country_code = "US";
+    assignIfValue(finalAddressOutput, "street_number", streetNumber);
+    assignIfValue(finalAddressOutput, "street_name", streetName);
+    assignIfValue(
+      finalAddressOutput,
+      "street_post_directional_text",
+      streetPostDirectionalText,
+    );
+    assignIfValue(
+      finalAddressOutput,
+      "street_pre_directional_text",
+      streetPreDirectionalText,
+    );
+    assignIfValue(finalAddressOutput, "street_suffix_type", streetSuffixType);
+    assignIfValue(
+      finalAddressOutput,
+      "plus_four_postal_code",
+      plus_four_postal_code,
+    );
+  } else {
+    let fallbackAddress = null;
+    if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
+      fallbackAddress = textClean(unnormalizedAddressData.full_address);
+    }
+    if (!fallbackAddress && siteAddress) {
+      fallbackAddress = siteAddress;
+    }
+    assignIfValue(finalAddressOutput, "unnormalized_address", fallbackAddress);
+  }
+
+  assignIfValue(finalAddressOutput, "city_name", city_name);
+  if (state_code) finalAddressOutput.country_code = "US";
+  assignIfValue(finalAddressOutput, "state_code", state_code);
+  assignIfValue(finalAddressOutput, "postal_code", postal_code);
+  if (township) assignIfValue(finalAddressOutput, "township", township);
+  if (range) assignIfValue(finalAddressOutput, "range", range);
+  if (section) assignIfValue(finalAddressOutput, "section", section);
+
+  const hasUnnormalizedAddress = Object.prototype.hasOwnProperty.call(
+    finalAddressOutput,
     "unnormalized_address",
-    "street_number",
-    "street_name",
-    "city_name",
-    "postal_code",
-    "state_code",
-    "latitude",
-    "longitude",
-  ];
-  addressHasCoreData = addressRelationshipKeys.some((key) => {
-    if (!(key in finalAddressOutput)) return false;
-    const value = finalAddressOutput[key];
-    if (value === null || value === undefined) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    return true;
-  });
-
-  await fsp.writeFile(
-    path.join("data", "address.json"),
-    JSON.stringify(finalAddressOutput, null, 2),
   );
+  const hasStructuredAddress =
+    Object.prototype.hasOwnProperty.call(finalAddressOutput, "street_number") &&
+    Object.prototype.hasOwnProperty.call(finalAddressOutput, "street_name") &&
+    Object.prototype.hasOwnProperty.call(finalAddressOutput, "city_name") &&
+    Object.prototype.hasOwnProperty.call(finalAddressOutput, "state_code");
+  addressHasCoreData = hasUnnormalizedAddress || hasStructuredAddress;
+
+  if (addressHasCoreData) {
+    await fsp.writeFile(
+      path.join("data", "address.json"),
+      JSON.stringify(finalAddressOutput, null, 2),
+    );
+  }
 
   // --- Parcel extraction ---
   // parcelIdentifierDashed is already extracted from HTML
@@ -2081,28 +2125,15 @@ async function main() {
 
     // --- Mailing Address File Creation ---
     if (mailingAddressText) {
-      // No need to break down, just store the full text in unnormalized_address
       mailingAddressOut = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
+        source_http_request: sourceHttpRequest || null,
         request_identifier: baseRequestData.request_identifier || null,
-        unnormalized_address: mailingAddressText, // Store the full cleaned text here
-        // All other structured fields are null as per instruction
-        latitude:  null,
-        longitude: null
-        // country_code: null,
-        // city_name: null,
-        // postal_code: null,
-        // plus_four_postal_code: null,
-        // state_code: null,
-        // street_number: null,
-        // street_name: null,
-        // street_post_directional_text: null,
-        // street_pre_directional_text: null,
-        // street_suffix_type: null,
-        // unit_identifier: null,
-        // route_number: null,
-        // po_box_number: null,
       };
+      assignIfValue(
+        mailingAddressOut,
+        "unnormalized_address",
+        mailingAddressText,
+      );
 
       console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
 
