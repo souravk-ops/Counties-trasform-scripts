@@ -2255,12 +2255,23 @@ async function main() {
 
     if (factSheetWritten && addressWritten) {
       const addressFactSheetRel = createRelationshipPayload(
-        "./address.json",
         `./${factSheetFileName}`,
+        "./address.json",
       );
       await fsp.writeFile(
         path.join("data", "relationship_address_has_fact_sheet.json"),
         JSON.stringify(addressFactSheetRel, null, 2),
+      );
+    }
+
+    if (propertyOut && addressWritten) {
+      const propertyAddressRel = createRelationshipPayload(
+        "./address.json",
+        "./property.json",
+      );
+      await fsp.writeFile(
+        path.join("data", "relationship_property_has_address.json"),
+        JSON.stringify(propertyAddressRel, null, 2),
       );
     }
 
