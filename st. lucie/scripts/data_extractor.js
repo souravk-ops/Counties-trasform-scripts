@@ -2147,6 +2147,20 @@ async function main() {
   const structuredAddressCandidate =
     selectStructuredAddressCandidate(normalizedAddressSources);
 
+  const fallbackUnnormalizedCandidate = (() => {
+    const candidates = [
+      rawUnnormalizedAddress,
+      normalizedSiteAddress,
+      pickValueFromSources(addressFallbackSources, "unnormalized_address"),
+    ];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const trimmed = String(candidate).trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+    return null;
+  })();
+
   let addressPayload = null;
 
   if (structuredAddressCandidate) {
@@ -2167,20 +2181,11 @@ async function main() {
     if (Object.keys(structuredAddress).length > 0) {
       addressPayload = { ...baseAddress, ...structuredAddress };
     }
-  } else {
-    const fallbackUnnormalized =
-      rawUnnormalizedAddress ||
-      normalizedSiteAddress ||
-      pickValueFromSources(addressFallbackSources, "unnormalized_address");
-    if (fallbackUnnormalized) {
-      const trimmed = String(fallbackUnnormalized).trim();
-      if (trimmed) {
-        addressPayload = {
-          ...baseAddress,
-          unnormalized_address: trimmed,
-        };
-      }
-    }
+  } else if (fallbackUnnormalizedCandidate) {
+    addressPayload = {
+      ...baseAddress,
+      unnormalized_address: fallbackUnnormalizedCandidate,
+    };
   }
 
   if (secTownRange) {
@@ -2320,6 +2325,23 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+
+    const propertyAddressRelationshipPath = path.join(
+      "data",
+      "relationship_property_has_address.json",
+    );
+    if (addressWritten) {
+      const propertyHasAddressRel = createRelationshipPayload(
+        "./property.json",
+        "./address.json",
+      );
+      await fsp.writeFile(
+        propertyAddressRelationshipPath,
+        JSON.stringify(propertyHasAddressRel, null, 2),
+      );
+    } else {
+      await fsp.unlink(propertyAddressRelationshipPath).catch(() => {});
+    }
 
     if (!factSheetWritten) {
       await fsp.writeFile(
@@ -2916,6 +2938,36 @@ async function main() {
           veteran_status: record.person?.veteran_status ?? null,
         };
         sanitizePersonIdentity(personOut);
+        if (
+          typeof personOut.last_name === "string" &&
+          !PERSON_NAME_PATTERN.test(personOut.last_name)
+        ) {
+          personOut.last_name = normalizeNameValue(
+            personOut.last_name,
+            PERSON_NAME_PATTERN,
+          );
+          if (
+            personOut.last_name == null ||
+            !PERSON_NAME_PATTERN.test(personOut.last_name)
+          ) {
+            personOut.last_name = null;
+          }
+        }
+        if (
+          typeof personOut.middle_name === "string" &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+        ) {
+          personOut.middle_name = normalizeNameValue(
+            personOut.middle_name,
+            PERSON_MIDDLE_NAME_PATTERN,
+          );
+          if (
+            personOut.middle_name == null ||
+            !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+          ) {
+            personOut.middle_name = null;
+          }
+        }
         pruneNullish(personOut);
         const fileName = `person_${personIdx}.json`;
         await fsp.writeFile(
