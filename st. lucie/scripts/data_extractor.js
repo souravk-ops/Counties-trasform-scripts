@@ -91,6 +91,20 @@ function sanitizePlusFour(value) {
   return digits.join("").slice(0, 4);
 }
 
+function filterMailingAddressLines(lines) {
+  if (!Array.isArray(lines)) return [];
+  const STATE_ZIP_REGEX =
+    /\b(AL|AK|AS|AZ|AR|CA|CO|CT|DE|DC|FL|GA|GU|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|MP|OH|OK|OR|PA|PR|RI|SC|SD|TN|TX|UT|VT|VA|VI|WA|WV|WI|WY)\b[\s,]*\d{5}/i;
+  const filtered = lines.filter((line) => {
+    if (!line || typeof line !== "string") return false;
+    if (/\d/.test(line)) return true;
+    if (STATE_ZIP_REGEX.test(line)) return true;
+    if (/\bP\.?\s*O\.?\s*BOX\b/i.test(line)) return true;
+    return false;
+  });
+  return filtered.length ? filtered : lines;
+}
+
 const STREET_DIRECTION_ALLOWED = new Set([
   "N",
   "S",
@@ -2073,6 +2087,7 @@ async function main() {
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_address.*\.json$/);
+  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^address\.json$/);
   const propertyImprovementRecords = [];
 
@@ -2329,6 +2344,34 @@ async function main() {
       path.join("data", "lot.json"),
       JSON.stringify(lotOut, null, 2),
     );
+
+    if (addressFileWritten) {
+      const relationshipOut = {
+        from: { "/": "./property.json" },
+        to: { "/": "./address.json" },
+      };
+      await fsp.writeFile(
+        path.join("data", "relationship_property_has_address.json"),
+        JSON.stringify(relationshipOut, null, 2),
+      );
+
+      try {
+        const dataEntries = await fsp.readdir("data");
+        const factSheetFile = dataEntries.find((name) =>
+          /^fact_sheet.*\.json$/i.test(name),
+        );
+        if (factSheetFile) {
+          const addressFactSheetRel = {
+            from: { "/": "./address.json" },
+            to: { "/": `./${factSheetFile}` },
+          };
+          await fsp.writeFile(
+            path.join("data", "relationship_address_has_fact_sheet.json"),
+            JSON.stringify(addressFactSheetRel, null, 2),
+          );
+        }
+      } catch {}
+    }
 
     const permitRows = $("article#permit-info table tbody tr").toArray();
     let propertyImprovementIdx = 0;
@@ -2754,10 +2797,12 @@ async function main() {
           currentOwnerName = normalizedLines[0].line;
         }
 
-        const mailingAddressLines = normalizedLines
+        let mailingAddressLines = normalizedLines
           .filter(({ index }) => !ownerLineIndices.has(index))
           .map(({ line }) => line)
           .filter(Boolean);
+
+        mailingAddressLines = filterMailingAddressLines(mailingAddressLines);
 
         mailingAddressText =
           mailingAddressLines.length > 0
