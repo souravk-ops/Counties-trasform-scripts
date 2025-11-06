@@ -2691,7 +2691,6 @@ async function main() {
   const factSheetOutputPath = path.join("data", factSheetFileName);
   await fsp.unlink(factSheetOutputPath).catch(() => {});
   const propertyImprovementRecords = [];
-  let addressWritten = false;
   let factSheetWritten = false;
 
 
@@ -2904,7 +2903,6 @@ async function main() {
       addressOutputPath,
       JSON.stringify(addressPayload, null, 2),
     );
-    addressWritten = true;
   } else {
     await fsp.unlink(addressOutputPath).catch(() => {});
   }
@@ -3008,29 +3006,6 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    const propertyAddressRelationshipPath = path.join(
-      "data",
-      "relationship_property_has_address.json",
-    );
-    if (addressWritten) {
-      const propertyHasAddressRel = createRelationshipPayload(
-        "./property.json",
-        "./address.json",
-      );
-      if (propertyHasAddressRel) {
-        await fsp.writeFile(
-          propertyAddressRelationshipPath,
-          JSON.stringify(propertyHasAddressRel, null, 2),
-        );
-      } else {
-        await fsp
-          .unlink(propertyAddressRelationshipPath)
-          .catch(() => {});
-      }
-    } else {
-      await fsp.unlink(propertyAddressRelationshipPath).catch(() => {});
-    }
-
     if (!factSheetWritten) {
       await fsp.writeFile(
         factSheetOutputPath,
@@ -3053,25 +3028,6 @@ async function main() {
         await fsp
           .unlink(
             path.join("data", "relationship_fact_sheet_has_property.json"),
-          )
-          .catch(() => {});
-      }
-    }
-
-    if (factSheetWritten && addressWritten) {
-      const addressFactSheetRel = createRelationshipPayload(
-        "./address.json",
-        `./${factSheetFileName}`,
-      );
-      if (addressFactSheetRel) {
-        await fsp.writeFile(
-          path.join("data", "relationship_address_has_fact_sheet.json"),
-          JSON.stringify(addressFactSheetRel, null, 2),
-        );
-      } else {
-        await fsp
-          .unlink(
-            path.join("data", "relationship_address_has_fact_sheet.json"),
           )
           .catch(() => {});
       }
