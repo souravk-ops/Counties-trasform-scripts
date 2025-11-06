@@ -2193,13 +2193,9 @@ async function main() {
   })();
 
   let addressPayload = null;
+  let preferredRepresentation = null;
 
-  if (fallbackUnnormalizedCandidate) {
-    addressPayload = {
-      ...baseAddress,
-      unnormalized_address: fallbackUnnormalizedCandidate,
-    };
-  } else if (structuredAddressCandidate) {
+  if (structuredAddressCandidate) {
     const structuredAddress = {};
     for (const key of ADDRESS_STRUCTURED_KEYS) {
       if (!Object.prototype.hasOwnProperty.call(structuredAddressCandidate, key))
@@ -2216,12 +2212,27 @@ async function main() {
     }
     if (Object.keys(structuredAddress).length > 0) {
       addressPayload = { ...baseAddress, ...structuredAddress };
+      preferredRepresentation = "structured";
     }
   }
 
-  if (secTownRange) {
+  if (!addressPayload && fallbackUnnormalizedCandidate) {
+    addressPayload = {
+      ...baseAddress,
+      unnormalized_address: fallbackUnnormalizedCandidate,
+    };
+    preferredRepresentation = "unnormalized";
+  }
+
+  if (!preferredRepresentation && addressPayload) {
+    preferredRepresentation = fallbackUnnormalizedCandidate
+      ? "unnormalized"
+      : "structured";
+  }
+
+  if (secTownRange && addressPayload) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
-    if (strMatch && addressPayload) {
+    if (strMatch) {
       if (!addressPayload.section) addressPayload.section = strMatch[1];
       if (!addressPayload.township) addressPayload.township = strMatch[2];
       if (!addressPayload.range) addressPayload.range = strMatch[3];
@@ -2231,7 +2242,7 @@ async function main() {
   const addressOutputPath = path.join("data", "address.json");
   if (addressPayload) {
     let representation = enforceAddressOneOf(addressPayload, {
-      preferUnnormalized: Boolean(fallbackUnnormalizedCandidate),
+      preferUnnormalized: preferredRepresentation === "unnormalized",
     });
     pruneNullish(addressPayload);
 
@@ -3010,9 +3021,11 @@ async function main() {
       }
     }
 
+    const personRecordsToWrite = [];
+    const companyRecordsToWrite = [];
+
     for (const record of ownerRecords.values()) {
       if (record.type === "person") {
-        personIdx += 1;
         const personOut = {
           birth_date: record.person?.birth_date ?? null,
           first_name: record.person?.first_name ?? null,
@@ -3032,12 +3045,20 @@ async function main() {
             personOut.last_name,
             PERSON_NAME_PATTERN,
           );
-          if (
-            personOut.last_name == null ||
-            !PERSON_NAME_PATTERN.test(personOut.last_name)
-          ) {
-            personOut.last_name = null;
+        }
+        if (
+          personOut.last_name == null ||
+          !PERSON_NAME_PATTERN.test(personOut.last_name)
+        ) {
+          convertPersonRecordToCompany(record);
+          if (record.type === "company") {
+            const companyOut = {
+              name: record.company?.name ?? record.displayName ?? null,
+            };
+            pruneNullish(companyOut);
+            companyRecordsToWrite.push({ record, payload: companyOut });
           }
+          continue;
         }
         if (
           typeof personOut.middle_name === "string" &&
@@ -3055,33 +3076,43 @@ async function main() {
           }
         }
         pruneNullish(personOut);
-        const fileName = `person_${personIdx}.json`;
-        await fsp.writeFile(
-          path.join("data", fileName),
-          JSON.stringify(personOut, null, 2),
-        );
-        ownerToFileMap.set(record.id, {
-          fileName,
-          type: "person",
-          index: personIdx,
-        });
-      } else {
-        companyIdx += 1;
-        const companyOut = {
-          name: record.company?.name ?? record.displayName ?? null,
-        };
-        pruneNullish(companyOut);
-        const fileName = `company_${companyIdx}.json`;
-        await fsp.writeFile(
-          path.join("data", fileName),
-          JSON.stringify(companyOut, null, 2),
-        );
-        ownerToFileMap.set(record.id, {
-          fileName,
-          type: "company",
-          index: companyIdx,
-        });
+        personRecordsToWrite.push({ record, payload: personOut });
+        continue;
       }
+
+      const companyOut = {
+        name: record.company?.name ?? record.displayName ?? null,
+      };
+      pruneNullish(companyOut);
+      companyRecordsToWrite.push({ record, payload: companyOut });
+    }
+
+    for (const { record, payload } of personRecordsToWrite) {
+      personIdx += 1;
+      const fileName = `person_${personIdx}.json`;
+      await fsp.writeFile(
+        path.join("data", fileName),
+        JSON.stringify(payload, null, 2),
+      );
+      ownerToFileMap.set(record.id, {
+        fileName,
+        type: "person",
+        index: personIdx,
+      });
+    }
+
+    for (const { record, payload } of companyRecordsToWrite) {
+      companyIdx += 1;
+      const fileName = `company_${companyIdx}.json`;
+      await fsp.writeFile(
+        path.join("data", fileName),
+        JSON.stringify(payload, null, 2),
+      );
+      ownerToFileMap.set(record.id, {
+        fileName,
+        type: "company",
+        index: companyIdx,
+      });
     }
 
     if (factSheetWritten) {
