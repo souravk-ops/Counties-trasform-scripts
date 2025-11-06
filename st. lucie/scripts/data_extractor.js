@@ -2224,7 +2224,7 @@ async function main() {
     preferredRepresentation = "unnormalized";
   }
 
-  if (!preferredRepresentation && addressPayload) {
+  if (addressPayload && !preferredRepresentation) {
     preferredRepresentation = fallbackUnnormalizedCandidate
       ? "unnormalized"
       : "structured";
@@ -2241,12 +2241,23 @@ async function main() {
 
   const addressOutputPath = path.join("data", "address.json");
   if (addressPayload) {
+    if (preferredRepresentation === "structured") {
+      delete addressPayload.unnormalized_address;
+    } else if (preferredRepresentation === "unnormalized") {
+      for (const key of ADDRESS_STRUCTURED_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
+          delete addressPayload[key];
+        }
+      }
+    }
+
     let representation = enforceAddressOneOf(addressPayload, {
       preferUnnormalized: preferredRepresentation === "unnormalized",
     });
     pruneNullish(addressPayload);
 
     if (representation === "structured") {
+      delete addressPayload.unnormalized_address;
       const hasAllRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
         const value = addressPayload[key];
         if (value == null) return false;
@@ -2257,6 +2268,11 @@ async function main() {
         representation = "none";
       }
     } else if (representation === "unnormalized") {
+      for (const key of ADDRESS_STRUCTURED_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(addressPayload, key)) {
+          delete addressPayload[key];
+        }
+      }
       if (
         typeof addressPayload.unnormalized_address === "string" &&
         addressPayload.unnormalized_address.trim().length > 0
@@ -2994,6 +3010,7 @@ async function main() {
     await removeExisting(/^relationship_person_.*_has_mailing_address\.json$/); 
 
     const ownerToFileMap = new Map();
+    const validPersonFiles = new Set();
     let personIdx = 0;
     let companyIdx = 0;
 
@@ -3094,6 +3111,7 @@ async function main() {
         path.join("data", fileName),
         JSON.stringify(payload, null, 2),
       );
+      validPersonFiles.add(fileName);
       ownerToFileMap.set(record.id, {
         fileName,
         type: "person",
@@ -3131,7 +3149,13 @@ async function main() {
       }
       for (const recordId of factSheetPersonIds) {
         const meta = ownerToFileMap.get(recordId);
-        if (!meta || meta.type !== "person") continue;
+        if (
+          !meta ||
+          meta.type !== "person" ||
+          !validPersonFiles.has(meta.fileName)
+        ) {
+          continue;
+        }
         const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
         const relOut = createRelationshipPayload(
           `./${meta.fileName}`,
@@ -3153,7 +3177,11 @@ async function main() {
     // and ownerToFileMap is now fully populated.
     if (currentOwnerRecord && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
-      if (latestOwnerMeta && latestOwnerMeta.type === "person") {
+      if (
+        latestOwnerMeta &&
+        latestOwnerMeta.type === "person" &&
+        validPersonFiles.has(latestOwnerMeta.fileName)
+      ) {
         const relFileName = `relationship_person_${latestOwnerMeta.index}_has_mailing_address.json`;
         const relOut = createRelationshipPayload(
           `./${latestOwnerMeta.fileName}`,
@@ -3412,10 +3440,15 @@ async function main() {
           const granteeMeta = ownerToFileMap.get(sale._grantee_record_id);
           if (granteeMeta) {
             const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
-            const relOut = createRelationshipPayload(
-              `./${saleFileName}`,
-              `./${granteeMeta.fileName}`,
-            );
+            const shouldCreateRel =
+              granteeMeta.type !== "person" ||
+              validPersonFiles.has(granteeMeta.fileName);
+            const relOut = shouldCreateRel
+              ? createRelationshipPayload(
+                `./${saleFileName}`,
+                `./${granteeMeta.fileName}`,
+              )
+              : null;
             if (relOut) {
               await fsp.writeFile(
                 path.join("data", relFileName),
