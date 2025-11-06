@@ -31,10 +31,10 @@ function normalizeRelationshipEndpoint(ref) {
 }
 
 function createRelationshipPayload(fromPath, toPath) {
-  return {
-    from: normalizeRelationshipEndpoint(fromPath),
-    to: normalizeRelationshipEndpoint(toPath),
-  };
+  const from = normalizeRelationshipEndpoint(fromPath);
+  const to = normalizeRelationshipEndpoint(toPath);
+  if (!from || !to) return null;
+  return { from, to };
 }
 
 function textClean(s) {
@@ -941,39 +941,55 @@ function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
 
 function enforceAddressOneOf(address) {
   if (!address || typeof address !== "object") return;
-  const structuredKeysPresent = ADDRESS_STRUCTURED_KEYS.filter((key) => {
-    const value = address[key];
+  const hasMeaningful = (value) => {
     if (value == null) return false;
     if (typeof value === "string") return value.trim().length > 0;
     return true;
-  });
-  const hasCompleteStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
-    const value = address[key];
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim().length > 0;
-    return true;
-  });
-  const hasUnnormalized =
-    typeof address.unnormalized_address === "string" &&
-    address.unnormalized_address.trim().length > 0;
+  };
+
+  const structuredKeysPresent = ADDRESS_STRUCTURED_KEYS.filter((key) =>
+    hasMeaningful(address[key]),
+  );
+  const hasUnnormalized = hasMeaningful(address.unnormalized_address);
+  const hasCompleteStructured = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
+    hasMeaningful(address[key]),
+  );
+
+  if (!structuredKeysPresent.length && !hasUnnormalized) return;
 
   if (hasCompleteStructured) {
     if (hasUnnormalized) delete address.unnormalized_address;
     return;
   }
 
-  if (hasUnnormalized) {
+  if (!hasUnnormalized) {
     for (const key of structuredKeysPresent) {
-      if (Object.prototype.hasOwnProperty.call(address, key)) {
-        delete address[key];
-      }
+      delete address[key];
     }
     return;
   }
 
-  if (structuredKeysPresent.length > 0) {
-    for (const key of structuredKeysPresent) {
-      delete address[key];
+  for (const key of structuredKeysPresent) {
+    delete address[key];
+  }
+
+  // Safety net: if conflicting data remains after the above operations, prefer the representation
+  // that still passes basic validation.
+  const remainingStructured = ADDRESS_STRUCTURED_KEYS.filter((key) =>
+    hasMeaningful(address[key]),
+  );
+  const stillHasUnnormalized = hasMeaningful(address.unnormalized_address);
+  if (remainingStructured.length && stillHasUnnormalized) {
+    if (
+      REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
+        hasMeaningful(address[key]),
+      )
+    ) {
+      delete address.unnormalized_address;
+    } else {
+      for (const key of remainingStructured) {
+        delete address[key];
+      }
     }
   }
 }
@@ -2335,10 +2351,16 @@ async function main() {
         "./property.json",
         "./address.json",
       );
-      await fsp.writeFile(
-        propertyAddressRelationshipPath,
-        JSON.stringify(propertyHasAddressRel, null, 2),
-      );
+      if (propertyHasAddressRel) {
+        await fsp.writeFile(
+          propertyAddressRelationshipPath,
+          JSON.stringify(propertyHasAddressRel, null, 2),
+        );
+      } else {
+        await fsp
+          .unlink(propertyAddressRelationshipPath)
+          .catch(() => {});
+      }
     } else {
       await fsp.unlink(propertyAddressRelationshipPath).catch(() => {});
     }
@@ -2356,10 +2378,18 @@ async function main() {
         `./${factSheetFileName}`,
         "./property.json",
       );
-      await fsp.writeFile(
-        path.join("data", "relationship_fact_sheet_has_property.json"),
-        JSON.stringify(factSheetPropertyRel, null, 2),
-      );
+      if (factSheetPropertyRel) {
+        await fsp.writeFile(
+          path.join("data", "relationship_fact_sheet_has_property.json"),
+          JSON.stringify(factSheetPropertyRel, null, 2),
+        );
+      } else {
+        await fsp
+          .unlink(
+            path.join("data", "relationship_fact_sheet_has_property.json"),
+          )
+          .catch(() => {});
+      }
     }
 
     if (factSheetWritten && addressWritten) {
@@ -2367,10 +2397,18 @@ async function main() {
         "./address.json",
         `./${factSheetFileName}`,
       );
-      await fsp.writeFile(
-        path.join("data", "relationship_address_has_fact_sheet.json"),
-        JSON.stringify(addressFactSheetRel, null, 2),
-      );
+      if (addressFactSheetRel) {
+        await fsp.writeFile(
+          path.join("data", "relationship_address_has_fact_sheet.json"),
+          JSON.stringify(addressFactSheetRel, null, 2),
+        );
+      } else {
+        await fsp
+          .unlink(
+            path.join("data", "relationship_address_has_fact_sheet.json"),
+          )
+          .catch(() => {});
+      }
     }
 
     // Lot data
@@ -3020,10 +3058,14 @@ async function main() {
           `./${meta.fileName}`,
           `./${factSheetFileName}`,
         );
-        await fsp.writeFile(
-          path.join("data", relFileName),
-          JSON.stringify(relOut, null, 2),
-        );
+        if (relOut) {
+          await fsp.writeFile(
+            path.join("data", relFileName),
+            JSON.stringify(relOut, null, 2),
+          );
+        } else {
+          await fsp.unlink(path.join("data", relFileName)).catch(() => {});
+        }
       }
     }
 
@@ -3038,11 +3080,15 @@ async function main() {
           `./${latestOwnerMeta.fileName}`,
           "./mailing_address.json",
         );
-        await fsp.writeFile(
-          path.join("data", relFileName),
-          JSON.stringify(relOut, null, 2),
-        );
-        console.log(`Created mailing address relationship: ${relFileName}`);
+        if (relOut) {
+          await fsp.writeFile(
+            path.join("data", relFileName),
+            JSON.stringify(relOut, null, 2),
+          );
+          console.log(`Created mailing address relationship: ${relFileName}`);
+        } else {
+          await fsp.unlink(path.join("data", relFileName)).catch(() => {});
+        }
       } else if (latestOwnerMeta) {
         console.log(
           "Skipping mailing address relationship for non-person owner.",
@@ -3072,10 +3118,14 @@ async function main() {
             "./property.json",
             `./${meta.fileName}`,
           );
-          await fsp.writeFile(
-            path.join("data", relFileName),
-            JSON.stringify(relOut, null, 2),
-          );
+          if (relOut) {
+            await fsp.writeFile(
+              path.join("data", relFileName),
+              JSON.stringify(relOut, null, 2),
+            );
+          } else {
+            await fsp.unlink(path.join("data", relFileName)).catch(() => {});
+          }
         }
       }
     }
@@ -3263,13 +3313,18 @@ async function main() {
           `./${saleFileName}`,
           `./${deedFileName}`,
         );
-        await fsp.writeFile(
-          path.join(
-            "data",
-            `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
-          ),
-          JSON.stringify(relSalesDeed, null, 2),
+        const salesToDeedPath = path.join(
+          "data",
+          `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
         );
+        if (relSalesDeed) {
+          await fsp.writeFile(
+            salesToDeedPath,
+            JSON.stringify(relSalesDeed, null, 2),
+          );
+        } else {
+          await fsp.unlink(salesToDeedPath).catch(() => {});
+        }
 
         // --- Create sales_history_has_person/company relationships ---
         // if (sale._grantor_record_id) {
@@ -3296,10 +3351,14 @@ async function main() {
               `./${saleFileName}`,
               `./${granteeMeta.fileName}`,
             );
-            await fsp.writeFile(
-              path.join("data", relFileName),
-              JSON.stringify(relOut, null, 2),
-            );
+            if (relOut) {
+              await fsp.writeFile(
+                path.join("data", relFileName),
+                JSON.stringify(relOut, null, 2),
+              );
+            } else {
+              await fsp.unlink(path.join("data", relFileName)).catch(() => {});
+            }
           }
         }
         // --- End of sales_history_has_person/company relationships ---
@@ -3322,10 +3381,18 @@ async function main() {
             `./${deedFileName}`,
             `./${fileFileName}`,
           );
-          await fsp.writeFile(
-            path.join("data", `relationship_deed_${i + 1}_to_file_${fileIdx}.json`),
-            JSON.stringify(relDeedFile, null, 2),
+          const deedFilePath = path.join(
+            "data",
+            `relationship_deed_${i + 1}_to_file_${fileIdx}.json`,
           );
+          if (relDeedFile) {
+            await fsp.writeFile(
+              deedFilePath,
+              JSON.stringify(relDeedFile, null, 2),
+            );
+          } else {
+            await fsp.unlink(deedFilePath).catch(() => {});
+          }
         }
       } // End of if (deedType !== null)
     }
@@ -3427,10 +3494,14 @@ async function main() {
           "./property.json",
           `./${taxFileName}`,
         );
-        await fsp.writeFile(
-          path.join("data", relFileName),
-          JSON.stringify(relOut, null, 2),
-        );
+        if (relOut) {
+          await fsp.writeFile(
+            path.join("data", relFileName),
+            JSON.stringify(relOut, null, 2),
+          );
+        } else {
+          await fsp.unlink(path.join("data", relFileName)).catch(() => {});
+        }
       }
     }
   }
@@ -3732,10 +3803,14 @@ async function main() {
         `./${layoutIndexToFile.get(parentIndex)}`,
         `./${record.file}`,
       );
-      await fsp.writeFile(
-        path.join("data", relFile),
-        JSON.stringify(relOut, null, 2),
-      );
+      if (relOut) {
+        await fsp.writeFile(
+          path.join("data", relFile),
+          JSON.stringify(relOut, null, 2),
+        );
+      } else {
+        await fsp.unlink(path.join("data", relFile)).catch(() => {});
+      }
     }
   }
 
@@ -3772,10 +3847,14 @@ async function main() {
             `./${layoutFile}`,
             utilityRef,
           );
-          await fsp.writeFile(
-            path.join("data", relFile),
-            JSON.stringify(relOut, null, 2),
-          );
+          if (relOut) {
+            await fsp.writeFile(
+              path.join("data", relFile),
+              JSON.stringify(relOut, null, 2),
+            );
+          } else {
+            await fsp.unlink(path.join("data", relFile)).catch(() => {});
+          }
           linkedToLayout = true;
         }
       }
@@ -3787,10 +3866,14 @@ async function main() {
           `./${layoutFile}`,
           utilityRef,
         );
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
+        if (relOut) {
+          await fsp.writeFile(
+            path.join("data", relFile),
+            JSON.stringify(relOut, null, 2),
+          );
+        } else {
+          await fsp.unlink(path.join("data", relFile)).catch(() => {});
+        }
         linkedToLayout = true;
       }
     }
@@ -3801,10 +3884,14 @@ async function main() {
         propertyRef,
         utilityRef,
       );
-      await fsp.writeFile(
-        path.join("data", relFile),
-        JSON.stringify(relOut, null, 2),
-      );
+      if (relOut) {
+        await fsp.writeFile(
+          path.join("data", relFile),
+          JSON.stringify(relOut, null, 2),
+        );
+      } else {
+        await fsp.unlink(path.join("data", relFile)).catch(() => {});
+      }
     }
   }
 
@@ -3825,10 +3912,14 @@ async function main() {
             `./${layoutFile}`,
             structureRef,
           );
-          await fsp.writeFile(
-            path.join("data", relFile),
-            JSON.stringify(relOut, null, 2),
-          );
+          if (relOut) {
+            await fsp.writeFile(
+              path.join("data", relFile),
+              JSON.stringify(relOut, null, 2),
+            );
+          } else {
+            await fsp.unlink(path.join("data", relFile)).catch(() => {});
+          }
           linkedToLayout = true;
         }
       }
@@ -3840,10 +3931,14 @@ async function main() {
           `./${layoutFile}`,
           structureRef,
         );
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
+        if (relOut) {
+          await fsp.writeFile(
+            path.join("data", relFile),
+            JSON.stringify(relOut, null, 2),
+          );
+        } else {
+          await fsp.unlink(path.join("data", relFile)).catch(() => {});
+        }
         linkedToLayout = true;
       }
     }
@@ -3854,10 +3949,14 @@ async function main() {
         propertyRef,
         structureRef,
       );
-      await fsp.writeFile(
-        path.join("data", relFile),
-        JSON.stringify(relOut, null, 2),
-      );
+      if (relOut) {
+        await fsp.writeFile(
+          path.join("data", relFile),
+          JSON.stringify(relOut, null, 2),
+        );
+      } else {
+        await fsp.unlink(path.join("data", relFile)).catch(() => {});
+      }
     }
   }
 
