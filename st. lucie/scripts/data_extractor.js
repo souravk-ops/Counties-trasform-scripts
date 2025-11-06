@@ -156,10 +156,32 @@ function parsePersonNameTokens(name) {
     sanitizePersonIdentity(singlePerson);
     return singlePerson;
   }
-  const first = tokens[0];
-  const last = tokens[tokens.length - 1];
-  const middle =
+  let first = tokens[0];
+  let last = tokens[tokens.length - 1];
+  let middle =
     tokens.length > 2 ? tokens.slice(1, -1).join(" ") || null : null;
+
+  const trailingInitialRegex = /^[A-Z]\.?$/;
+  const hasTrailingInitial =
+    tokens.length >= 3 && trailingInitialRegex.test(last);
+  if (hasTrailingInitial) {
+    const potentialFirst = tokens[tokens.length - 2];
+    const lastTokens = tokens.slice(0, tokens.length - 2);
+    first = potentialFirst;
+    last = lastTokens.length ? lastTokens.join(" ") : tokens[0];
+    middle = tokens[tokens.length - 1].replace(/\./g, "") || null;
+  } else if (last.length <= 1 && tokens.length >= 2) {
+    const altLastTokens = tokens.slice(0, tokens.length - 1);
+    const altFirst = tokens[tokens.length - 1];
+    if (altLastTokens.length) {
+      first = altFirst;
+      last = altLastTokens.join(" ");
+      middle =
+        altLastTokens.length > 1
+          ? altLastTokens.slice(1).join(" ") || null
+          : null;
+    }
+  }
 
   const result = {
     first_name: first || null,
@@ -1695,22 +1717,22 @@ function resolveAddressPayload({
       ? unnormalizedValue.trim()
       : null;
 
-  if (normalizedUnnormalized) {
-    return {
-      variant: "unnormalized",
-      payload: {
-        ...base,
-        unnormalized_address: normalizedUnnormalized,
-      },
-    };
-  }
-
   if (hasStructuredRequired) {
     return {
       variant: "structured",
       payload: {
         ...base,
         ...structured,
+      },
+    };
+  }
+
+  if (normalizedUnnormalized) {
+    return {
+      variant: "unnormalized",
+      payload: {
+        ...base,
+        unnormalized_address: normalizedUnnormalized,
       },
     };
   }
