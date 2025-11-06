@@ -968,7 +968,6 @@ function createDefaultLayout(
   const normalizedFloorLevel = normalizeFloorLevel(floorLevel);
 
   const layout = {
-    request_identifier: null,
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index
     space_type_index: spaceTypeIndex,

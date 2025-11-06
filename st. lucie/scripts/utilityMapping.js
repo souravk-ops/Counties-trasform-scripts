@@ -343,7 +343,6 @@ function extractUtility($, buildingElement, extraFeatures, buildingNumber) {
     water_heater_model: null,
     water_source_type: null,
     well_installation_date: null,
-    request_identifier: null,
     building_number: buildingNumber != null ? buildingNumber : null,
   };
 

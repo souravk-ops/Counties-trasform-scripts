@@ -68,6 +68,13 @@ function stripNameDesignations(value) {
   return result;
 }
 
+function stripDiacritics(value) {
+  if (!value || typeof value !== "string" || typeof value.normalize !== "function") {
+    return value;
+  }
+  return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+}
+
 function parseCurrencyToNumber(str) {
   if (str == null) return null;
   const s = String(str).replace(/[^0-9.\-]/g, "");
@@ -288,6 +295,7 @@ function normalizeNameValue(raw, pattern) {
   if (!raw || typeof raw !== "string") return null;
   let value = stripNameDesignations(raw);
   if (!value) return null;
+  value = stripDiacritics(value);
   value = value.trim();
   value = value.replace(/[^A-Za-z\s\-',.]/g, " ");
   value = value
@@ -302,6 +310,15 @@ function normalizeNameValue(raw, pattern) {
   value = value.replace(/\s+/g, " ").trim();
   if (!value) return null;
   if (!pattern || pattern.test(value)) return value;
+
+  const simpleTokens = value
+    .split(/[^A-Za-z]+/)
+    .filter(Boolean)
+    .map((segment) => segment[0].toUpperCase() + segment.slice(1).toLowerCase());
+  if (simpleTokens.length) {
+    const candidate = simpleTokens.join(" ");
+    if (!pattern || pattern.test(candidate)) return candidate;
+  }
 
   const fallback = value.replace(/['.,-]/g, " ").replace(/\s+/g, " ").trim();
   if (fallback && (!pattern || pattern.test(fallback))) return fallback;
@@ -815,26 +832,6 @@ function normalizeLayoutStoryType(value) {
     : null;
 }
 
-function ensureRequestIdentifier(obj) {
-  if (!obj || typeof obj !== "object") return;
-  if (!Object.prototype.hasOwnProperty.call(obj, "request_identifier")) {
-    return;
-  }
-  const current = obj.request_identifier;
-  if (
-    current === undefined ||
-    current === null ||
-    current === "" ||
-    current === false
-  ) {
-    delete obj.request_identifier;
-    return;
-  }
-  if (typeof current !== "string") {
-    obj.request_identifier = String(current);
-  }
-}
-
 function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
   if (!obj || typeof obj !== "object") return obj;
   for (const key of Object.keys(obj)) {
@@ -857,7 +854,7 @@ function pruneNullish(obj, { preserve = new Set(), trimStrings = true } = {}) {
 
 function enforceAddressOneOf(address) {
   if (!address || typeof address !== "object") return;
-  const hasStructuredValue = ADDRESS_STRUCTURED_KEYS.some((key) => {
+  const structuredKeysPresent = ADDRESS_STRUCTURED_KEYS.filter((key) => {
     const value = address[key];
     if (value == null) return false;
     if (typeof value === "string") return value.trim().length > 0;
@@ -879,7 +876,7 @@ function enforceAddressOneOf(address) {
   }
 
   if (hasUnnormalized) {
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
+    for (const key of structuredKeysPresent) {
       if (Object.prototype.hasOwnProperty.call(address, key)) {
         delete address[key];
       }
@@ -887,11 +884,9 @@ function enforceAddressOneOf(address) {
     return;
   }
 
-  if (hasStructuredValue) {
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(address, key)) {
-        delete address[key];
-      }
+  if (structuredKeysPresent.length > 0) {
+    for (const key of structuredKeysPresent) {
+      delete address[key];
     }
   }
 }
@@ -2032,17 +2027,6 @@ async function main() {
     county_name: "St. Lucie",
   };
 
-  const explicitRequestIdentifier =
-    (unnormalizedAddressData &&
-      unnormalizedAddressData.request_identifier != null)
-      ? unnormalizedAddressData.request_identifier
-      : (propertySeedData && propertySeedData.request_identifier != null)
-          ? propertySeedData.request_identifier
-          : null;
-  if (explicitRequestIdentifier != null) {
-    baseAddress.request_identifier = explicitRequestIdentifier;
-  }
-
   const latCandidate = pickValueFromSources(
     [...normalizedAddressSources, ...addressFallbackSources],
     "latitude",
@@ -2128,7 +2112,6 @@ async function main() {
   }
 
   enforceAddressOneOf(addressPayload);
-  ensureRequestIdentifier(addressPayload);
   pruneNullish(addressPayload);
 
   const addressOutputPath = path.join("data", "address.json");
@@ -2157,7 +2140,6 @@ async function main() {
   const parcelOut = {
     parcel_identifier: parcelIdentifierDashed || null,
   };
-  ensureRequestIdentifier(parcelOut);
   await fsp.writeFile(
     path.join("data", "parcel.json"),
     JSON.stringify(parcelOut, null, 2),
@@ -2246,7 +2228,6 @@ async function main() {
       property_effective_built_year: null,
       historic_designation: false,
     };
-    ensureRequestIdentifier(propertyOut);
 
     await fsp.writeFile(
       path.join("data", "property.json"),
@@ -2299,7 +2280,6 @@ async function main() {
       lot_condition_issues: null,
       lot_size_acre: null,
     };
-    ensureRequestIdentifier(lotOut);
     if (landAcres) {
       const n = Number(String(landAcres).replace(/[^0-9.\-]/g, ""));
       if (isFinite(n)) lotOut.lot_size_acre = n;
@@ -2348,7 +2328,6 @@ async function main() {
         private_provider_plan_review: null,
         permit_required: true,
       };
-      ensureRequestIdentifier(improvementOut);
 
       await fsp.writeFile(
         path.join("data", improvementFile),
@@ -2411,14 +2390,12 @@ async function main() {
                 suffix_name: initial.person?.suffix_name ?? null,
                 us_citizenship_status: initial.person?.us_citizenship_status ?? null,
                 veteran_status: initial.person?.veteran_status ?? null,
-                request_identifier: initial.person?.request_identifier ?? null,
               }
             : undefined,
         company:
           type === "company"
             ? {
                 name: initial.company?.name ?? null,
-                request_identifier: initial.company?.request_identifier ?? null,
               }
             : undefined,
       };
@@ -2442,7 +2419,6 @@ async function main() {
           suffix_name: ownerEntry.suffix_name ?? null,
           us_citizenship_status: ownerEntry.us_citizenship_status ?? null,
           veteran_status: ownerEntry.veteran_status ?? null,
-          request_identifier: ownerEntry.request_identifier ?? null,
         };
         sanitizePersonIdentity(personData);
         const candidateDisplay =
@@ -2488,7 +2464,6 @@ async function main() {
           ownerEntry.full_name ??
           ownerEntry.raw_name ??
           null,
-        request_identifier: ownerEntry.request_identifier ?? null,
       };
       const candidateDisplay = companyData.name || ownerEntry.raw_name || null;
       let record = candidateDisplay
@@ -2502,12 +2477,6 @@ async function main() {
       } else if (record.company) {
         if (!record.company.name && companyData.name) {
           record.company.name = companyData.name;
-        }
-        if (
-          record.company.request_identifier == null &&
-          companyData.request_identifier != null
-        ) {
-          record.company.request_identifier = companyData.request_identifier;
         }
         if (!record.displayName && candidateDisplay) {
           record.displayName = candidateDisplay;
@@ -2736,7 +2705,6 @@ async function main() {
         // po_box_number: null,
       };
       enforceAddressOneOf(mailingAddressOut);
-      ensureRequestIdentifier(mailingAddressOut);
       pruneNullish(mailingAddressOut);
 
       console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
@@ -2830,10 +2798,8 @@ async function main() {
           suffix_name: record.person?.suffix_name ?? null,
           us_citizenship_status: record.person?.us_citizenship_status ?? null,
           veteran_status: record.person?.veteran_status ?? null,
-          request_identifier: record.person?.request_identifier ?? null,
         };
         sanitizePersonIdentity(personOut);
-        ensureRequestIdentifier(personOut);
         pruneNullish(personOut);
         const fileName = `person_${personIdx}.json`;
         await fsp.writeFile(
@@ -2849,9 +2815,7 @@ async function main() {
         companyIdx += 1;
         const companyOut = {
           name: record.company?.name ?? record.displayName ?? null,
-          request_identifier: record.company?.request_identifier ?? null,
         };
-        ensureRequestIdentifier(companyOut);
         pruneNullish(companyOut);
         const fileName = `company_${companyIdx}.json`;
         await fsp.writeFile(
@@ -3109,7 +3073,6 @@ async function main() {
         ownership_transfer_date: sale.ownership_transfer_date,
         purchase_price_amount: sale.purchase_price_amount,
       };
-      ensureRequestIdentifier(saleOut);
       await fsp.writeFile(
         path.join("data", saleFileName),
         JSON.stringify(saleOut, null, 2),
@@ -3182,7 +3145,6 @@ async function main() {
             name: path.basename(sale._book_page_url || "") || null,
             document_type: "ConveyanceDeed",
           };
-          ensureRequestIdentifier(fileOut);
           await fsp.writeFile(
             path.join("data", fileFileName),
             JSON.stringify(fileOut, null, 2),
@@ -3288,7 +3250,6 @@ async function main() {
           delete taxOut[field];
         }
       }
-      ensureRequestIdentifier(taxOut);
       const taxFilePath = path.join("data", taxFileName);
       await fsp.writeFile(taxFilePath, JSON.stringify(taxOut, null, 2));
 
@@ -3375,7 +3336,6 @@ async function main() {
     if (Object.prototype.hasOwnProperty.call(utilityOut, "url")) {
       delete utilityOut.url;
     }
-    ensureRequestIdentifier(utilityOut);
 
     await fsp.writeFile(
       path.join("data", fileName),
@@ -3459,7 +3419,6 @@ async function main() {
     if (Object.prototype.hasOwnProperty.call(structureOut, "url")) {
       delete structureOut.url;
     }
-    ensureRequestIdentifier(structureOut);
 
     await fsp.writeFile(
       path.join("data", fileName),
@@ -3527,7 +3486,6 @@ async function main() {
     if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
       delete layoutOut.url;
     }
-    ensureRequestIdentifier(layoutOut);
 
     if (layoutOut.space_type === "Building") {
       if (layoutOut.building_number == null) {
@@ -3759,7 +3717,6 @@ async function main() {
         name: path.basename(u || "") || null,
         document_type: null,
       };
-      ensureRequestIdentifier(rec);
       // Map document_type to schema-compliant values
       // Changed "Miscellaneous" to null as "Miscellaneous" is not in the schema's enum.
       // If "TaxDocument" and "MapDocument" are truly, the schema must be updated.
