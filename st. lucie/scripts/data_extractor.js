@@ -806,6 +806,45 @@ function enforcePersonNamePatterns(person) {
   }
 }
 
+function enforcePersonPayloadForSchema(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const normalized = { ...payload };
+
+  const firstValid =
+    typeof normalized.first_name === "string" &&
+    PERSON_NAME_PATTERN.test(normalized.first_name);
+  const lastValid =
+    typeof normalized.last_name === "string" &&
+    PERSON_NAME_PATTERN.test(normalized.last_name);
+
+  if (!firstValid || !lastValid) {
+    return null;
+  }
+
+  if (
+    typeof normalized.middle_name === "string" &&
+    !PERSON_MIDDLE_NAME_PATTERN.test(normalized.middle_name)
+  ) {
+    delete normalized.middle_name;
+  }
+
+  if (
+    typeof normalized.prefix_name === "string" &&
+    !PERSON_NAME_PATTERN.test(normalized.prefix_name)
+  ) {
+    delete normalized.prefix_name;
+  }
+
+  if (
+    typeof normalized.suffix_name === "string" &&
+    !PERSON_NAME_PATTERN.test(normalized.suffix_name)
+  ) {
+    delete normalized.suffix_name;
+  }
+
+  return normalized;
+}
+
 function ensurePersonRecordSchemaCompliance(record) {
   if (!record || record.type !== "person" || !record.person) return false;
   sanitizePersonIdentity(record.person);
@@ -1581,6 +1620,45 @@ function filterAddressByVariant(address, variant) {
     }
   }
   return Object.keys(address).length ? address : null;
+}
+
+function normalizeAddressPayloadForOneOf(address) {
+  if (!address || typeof address !== "object") {
+    return { variant: "none", payload: null };
+  }
+
+  const cleaned = {};
+  for (const [key, value] of Object.entries(address)) {
+    if (!hasMeaningfulValue(value)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      cleaned[key] = trimmed;
+    } else {
+      cleaned[key] = value;
+    }
+  }
+
+  const hasStructuredRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
+    hasMeaningfulValue(cleaned[key]),
+  );
+  const hasUnnormalized = hasMeaningfulValue(cleaned.unnormalized_address);
+
+  if (hasStructuredRequired) {
+    const filtered = filterAddressByVariant({ ...cleaned }, "structured");
+    return filtered
+      ? { variant: "structured", payload: filtered }
+      : { variant: "none", payload: null };
+  }
+
+  if (hasUnnormalized) {
+    const filtered = filterAddressByVariant({ ...cleaned }, "unnormalized");
+    return filtered
+      ? { variant: "unnormalized", payload: filtered }
+      : { variant: "none", payload: null };
+  }
+
+  return { variant: "none", payload: null };
 }
 
 function resolveAddressPayload({
@@ -2897,6 +2975,13 @@ async function main() {
     }
   }
 
+  if (addressPayload) {
+    const normalizedAddress = normalizeAddressPayloadForOneOf(addressPayload);
+    addressPayload = normalizedAddress.payload;
+    addressVariant =
+      normalizedAddress.variant !== "none" ? normalizedAddress.variant : null;
+  }
+
   const addressOutputPath = path.join("data", "address.json");
   if (addressPayload) {
     await fsp.writeFile(
@@ -3649,8 +3734,10 @@ async function main() {
     for (const record of ownerRecords.values()) {
       if (record.type === "person") {
         const personPayload = buildPersonPayload(record);
-        if (personPayload) {
-          personRecordsToWrite.push({ record, payload: personPayload });
+        const safePayload =
+          personPayload && enforcePersonPayloadForSchema(personPayload);
+        if (safePayload) {
+          personRecordsToWrite.push({ record, payload: safePayload });
         } else {
           convertPersonRecordToCompany(record);
         }
