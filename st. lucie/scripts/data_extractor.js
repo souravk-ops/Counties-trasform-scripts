@@ -2127,9 +2127,14 @@ async function main() {
     unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
   );
 
-  const structuredCandidate =
-    pickStructuredAddress(unnormalizedAddressData) ||
-    pickStructuredAddress(baseRequestData.normalized_address);
+  const normalizedAddressSource =
+    (baseRequestData && baseRequestData.normalized_address) ||
+    (unnormalizedAddressData && unnormalizedAddressData.normalized_address) ||
+    null;
+
+  const structuredCandidate = normalizedAddressSource
+    ? pickStructuredAddress(normalizedAddressSource)
+    : null;
 
   if (structuredCandidate) {
     Object.assign(finalAddressOutput, structuredCandidate);
@@ -3025,6 +3030,55 @@ async function main() {
           veteran_status: record.person?.veteran_status ?? null,
           request_identifier: requestIdForPerson,
         };
+        if (
+          personOut.last_name &&
+          !PERSON_NAME_PATTERN.test(personOut.last_name)
+        ) {
+          const companyName =
+            fallbackName ||
+            buildPersonDisplayName(record.person) ||
+            record.displayName ||
+            personOut.last_name ||
+            null;
+          record.type = "company";
+          record.company = {
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          record.person = undefined;
+          if (!record.displayName && companyName) {
+            record.displayName = companyName;
+          }
+          companyIdx += 1;
+          const companyFileName = `company_${companyIdx}.json`;
+          const companyOut = {
+            source_http_request: sourceHttpRequest,
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          await fsp.writeFile(
+            path.join("data", companyFileName),
+            JSON.stringify(companyOut, null, 2),
+          );
+          ownerToFileMap.set(record.id, {
+            fileName: companyFileName,
+            type: "company",
+            index: companyIdx,
+          });
+          continue;
+        }
+        if (
+          personOut.first_name &&
+          !PERSON_NAME_PATTERN.test(personOut.first_name)
+        ) {
+          personOut.first_name = null;
+        }
+        if (
+          personOut.middle_name &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+        ) {
+          personOut.middle_name = null;
+        }
         const fileName = `person_${personIdx}.json`;
         await fsp.writeFile(
           path.join("data", fileName),
@@ -3364,17 +3418,6 @@ async function main() {
     }
   }
 
-
-  if (addressFileWritten && propertyOut) {
-    const propertyAddressRelationship = {
-      from: { "/": "./property.json" },
-      to: { "/": "./address.json" },
-    };
-    await fsp.writeFile(
-      path.join("data", "relationship_property_has_address.json"),
-      JSON.stringify(propertyAddressRelationship, null, 2),
-    );
-  }
 
   // Removed propertyKeyCandidates and resolvedUtilityKey/resolvedLayoutKey
   // as they are no longer needed for direct processing of structure_data.json
