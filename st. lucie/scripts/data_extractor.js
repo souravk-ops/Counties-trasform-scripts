@@ -26,8 +26,7 @@ function normalizeRelationshipEndpoint(ref) {
     }
   }
 
-  if (!pointer) return null;
-  return { "/": pointer };
+  return pointer && pointer.length > 0 ? pointer : null;
 }
 
 function createRelationshipPayload(fromPath, toPath) {
@@ -2515,6 +2514,14 @@ async function main() {
         // Other fields are null by default in createOwnerRecord
       };
       sanitizePersonIdentity(personData);
+      if (!personData.first_name && !personData.last_name) {
+        const companyRecord = createOwnerRecord("company", {
+          company: { name: cleaned },
+          displayName: cleaned,
+        });
+        registerAlias(companyRecord, cleaned);
+        return companyRecord;
+      }
       const normalizedDisplay =
         buildPersonDisplayName(personData) || cleaned || null;
       const record = createOwnerRecord("person", {
