@@ -354,9 +354,75 @@ function sanitizePersonIdentity(target) {
   }
 }
 
+function enforcePersonNamePatterns(person) {
+  if (!person || typeof person !== "object") return;
+
+  if (typeof person.first_name === "string") {
+    if (!PERSON_NAME_PATTERN.test(person.first_name)) {
+      const normalized = normalizeNameValue(
+        person.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      person.first_name =
+        normalized && PERSON_NAME_PATTERN.test(normalized) ? normalized : null;
+    }
+  }
+
+  if (typeof person.last_name === "string") {
+    if (!PERSON_NAME_PATTERN.test(person.last_name)) {
+      const normalized = normalizeNameValue(
+        person.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      person.last_name =
+        normalized && PERSON_NAME_PATTERN.test(normalized) ? normalized : null;
+    }
+  }
+
+  if (typeof person.middle_name === "string") {
+    if (!PERSON_MIDDLE_NAME_PATTERN.test(person.middle_name)) {
+      const normalized = normalizeNameValue(
+        person.middle_name,
+        PERSON_MIDDLE_NAME_PATTERN,
+      );
+      person.middle_name =
+        normalized && PERSON_MIDDLE_NAME_PATTERN.test(normalized)
+          ? normalized
+          : null;
+    }
+  }
+
+  if (typeof person.prefix_name === "string") {
+    if (!PERSON_NAME_PATTERN.test(person.prefix_name)) {
+      const normalized = normalizeNameValue(
+        person.prefix_name,
+        PERSON_NAME_PATTERN,
+      );
+      person.prefix_name =
+        normalized && PERSON_NAME_PATTERN.test(normalized)
+          ? normalized
+          : null;
+    }
+  }
+
+  if (typeof person.suffix_name === "string") {
+    if (!PERSON_NAME_PATTERN.test(person.suffix_name)) {
+      const normalized = normalizeNameValue(
+        person.suffix_name,
+        PERSON_NAME_PATTERN,
+      );
+      person.suffix_name =
+        normalized && PERSON_NAME_PATTERN.test(normalized)
+          ? normalized
+          : null;
+    }
+  }
+}
+
 function ensurePersonRecordSchemaCompliance(record) {
   if (!record || record.type !== "person" || !record.person) return false;
   sanitizePersonIdentity(record.person);
+  enforcePersonNamePatterns(record.person);
 
   if (
     record.person.last_name &&
@@ -2192,11 +2258,9 @@ async function main() {
     return null;
   })();
 
-  let addressPayload = null;
-  let preferredRepresentation = null;
-
+  let structuredAddress = null;
   if (structuredAddressCandidate) {
-    const structuredAddress = {};
+    const candidateStructured = {};
     for (const key of ADDRESS_STRUCTURED_KEYS) {
       if (!Object.prototype.hasOwnProperty.call(structuredAddressCandidate, key))
         continue;
@@ -2205,23 +2269,28 @@ async function main() {
       if (typeof candidateValue === "string") {
         const trimmed = candidateValue.trim();
         if (!trimmed) continue;
-        structuredAddress[key] = trimmed;
+        candidateStructured[key] = trimmed;
       } else {
-        structuredAddress[key] = candidateValue;
+        candidateStructured[key] = candidateValue;
       }
     }
-    if (Object.keys(structuredAddress).length > 0) {
-      addressPayload = { ...baseAddress, ...structuredAddress };
-      preferredRepresentation = "structured";
+    if (Object.keys(candidateStructured).length > 0) {
+      structuredAddress = candidateStructured;
     }
   }
 
-  if (!addressPayload && fallbackUnnormalizedCandidate) {
+  let addressPayload = null;
+  let preferredRepresentation = null;
+
+  if (fallbackUnnormalizedCandidate) {
     addressPayload = {
       ...baseAddress,
       unnormalized_address: fallbackUnnormalizedCandidate,
     };
     preferredRepresentation = "unnormalized";
+  } else if (structuredAddress) {
+    addressPayload = { ...baseAddress, ...structuredAddress };
+    preferredRepresentation = "structured";
   }
 
   if (addressPayload && !preferredRepresentation) {
@@ -2605,9 +2674,10 @@ async function main() {
               }
             : undefined,
       };
-      if (record.person) {
-        sanitizePersonIdentity(record.person);
-      }
+  if (record.person) {
+    sanitizePersonIdentity(record.person);
+    enforcePersonNamePatterns(record.person);
+  }
       if (record.displayName) {
         const cleanedDisplay = textClean(record.displayName);
         if (cleanedDisplay) {
@@ -2634,6 +2704,7 @@ async function main() {
           veteran_status: ownerEntry.veteran_status ?? null,
         };
         sanitizePersonIdentity(personData);
+        enforcePersonNamePatterns(personData);
         const candidateDisplay =
           ownerEntry.full_name ||
           buildPersonDisplayName(personData) ||
@@ -2728,6 +2799,7 @@ async function main() {
         // Other fields are null by default in createOwnerRecord
       };
       sanitizePersonIdentity(personData);
+      enforcePersonNamePatterns(personData);
       if (!personData.first_name && !personData.last_name) {
         const companyRecord = createOwnerRecord("company", {
           company: { name: cleaned },
@@ -3054,6 +3126,7 @@ async function main() {
           veteran_status: record.person?.veteran_status ?? null,
         };
         sanitizePersonIdentity(personOut);
+        enforcePersonNamePatterns(personOut);
         if (
           typeof personOut.last_name === "string" &&
           !PERSON_NAME_PATTERN.test(personOut.last_name)
