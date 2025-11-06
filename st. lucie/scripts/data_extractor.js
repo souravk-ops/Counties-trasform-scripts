@@ -327,6 +327,24 @@ const STREET_SUFFIX_ALLOWED = new Set([
   "Crk",
 ]);
 
+const STRUCTURED_ADDRESS_FIELDS = [
+  "street_number",
+  "street_name",
+  "street_pre_directional_text",
+  "street_post_directional_text",
+  "street_suffix_type",
+  "unit_identifier",
+  "route_number",
+  "block",
+  "lot",
+  "municipality_name",
+  "city_name",
+  "state_code",
+  "postal_code",
+  "plus_four_postal_code",
+  "country_code",
+];
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -756,14 +774,23 @@ const PERSON_MIDDLE_NAME_PATTERN =
 
 function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
   if (!value) return null;
-  const cleaned = textClean(String(value))
+  let cleaned = textClean(String(value))
     .replace(/[^A-Za-z \-',.]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return null;
+
+  cleaned = cleaned.replace(/([ \-',.])+$/g, "").trim();
+  if (!cleaned) return null;
+
   const titleCased = toTitleCaseName(cleaned);
   if (!titleCased) return null;
-  return pattern.test(titleCased) ? titleCased : null;
+
+  const trimmed = titleCased.replace(/([ \-',.])+$/g, "").trim();
+  if (!trimmed) return null;
+  if (!/[A-Za-z]$/.test(trimmed)) return null;
+
+  return pattern.test(trimmed) ? trimmed : null;
 }
 
 function sanitizePersonData(raw, fallbackDisplay) {
@@ -2060,6 +2087,7 @@ async function main() {
   let range = null;
   let section = null;
   let addressHasCoreData = false;
+  let addressFileWritten = false;
 
   if (!isMulti) {
     $("article#property-identification table.container tr").each((i, tr) => {
@@ -2141,6 +2169,17 @@ async function main() {
     ["street_number", "street_name", "city_name", "state_code", "postal_code"].every(
       (key) => Object.prototype.hasOwnProperty.call(finalAddressOutput, key),
     );
+
+  if (hasStructuredAddress && hasUnnormalizedAddress) {
+    delete finalAddressOutput.unnormalized_address;
+  } else if (hasUnnormalizedAddress && !hasStructuredAddress) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+        delete finalAddressOutput[key];
+      }
+    }
+  }
+
   addressHasCoreData =
     addressHasCoreData || hasUnnormalizedAddress || hasStructuredAddress;
 
@@ -2149,6 +2188,7 @@ async function main() {
       path.join("data", "address.json"),
       JSON.stringify(finalAddressOutput, null, 2),
     );
+    addressFileWritten = true;
   }
 
   // --- Parcel extraction ---
@@ -3324,6 +3364,17 @@ async function main() {
     }
   }
 
+
+  if (addressFileWritten && propertyOut) {
+    const propertyAddressRelationship = {
+      from: { "/": "./property.json" },
+      to: { "/": "./address.json" },
+    };
+    await fsp.writeFile(
+      path.join("data", "relationship_property_has_address.json"),
+      JSON.stringify(propertyAddressRelationship, null, 2),
+    );
+  }
 
   // Removed propertyKeyCandidates and resolvedUtilityKey/resolvedLayoutKey
   // as they are no longer needed for direct processing of structure_data.json
