@@ -235,6 +235,28 @@ function normalizeStructuredAddressSource(source) {
       value = value[0].toUpperCase() + value.slice(1).toLowerCase();
     }
 
+    if (key === "postal_code") {
+      const digits = value.replace(/\D/g, "");
+      if (digits.length < 5) continue;
+
+      normalized.postal_code = digits.slice(0, 5);
+
+      if (
+        !Object.prototype.hasOwnProperty.call(normalized, "plus_four_postal_code") &&
+        digits.length >= 9
+      ) {
+        normalized.plus_four_postal_code = digits.slice(5, 9);
+      }
+      continue;
+    }
+
+    if (key === "plus_four_postal_code") {
+      const digits = value.replace(/\D/g, "");
+      if (digits.length < 4) continue;
+      normalized.plus_four_postal_code = digits.slice(0, 4);
+      continue;
+    }
+
     if (value.length === 0) continue;
     normalized[key] = value;
   }
