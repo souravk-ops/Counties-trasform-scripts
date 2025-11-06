@@ -1583,6 +1583,66 @@ function filterAddressByVariant(address, variant) {
   return Object.keys(address).length ? address : null;
 }
 
+function resolveAddressPayload({
+  commonSource,
+  structuredSource,
+  unnormalizedValue,
+}) {
+  const base = {};
+  if (commonSource && typeof commonSource === "object") {
+    for (const key of ADDRESS_COMMON_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(commonSource, key)) continue;
+      const value = commonSource[key];
+      if (!hasMeaningfulValue(value)) continue;
+      base[key] = typeof value === "string" ? value.trim() : value;
+    }
+  }
+
+  const structured = {};
+  if (structuredSource && typeof structuredSource === "object") {
+    for (const key of ADDRESS_STRUCTURED_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredSource, key)) continue;
+      const value = structuredSource[key];
+      if (!hasMeaningfulValue(value)) continue;
+      structured[key] = typeof value === "string" ? value.trim() : value;
+    }
+  }
+
+  const hasStructuredRequired = REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) =>
+    hasMeaningfulValue(structured[key]),
+  );
+
+  const normalizedUnnormalized =
+    typeof unnormalizedValue === "string" && unnormalizedValue.trim().length
+      ? unnormalizedValue.trim()
+      : null;
+
+  if (hasStructuredRequired) {
+    return {
+      variant: "structured",
+      payload: {
+        ...base,
+        ...structured,
+      },
+    };
+  }
+
+  if (normalizedUnnormalized) {
+    return {
+      variant: "unnormalized",
+      payload: {
+        ...base,
+        unnormalized_address: normalizedUnnormalized,
+      },
+    };
+  }
+
+  return {
+    variant: "none",
+    payload: null,
+  };
+}
+
 async function removeExisting(pattern) {
   try {
     const files = await fsp.readdir("data");
@@ -2787,64 +2847,20 @@ async function main() {
     }
   }
 
-  const structuredHasRequired =
-    structuredAddress &&
-    REQUIRED_STRUCTURED_ADDRESS_KEYS.every((key) => {
-      const value = structuredAddress[key];
-      return hasMeaningfulValue(value);
-    });
-
-  const trimmedBaseAddress = {};
-  for (const [key, value] of Object.entries(baseAddress)) {
-    if (!hasMeaningfulValue(value)) continue;
-    trimmedBaseAddress[key] =
-      typeof value === "string" ? value.trim() : value;
-  }
-
-  const trimmedStructuredAddress = {};
-  if (structuredAddress) {
-    for (const key of ADDRESS_STRUCTURED_KEYS) {
-      if (!Object.prototype.hasOwnProperty.call(structuredAddress, key))
-        continue;
-      const value = structuredAddress[key];
-      if (!hasMeaningfulValue(value)) continue;
-      trimmedStructuredAddress[key] =
-        typeof value === "string" ? value.trim() : value;
-    }
-  }
-
   const normalizedFallbackUnnormalized =
     typeof fallbackUnnormalizedCandidate === "string" &&
     fallbackUnnormalizedCandidate.trim().length > 0
       ? fallbackUnnormalizedCandidate.trim()
       : null;
 
-  let addressPayload = null;
+  const addressResolution = resolveAddressPayload({
+    commonSource: baseAddress,
+    structuredSource: structuredAddress,
+    unnormalizedValue: normalizedFallbackUnnormalized,
+  });
 
-  if (structuredHasRequired) {
-    addressPayload = {
-      ...trimmedBaseAddress,
-      ...trimmedStructuredAddress,
-    };
-  } else if (normalizedFallbackUnnormalized) {
-    addressPayload = {
-      ...trimmedBaseAddress,
-      unnormalized_address: normalizedFallbackUnnormalized,
-    };
-  } else if (structuredAddress) {
-    const backup =
-      typeof rawUnnormalizedAddress === "string"
-        ? rawUnnormalizedAddress.trim()
-        : typeof normalizedSiteAddress === "string"
-        ? normalizedSiteAddress.trim()
-        : null;
-    if (backup) {
-      addressPayload = {
-        ...trimmedBaseAddress,
-        unnormalized_address: backup,
-      };
-    }
-  }
+  let addressPayload = addressResolution.payload;
+  let addressVariant = addressResolution.variant !== "none" ? addressResolution.variant : null;
 
   if (secTownRange && addressPayload) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
@@ -2855,22 +2871,28 @@ async function main() {
     }
   }
 
-  let addressVariant = null;
   if (addressPayload) {
-    addressVariant = enforceAddressOneOf(addressPayload, {
-      preferUnnormalized: !structuredHasRequired,
+    const variantPreference = addressVariant === "unnormalized";
+    const validationCandidate = { ...addressPayload };
+    const validatedVariant = enforceAddressOneOf(validationCandidate, {
+      preferUnnormalized: variantPreference,
     });
-    if (addressVariant === "none") {
+    if (validatedVariant === "none") {
       addressPayload = null;
       addressVariant = null;
     } else {
-      addressPayload = finalizeAddressVariant(addressPayload);
-      if (addressPayload) {
-        addressPayload = filterAddressByVariant(addressPayload, addressVariant);
-        if (!addressPayload) {
+      const finalized = finalizeAddressVariant(validationCandidate);
+      if (finalized) {
+        const filtered = filterAddressByVariant(finalized, validatedVariant);
+        if (filtered) {
+          addressPayload = filtered;
+          addressVariant = validatedVariant;
+        } else {
+          addressPayload = null;
           addressVariant = null;
         }
       } else {
+        addressPayload = null;
         addressVariant = null;
       }
     }
