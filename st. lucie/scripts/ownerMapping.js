@@ -30,6 +30,49 @@ const looksLikeAddress = (s) => {
   return false;
 };
 
+const PERSON_NAME_PATTERN = /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
+const MIDDLE_NAME_PATTERN = /^[A-Z][a-zA-Z\s\-',.]*$/;
+
+function normalizeNameToken(token) {
+  if (!token) return null;
+  let cleaned = token.replace(/[()]/g, "");
+  cleaned = cleaned.replace(/^[^A-Za-z0-9]+/, "");
+  cleaned = cleaned.replace(/[^A-Za-z0-9'\-.,]+$/g, "");
+  cleaned = cleaned.trim();
+  if (!cleaned) return null;
+  if (cleaned === "&" || cleaned.toLowerCase() === "and") return null;
+  if (/\d/.test(cleaned)) return null;
+  return cleaned;
+}
+
+function normalizeNameTokens(rawTokens) {
+  if (!Array.isArray(rawTokens)) return [];
+  const tokens = [];
+  for (const raw of rawTokens) {
+    const normalized = normalizeNameToken(raw);
+    if (normalized) tokens.push(normalized);
+  }
+  return tokens;
+}
+
+function titleCaseNamePart(value) {
+  if (!value) return null;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  let result = "";
+  let shouldCapitalize = true;
+  for (const ch of cleaned.toLowerCase()) {
+    if (/[a-z]/.test(ch)) {
+      result += shouldCapitalize ? ch.toUpperCase() : ch;
+      shouldCapitalize = false;
+    } else {
+      result += ch;
+      shouldCapitalize = /[\s'\-]/.test(ch);
+    }
+  }
+  return result;
+}
+
 // --- SCHEMA-DRIVEN PREFIXES AND SUFFIXES ---
 const ALLOWED_PREFIXES = [
   "Mr.", "Mrs.", "Ms.", "Miss", "Mx.", "Dr.", "Prof.", "Rev.", "Fr.", "Sr.", "Br.",
@@ -145,69 +188,104 @@ function defaultPerson(propertyId) {
   };
 }
 
-// Parse person name from a string, now handling prefixes and suffixes
+// Parse person name from a string, handling prefixes, suffixes, and casing
 function parsePersonName(raw, propertyId) {
   const original = norm(raw);
   if (!original) return null;
 
-  // 1. Strip legal designations first
-  const { cleanedName: nameWithoutDesignations, removedDesignations } = stripLegalDesignations(original);
-  const workingName = norm(nameWithoutDesignations);
-  if (!workingName) return null; // If only designations were present
+  const { cleanedName: nameWithoutDesignations, removedDesignations } =
+    stripLegalDesignations(original);
+  let workingName = norm(nameWithoutDesignations);
+  if (!workingName) return null;
+
+  workingName = workingName
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/&/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!workingName) return null;
 
   let prefix = null;
   let suffix = null;
-  let nameTokens = workingName.split(/\s+/).filter(Boolean);
 
-  // 2. Extract Prefix (if present at the beginning)
-  if (nameTokens.length > 1) {
-    const firstToken = nameTokens[0];
-    const matchedPrefix = getMatchingPrefix(firstToken);
-    if (matchedPrefix) {
-      prefix = matchedPrefix;
-      nameTokens = nameTokens.slice(1);
-    }
-  }
-
-  // 3. Extract Suffix (if present at the end)
-  if (nameTokens.length > 1) {
-    const lastToken = nameTokens[nameTokens.length - 1];
-    const matchedSuffix = getMatchingSuffix(lastToken);
-    if (matchedSuffix) {
-      suffix = matchedSuffix;
-      nameTokens = nameTokens.slice(0, -1);
-    }
-  }
-
-  // 4. Parse the remaining name tokens
-  let first = null;
-  let last = null;
-  let middle = null;
-
-  // Handle "Last, First Middle" format
-  if (workingName.includes(',')) {
-    const parts = workingName.split(',').map(s => norm(s));
-    if (parts.length >= 2) {
-      last = parts[0];
-      const rest = parts.slice(1).join(' ');
-      const restTokens = rest.split(/\s+/).filter(Boolean);
-      if (restTokens.length > 0) {
-        first = restTokens[0];
-        middle = restTokens.slice(1).join(' ') || null;
+  const stripPrefixSuffix = (tokens) => {
+    if (tokens.length > 1) {
+      const maybePrefix = getMatchingPrefix(tokens[0]);
+      if (maybePrefix) {
+        prefix = maybePrefix;
+        tokens.shift();
       }
     }
-  } else { // Handle "First Middle Last" format
-    if (nameTokens.length >= 2) {
-      first = nameTokens[0];
-      last = nameTokens[nameTokens.length - 1];
-      middle = nameTokens.slice(1, -1).join(' ') || null;
-    } else if (nameTokens.length === 1) {
-      // If only one token remains, it's ambiguous. Can't reliably parse.
-      return null;
+    if (tokens.length > 1) {
+      const maybeSuffix = getMatchingSuffix(tokens[tokens.length - 1]);
+      if (maybeSuffix) {
+        suffix = maybeSuffix;
+        tokens.pop();
+      }
+    }
+    return tokens;
+  };
+
+  let first = null;
+  let middle = null;
+  let last = null;
+
+  if (workingName.includes(",")) {
+    const [lastSection, ...restSections] = workingName.split(",");
+    let lastTokens = normalizeNameTokens(lastSection.split(/\s+/));
+    let restTokens = normalizeNameTokens(
+      restSections.join(" ").split(/\s+/),
+    );
+    restTokens = stripPrefixSuffix(restTokens);
+
+    if (lastTokens.length === 0 || restTokens.length === 0) return null;
+
+    if (lastTokens.length > 1) {
+      const maybeSuffix = getMatchingSuffix(
+        lastTokens[lastTokens.length - 1],
+      );
+      if (maybeSuffix) {
+        suffix = maybeSuffix;
+        lastTokens.pop();
+      }
+    }
+    if (lastTokens.length === 0) return null;
+
+    const formattedLast = titleCaseNamePart(lastTokens.join(" "));
+    if (!formattedLast || !PERSON_NAME_PATTERN.test(formattedLast)) return null;
+    last = formattedLast;
+
+    const firstToken = restTokens.shift();
+    const formattedFirst = titleCaseNamePart(firstToken);
+    if (!formattedFirst) return null;
+    first = formattedFirst;
+
+    if (restTokens.length) {
+      const middleCandidate = titleCaseNamePart(restTokens.join(" "));
+      if (middleCandidate && MIDDLE_NAME_PATTERN.test(middleCandidate)) {
+        middle = middleCandidate;
+      }
+    }
+  } else {
+    let tokens = normalizeNameTokens(workingName.split(/\s+/));
+    tokens = stripPrefixSuffix(tokens);
+    if (tokens.length < 2) return null;
+
+    const formattedFirst = titleCaseNamePart(tokens[0]);
+    const formattedLast = titleCaseNamePart(tokens[tokens.length - 1]);
+    if (!formattedFirst || !formattedLast) return null;
+    if (!PERSON_NAME_PATTERN.test(formattedLast)) return null;
+
+    first = formattedFirst;
+    last = formattedLast;
+
+    if (tokens.length > 2) {
+      const middleCandidate = titleCaseNamePart(tokens.slice(1, -1).join(" "));
+      if (middleCandidate && MIDDLE_NAME_PATTERN.test(middleCandidate)) {
+        middle = middleCandidate;
+      }
     }
   }
-
-  if (!first || !last) return null; // Must have at least first and last name
 
   const person = defaultPerson(propertyId);
   person.first_name = first;
@@ -215,7 +293,7 @@ function parsePersonName(raw, propertyId) {
   person.middle_name = middle;
   person.prefix_name = prefix;
   person.suffix_name = suffix;
-  person._removed_designations = removedDesignations; // For debugging/auditing
+  person._removed_designations = removedDesignations;
 
   return person;
 }

@@ -1332,6 +1332,7 @@ async function main() {
 
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
+  await removeExisting(/^relationship_property_has_address.*\.json$/);
   const propertyImprovementRecords = [];
 
 
@@ -1345,6 +1346,7 @@ async function main() {
   let township = null;
   let range = null;
   let section = null;
+  let addressHasCoreData = false;
 
   if (!isMulti) {
     $("article#property-identification table.container tr").each((i, tr) => {
@@ -1520,6 +1522,24 @@ async function main() {
   }
   // We are explicitly NOT adding unnormalized_address.
 
+  const addressRelationshipKeys = [
+    "unnormalized_address",
+    "street_number",
+    "street_name",
+    "city_name",
+    "postal_code",
+    "state_code",
+    "latitude",
+    "longitude",
+  ];
+  addressHasCoreData = addressRelationshipKeys.some((key) => {
+    if (!(key in finalAddressOutput)) return false;
+    const value = finalAddressOutput[key];
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    return true;
+  });
+
   await fsp.writeFile(
     path.join("data", "address.json"),
     JSON.stringify(finalAddressOutput, null, 2),
@@ -1627,6 +1647,16 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+    if (addressHasCoreData) {
+      const propertyToAddressRel = {
+        from: { "/": "./property.json" },
+        to: { "/": "./address.json" },
+      };
+      await fsp.writeFile(
+        path.join("data", "relationship_property_has_address.json"),
+        JSON.stringify(propertyToAddressRel, null, 2),
+      );
+    }
 
     // Lot data
     const lotOut = {
