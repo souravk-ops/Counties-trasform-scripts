@@ -1627,6 +1627,10 @@ async function main() {
       "plus_four_postal_code",
       plus_four_postal_code,
     );
+    assignIfValue(finalAddressOutput, "city_name", city_name);
+    assignIfValue(finalAddressOutput, "state_code", state_code);
+    assignIfValue(finalAddressOutput, "postal_code", postal_code);
+    delete finalAddressOutput.unnormalized_address;
   } else {
     let fallbackAddress = null;
     if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
@@ -1636,12 +1640,17 @@ async function main() {
       fallbackAddress = siteAddress;
     }
     assignIfValue(finalAddressOutput, "unnormalized_address", fallbackAddress);
+    delete finalAddressOutput.street_number;
+    delete finalAddressOutput.street_name;
+    delete finalAddressOutput.street_post_directional_text;
+    delete finalAddressOutput.street_pre_directional_text;
+    delete finalAddressOutput.street_suffix_type;
+    delete finalAddressOutput.plus_four_postal_code;
+    delete finalAddressOutput.city_name;
+    delete finalAddressOutput.state_code;
+    delete finalAddressOutput.postal_code;
   }
 
-  assignIfValue(finalAddressOutput, "city_name", city_name);
-  if (state_code) finalAddressOutput.country_code = "US";
-  assignIfValue(finalAddressOutput, "state_code", state_code);
-  assignIfValue(finalAddressOutput, "postal_code", postal_code);
   if (township) assignIfValue(finalAddressOutput, "township", township);
   if (range) assignIfValue(finalAddressOutput, "range", range);
   if (section) assignIfValue(finalAddressOutput, "section", section);
@@ -2340,6 +2349,86 @@ async function main() {
     await removeExisting(/^relationship_sales_history_.*_has_person_.*\.json$/); 
     await removeExisting(/^relationship_sales_history_.*_has_company_.*\.json$/); 
     await removeExisting(/^relationship_person_.*_has_mailing_address\.json$/); 
+
+    const getRecordFallbackName = (record) => {
+      if (record.displayName && record.displayName.trim()) {
+        return record.displayName.trim();
+      }
+      if (record.aliases && record.aliases.size) {
+        for (const alias of record.aliases) {
+          if (alias && alias.trim()) {
+            return alias.trim();
+          }
+        }
+      }
+      if (record.person) {
+        const built = buildPersonDisplayName(record.person);
+        if (built) return built;
+      }
+      return null;
+    };
+
+    for (const record of ownerRecords.values()) {
+      if (record.type !== "person") continue;
+      const fallbackName = getRecordFallbackName(record);
+      const baseRawPerson = {
+        birth_date: record.person?.birth_date ?? null,
+        first_name: record.person?.first_name ?? null,
+        last_name: record.person?.last_name ?? null,
+        middle_name: record.person?.middle_name ?? null,
+        prefix_name: record.person?.prefix_name ?? null,
+        suffix_name: record.person?.suffix_name ?? null,
+        us_citizenship_status: record.person?.us_citizenship_status ?? null,
+        veteran_status: record.person?.veteran_status ?? null,
+        request_identifier: record.person?.request_identifier ?? null,
+      };
+
+      let sanitizedForOutput =
+        sanitizePersonData(baseRawPerson, fallbackName) || null;
+
+      if (!sanitizedForOutput && fallbackName) {
+        const parsedFallback = parsePersonNameTokens(fallbackName);
+        if (parsedFallback) {
+          sanitizedForOutput =
+            sanitizePersonData(
+              {
+                ...baseRawPerson,
+                first_name:
+                  parsedFallback.first_name ?? baseRawPerson.first_name ?? null,
+                last_name:
+                  parsedFallback.last_name ?? baseRawPerson.last_name ?? null,
+                middle_name:
+                  parsedFallback.middle_name ?? baseRawPerson.middle_name ?? null,
+              },
+              fallbackName,
+            ) || null;
+        }
+      }
+
+      if (!sanitizedForOutput) {
+        const companyName =
+          fallbackName || buildPersonDisplayName(record.person) || null;
+        record.type = "company";
+        record.company = {
+          name: companyName,
+          request_identifier: record.person?.request_identifier ?? null,
+        };
+        record.person = undefined;
+        if (!record.displayName && companyName) {
+          record.displayName = companyName;
+        }
+        continue;
+      }
+
+      record.person = {
+        ...record.person,
+        ...sanitizedForOutput,
+      };
+      if (!record.displayName) {
+        record.displayName =
+          buildPersonDisplayName(record.person) || fallbackName || null;
+      }
+    }
 
     const ownerToFileMap = new Map();
     let personIdx = 0;
