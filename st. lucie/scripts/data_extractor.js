@@ -1938,8 +1938,14 @@ async function main() {
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_address.*\.json$/);
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
+  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
+  await removeExisting(/^relationship_fact_sheet_has_property.*\.json$/);
+  const factSheetFileName = "fact_sheet.json";
+  const factSheetOutputPath = path.join("data", factSheetFileName);
+  await fsp.unlink(factSheetOutputPath).catch(() => {});
   const propertyImprovementRecords = [];
   let addressWritten = false;
+  let factSheetWritten = false;
 
 
   // --- Address extraction ---
@@ -2247,14 +2253,33 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (addressWritten) {
-      const propertyAddressRel = createRelationshipPayload(
+    if (!factSheetWritten) {
+      await fsp.writeFile(
+        factSheetOutputPath,
+        JSON.stringify({}, null, 2),
+      );
+      factSheetWritten = true;
+    }
+
+    if (factSheetWritten) {
+      const factSheetPropertyRel = createRelationshipPayload(
+        `./${factSheetFileName}`,
         "./property.json",
-        "./address.json",
       );
       await fsp.writeFile(
-        path.join("data", "relationship_property_has_address.json"),
-        JSON.stringify(propertyAddressRel, null, 2),
+        path.join("data", "relationship_fact_sheet_has_property.json"),
+        JSON.stringify(factSheetPropertyRel, null, 2),
+      );
+    }
+
+    if (factSheetWritten && addressWritten) {
+      const addressFactSheetRel = createRelationshipPayload(
+        "./address.json",
+        `./${factSheetFileName}`,
+      );
+      await fsp.writeFile(
+        path.join("data", "relationship_address_has_fact_sheet.json"),
+        JSON.stringify(addressFactSheetRel, null, 2),
       );
     }
 
@@ -2838,6 +2863,35 @@ async function main() {
           type: "company",
           index: companyIdx,
         });
+      }
+    }
+
+    if (factSheetWritten) {
+      const factSheetPersonIds = new Set();
+      for (const [recordId, roles] of ownerPropertyRoles.entries()) {
+        if (!roles || roles.size === 0) continue;
+        for (const role of roles) {
+          if (typeof role === "string" && role.toLowerCase() === "current") {
+            factSheetPersonIds.add(recordId);
+            break;
+          }
+        }
+      }
+      if (currentOwnerRecord) {
+        factSheetPersonIds.add(currentOwnerRecord.id);
+      }
+      for (const recordId of factSheetPersonIds) {
+        const meta = ownerToFileMap.get(recordId);
+        if (!meta || meta.type !== "person") continue;
+        const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
+        const relOut = createRelationshipPayload(
+          `./${meta.fileName}`,
+          `./${factSheetFileName}`,
+        );
+        await fsp.writeFile(
+          path.join("data", relFileName),
+          JSON.stringify(relOut, null, 2),
+        );
       }
     }
 
