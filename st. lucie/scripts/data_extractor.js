@@ -1695,22 +1695,22 @@ function resolveAddressPayload({
       ? unnormalizedValue.trim()
       : null;
 
-  if (hasStructuredRequired) {
-    return {
-      variant: "structured",
-      payload: {
-        ...base,
-        ...structured,
-      },
-    };
-  }
-
   if (normalizedUnnormalized) {
     return {
       variant: "unnormalized",
       payload: {
         ...base,
         unnormalized_address: normalizedUnnormalized,
+      },
+    };
+  }
+
+  if (hasStructuredRequired) {
+    return {
+      variant: "structured",
+      payload: {
+        ...base,
+        ...structured,
       },
     };
   }
@@ -3127,44 +3127,9 @@ async function main() {
       "relationship_address_has_fact_sheet.json",
     );
 
-    if (addressPayload) {
-      if (propertyOut) {
-        const propertyHasAddressRel = createRelationshipPayload(
-          "./property.json",
-          "./address.json",
-        );
-        if (propertyHasAddressRel) {
-          await fsp.writeFile(
-            propertyHasAddressPath,
-            JSON.stringify(propertyHasAddressRel, null, 2),
-          );
-        } else {
-          await fsp.unlink(propertyHasAddressPath).catch(() => {});
-        }
-      } else {
-        await fsp.unlink(propertyHasAddressPath).catch(() => {});
-      }
-
-      if (factSheetWritten) {
-        const addressHasFactSheetRel = createRelationshipPayload(
-          "./address.json",
-          `./${factSheetFileName}`,
-        );
-        if (addressHasFactSheetRel) {
-          await fsp.writeFile(
-            addressHasFactSheetPath,
-            JSON.stringify(addressHasFactSheetRel, null, 2),
-          );
-        } else {
-          await fsp.unlink(addressHasFactSheetPath).catch(() => {});
-        }
-      } else {
-        await fsp.unlink(addressHasFactSheetPath).catch(() => {});
-      }
-    } else {
-      await fsp.unlink(propertyHasAddressPath).catch(() => {});
-      await fsp.unlink(addressHasFactSheetPath).catch(() => {});
-    }
+    // Downstream orchestration populates address relationships; remove local copies to avoid duplicates.
+    await fsp.unlink(propertyHasAddressPath).catch(() => {});
+    await fsp.unlink(addressHasFactSheetPath).catch(() => {});
 
     // Lot data
     const lotOut = {
