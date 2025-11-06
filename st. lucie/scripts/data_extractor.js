@@ -19,14 +19,15 @@ function normalizeRelationshipEndpoint(ref) {
   let pointer = null;
   if (typeof ref === "string") {
     pointer = ref.trim();
-  } else if (typeof ref === "object") {
+  } else if (typeof ref === "object" && ref !== null) {
     const candidate = ref["/"];
     if (typeof candidate === "string") {
       pointer = candidate.trim();
     }
   }
 
-  return pointer && pointer.length > 0 ? pointer : null;
+  if (!pointer) return null;
+  return { "/": pointer };
 }
 
 function createRelationshipPayload(fromPath, toPath) {
