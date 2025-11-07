@@ -1476,16 +1476,16 @@ function buildAddressRecord({
     return candidate;
   };
 
-  if (normalizedStructured) {
-    const structuredCandidate = buildCandidate("structured");
-    const resolvedStructured = finalizeCandidate(structuredCandidate);
-    if (resolvedStructured) return resolvedStructured;
-  }
-
   if (normalizedUnnormalized) {
     const unnormalizedCandidate = buildCandidate("unnormalized");
     const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
     if (resolvedUnnormalized) return resolvedUnnormalized;
+  }
+
+  if (normalizedStructured) {
+    const structuredCandidate = buildCandidate("structured");
+    const resolvedStructured = finalizeCandidate(structuredCandidate);
+    if (resolvedStructured) return resolvedStructured;
   }
 
   return null;
@@ -3093,10 +3093,10 @@ async function main() {
   });
 
   const preferredAddressMode =
-    normalizedAddressSource && typeof normalizedAddressSource === "object"
-      ? "structured"
-      : fallbackAddress
-        ? "unnormalized"
+    fallbackAddress
+      ? "unnormalized"
+      : normalizedAddressSource && typeof normalizedAddressSource === "object"
+        ? "structured"
         : null;
 
   const resolvedAddressOutput = preparedAddressOutput
@@ -4949,6 +4949,34 @@ async function main() {
         path.join("data", fileFileName),
         JSON.stringify(rec, null, 2),
       );
+    }
+  }
+
+  if (addressHasCoreData) {
+    const addressRef = `./${addressFileName}`;
+    if (propertyExists) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressRef,
+      );
+    }
+
+    let factSheetFiles = [];
+    try {
+      const dataFiles = await fsp.readdir("data");
+      factSheetFiles = dataFiles.filter((file) =>
+        /^fact_sheet.*\.json$/i.test(file),
+      );
+    } catch {
+      factSheetFiles = [];
+    }
+
+    for (let i = 0; i < factSheetFiles.length; i++) {
+      const factSheetFile = factSheetFiles[i];
+      const suffix = factSheetFiles.length === 1 ? "" : `_${i + 1}`;
+      const relName = `relationship_address_has_fact_sheet${suffix}.json`;
+      await writeRelationshipFile(relName, addressRef, `./${factSheetFile}`);
     }
   }
 }
