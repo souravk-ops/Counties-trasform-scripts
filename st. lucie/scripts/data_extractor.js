@@ -28,11 +28,24 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
   const payload =
     extras && typeof extras === "object" ? { ...extras } : {};
 
-  const includeFrom = fromPath !== undefined && fromPath !== false;
-  const includeTo = toPath !== undefined && toPath !== false;
+  const buildResource = (value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return { resource: trimmed };
+  };
 
-  if (includeFrom) payload.from = null;
-  if (includeTo) payload.to = null;
+  const shouldIncludeFrom = fromPath !== undefined && fromPath !== false;
+  if (shouldIncludeFrom && payload.from == null) {
+    const fromRef = buildResource(fromPath);
+    if (fromRef) payload.from = fromRef;
+  }
+
+  const shouldIncludeTo = toPath !== undefined && toPath !== false;
+  if (shouldIncludeTo && payload.to == null) {
+    const toRef = buildResource(toPath);
+    if (toRef) payload.to = toRef;
+  }
 
   return Object.keys(payload).length ? payload : null;
 }
