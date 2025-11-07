@@ -1379,37 +1379,43 @@ function buildAddressRecord({
   metadata = {},
   requestIdentifier = null,
 }) {
-  const record = {};
+  const baseRecord = {};
 
-  assignIfValue(record, "request_identifier", requestIdentifier);
+  assignIfValue(baseRecord, "request_identifier", requestIdentifier);
 
   if (metadata && typeof metadata === "object") {
     for (const key of ADDRESS_METADATA_KEYS) {
       if (Object.prototype.hasOwnProperty.call(metadata, key)) {
-        assignIfValue(record, key, metadata[key]);
+        assignIfValue(baseRecord, key, metadata[key]);
       }
     }
   }
 
-  let candidate = null;
-
+  const normalizedUnnormalized =
+    normalizeUnnormalizedAddressValue(unnormalizedValue);
   if (structuredAddress && typeof structuredAddress === "object") {
-    candidate = { ...record, ...structuredAddress };
-  } else {
-    const normalizedUnnormalized =
-      normalizeUnnormalizedAddressValue(unnormalizedValue);
-    if (normalizedUnnormalized) {
-      candidate = {
-        ...record,
-        unnormalized_address: normalizedUnnormalized,
-      };
+    const structuredCandidate = harmonizeAddressPayload({
+      ...baseRecord,
+      ...structuredAddress,
+    });
+    if (structuredCandidate) {
+      const exclusive = ensureExclusiveAddressMode(structuredCandidate);
+      return exclusive || structuredCandidate;
     }
   }
 
-  if (!candidate) return null;
+  if (normalizedUnnormalized) {
+    const unnormalizedCandidate = harmonizeAddressPayload({
+      ...baseRecord,
+      unnormalized_address: normalizedUnnormalized,
+    });
+    if (unnormalizedCandidate) {
+      const exclusive = ensureExclusiveAddressMode(unnormalizedCandidate);
+      return exclusive || unnormalizedCandidate;
+    }
+  }
 
-  const harmonized = harmonizeAddressPayload(candidate);
-  return harmonized || null;
+  return null;
 }
 
 function toTitleCaseName(part) {
