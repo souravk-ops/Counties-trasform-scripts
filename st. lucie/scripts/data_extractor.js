@@ -1546,6 +1546,74 @@ function resolveAddressForOutput(candidate, preferredMode = null) {
   return null;
 }
 
+function prepareAddressPayloadForWrite(resolution) {
+  if (!resolution || typeof resolution !== "object") return null;
+  const { payload, mode } = resolution;
+  if (!payload || typeof payload !== "object") return null;
+  if (mode !== "structured" && mode !== "unnormalized") return null;
+
+  const cleaned = {};
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "request_identifier") &&
+    payload.request_identifier != null
+  ) {
+    const raw = payload.request_identifier;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed) cleaned.request_identifier = trimmed;
+    } else {
+      cleaned.request_identifier = raw;
+    }
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      cleaned[key] = trimmed;
+    } else {
+      cleaned[key] = value;
+    }
+  }
+
+  if (mode === "unnormalized") {
+    const normalized = normalizeUnnormalizedAddressValue(
+      payload.unnormalized_address,
+    );
+    if (!normalized) return null;
+    cleaned.unnormalized_address = normalized;
+    return cleaned;
+  }
+
+  const structured = {};
+  for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
+    const value = payload[key];
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    structured[key] = trimmed;
+  }
+  for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      structured[key] = trimmed;
+    } else {
+      structured[key] = value;
+    }
+  }
+
+  return { ...cleaned, ...structured };
+}
+
 function toTitleCaseName(part) {
   if (!part) return null;
   const normalized = part.trim().toLowerCase();
@@ -3103,11 +3171,15 @@ async function main() {
     ? resolveAddressForOutput(preparedAddressOutput, preferredAddressMode)
     : null;
 
-  if (resolvedAddressOutput?.payload) {
+  const finalizedAddressPayload = resolvedAddressOutput
+    ? prepareAddressPayloadForWrite(resolvedAddressOutput)
+    : null;
+
+  if (finalizedAddressPayload) {
     addressHasCoreData = true;
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(resolvedAddressOutput.payload, null, 2),
+      JSON.stringify(finalizedAddressPayload, null, 2),
     );
   } else {
     addressHasCoreData = false;
@@ -3724,12 +3796,15 @@ async function main() {
           preparedMailingAddress,
           "unnormalized",
         );
-        if (resolvedMailingAddress?.payload) {
+        const finalizedMailingAddress = resolvedMailingAddress
+          ? prepareAddressPayloadForWrite(resolvedMailingAddress)
+          : null;
+        if (finalizedMailingAddress) {
           await fsp.writeFile(
             path.join("data", "mailing_address.json"),
-            JSON.stringify(resolvedMailingAddress.payload, null, 2),
+            JSON.stringify(finalizedMailingAddress, null, 2),
           );
-          mailingAddressOut = resolvedMailingAddress.payload;
+          mailingAddressOut = finalizedMailingAddress;
           console.log("mailing_address.json created.");
         } else {
           mailingAddressOut = null;
@@ -4954,13 +5029,6 @@ async function main() {
 
   if (addressHasCoreData) {
     const addressRef = `./${addressFileName}`;
-    if (propertyExists) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressRef,
-      );
-    }
 
     let factSheetFiles = [];
     try {
