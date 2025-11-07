@@ -359,6 +359,44 @@ const STRUCTURED_ADDRESS_FIELDS = [
   "country_code",
 ];
 
+const STRUCTURED_ADDRESS_REQUIRED_KEYS = [
+  "street_number",
+  "street_name",
+  "city_name",
+  "state_code",
+  "postal_code",
+];
+
+function reconcileAddressForSchema(address) {
+  if (!address || typeof address !== "object") {
+    return { hasStructured: false, hasUnnormalized: false };
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = address[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const hasUnnormalized =
+    typeof address.unnormalized_address === "string" &&
+    address.unnormalized_address.trim().length > 0;
+
+  if (hasStructured && hasUnnormalized) {
+    delete address.unnormalized_address;
+  } else if (!hasStructured) {
+    if (!hasUnnormalized) {
+      delete address.unnormalized_address;
+    }
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(address, key)) {
+        delete address[key];
+      }
+    }
+  }
+
+  return { hasStructured, hasUnnormalized };
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -788,7 +826,11 @@ const PERSON_MIDDLE_NAME_PATTERN =
 
 function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
   if (!value) return null;
-  let cleaned = textClean(String(value))
+  let cleaned = textClean(String(value));
+  if (cleaned.normalize) {
+    cleaned = cleaned.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  cleaned = cleaned
     .replace(/[^A-Za-z \-',.]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -2153,7 +2195,6 @@ async function main() {
 
   if (structuredCandidate) {
     Object.assign(finalAddressOutput, structuredCandidate);
-    addressHasCoreData = true;
   } else {
     let fallbackAddress = null;
     if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
@@ -2164,7 +2205,6 @@ async function main() {
     }
     if (fallbackAddress) {
       assignIfValue(finalAddressOutput, "unnormalized_address", fallbackAddress);
-      addressHasCoreData = true;
     }
   }
 
@@ -2181,27 +2221,11 @@ async function main() {
   if (range) assignIfValue(finalAddressOutput, "range", range);
   if (section) assignIfValue(finalAddressOutput, "section", section);
 
-  const hasUnnormalizedAddress = Object.prototype.hasOwnProperty.call(
-    finalAddressOutput,
-    "unnormalized_address",
-  );
-  const hasStructuredAddress =
-    ["street_number", "street_name", "city_name", "state_code", "postal_code"].every(
-      (key) => Object.prototype.hasOwnProperty.call(finalAddressOutput, key),
-    );
-
-  if (hasStructuredAddress && hasUnnormalizedAddress) {
-    delete finalAddressOutput.unnormalized_address;
-  } else if (hasUnnormalizedAddress && !hasStructuredAddress) {
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-        delete finalAddressOutput[key];
-      }
-    }
-  }
-
-  addressHasCoreData =
-    addressHasCoreData || hasUnnormalizedAddress || hasStructuredAddress;
+  const {
+    hasStructured: hasStructuredAddress,
+    hasUnnormalized: hasUnnormalizedAddress,
+  } = reconcileAddressForSchema(finalAddressOutput);
+  addressHasCoreData = hasStructuredAddress || hasUnnormalizedAddress;
 
   if (addressHasCoreData) {
     await fsp.writeFile(
