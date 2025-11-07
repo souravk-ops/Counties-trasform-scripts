@@ -2559,8 +2559,8 @@ async function main() {
   const unnormalizedAddressData = await readJson(unnormalizedAddressPath).catch(() => null);
   const propertySeedData = await readJson(propertySeedPath).catch(() => null); // Read property_seed.json
 
-  const propertyRef = { "/": "./property.json" };
-  const addressRef = { "/": "./address.json" };
+  const propertyRef = "./property.json";
+  const addressRef = "./address.json";
   let propertyExists = false;
 
   // Base data for address output, derived from property_seed or unnormalized_address
@@ -3727,7 +3727,7 @@ async function main() {
         const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
         const relOut = {
           type: "person_has_fact_sheet",
-          from: { "/": `./${meta.fileName}` },
+          from: `./${meta.fileName}`,
           to: propertyRef,
         };
         await fsp.writeFile(
@@ -3743,8 +3743,8 @@ async function main() {
         const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
         const relOut = {
           type: "person_has_mailing_address",
-          from: { "/": `./${latestOwnerMeta.fileName}` },
-          to: { "/": "./mailing_address.json" },
+          from: `./${latestOwnerMeta.fileName}`,
+          to: "./mailing_address.json",
         };
         await fsp.writeFile(
           path.join("data", relFileName),
@@ -3773,8 +3773,8 @@ async function main() {
           propertyRelCounters[meta.type] += 1;
           const relFileName = `relationship_property_has_${meta.type}_${propertyRelCounters[meta.type]}_${slugify(role)}.json`;
           const relOut = {
-            from: { "/": "./property.json" },
-            to: { "/": `./${meta.fileName}` },
+            from: "./property.json",
+            to: `./${meta.fileName}`,
             // type: "property_has_company", // Removed 'type' property
           };
           await fsp.writeFile(
@@ -3968,8 +3968,8 @@ async function main() {
         );
 
         const relSalesDeed = {
-          from: { "/": `./${saleFileName}` },
-          to: { "/": `./${deedFileName}` },
+          from: `./${saleFileName}`,
+          to: `./${deedFileName}`,
         };
         await fsp.writeFile(
           path.join(
@@ -4001,8 +4001,8 @@ async function main() {
           if (granteeMeta) {
             const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
             const relOut = {
-              from: { "/": `./${saleFileName}` },
-              to: { "/": `./${granteeMeta.fileName}` },
+              from: `./${saleFileName}`,
+              to: `./${granteeMeta.fileName}`,
               // type: `sales_history_has_${granteeMeta.type}`, // Removed 'type' property
             };
             await fsp.writeFile(
@@ -4032,8 +4032,8 @@ async function main() {
           );
 
           const relDeedFile = {
-            from: { "/": `./${deedFileName}` },
-            to: { "/": `./${fileFileName}` },
+            from: `./${deedFileName}`,
+            to: `./${fileFileName}`,
           };
           await fsp.writeFile(
             path.join("data", `relationship_deed_${i + 1}_to_file_${fileIdx}.json`),
@@ -4394,8 +4394,8 @@ async function main() {
     ) {
       const relFile = `relationship_layout_${parentIndex}_has_layout_${record.index}.json`;
       const relOut = {
-        from: { "/": `./${layoutIndexToFile.get(parentIndex)}` },
-        to: { "/": `./${record.file}` },
+        from: `./${layoutIndexToFile.get(parentIndex)}`,
+        to: `./${record.file}`,
       };
       await fsp.writeFile(
         path.join("data", relFile),
@@ -4419,7 +4419,7 @@ async function main() {
   // }
 
   for (const record of utilityRecords) {
-    const utilityRef = { "/": `./${record.file}` };
+    const utilityRef = `./${record.file}`;
     let linkedToLayout = false;
 
     if (multiBuilding) {
@@ -4432,7 +4432,7 @@ async function main() {
         if (layoutFile) {
           const relFile = `relationship_layout_${parentIndex}_has_utility_${record.index}.json`;
           const relOut = {
-            from: { "/": `./${layoutFile}` },
+            from: `./${layoutFile}`,
             to: utilityRef,
           };
           await fsp.writeFile(
@@ -4447,7 +4447,7 @@ async function main() {
       if (layoutFile) {
         const relFile = `relationship_layout_${primaryBuildingIndex}_has_utility_${record.index}.json`;
         const relOut = {
-          from: { "/": `./${layoutFile}` },
+          from: `./${layoutFile}`,
           to: utilityRef,
         };
         await fsp.writeFile(
@@ -4472,7 +4472,7 @@ async function main() {
   }
 
   for (const record of structureRecords) {
-    const structureRef = { "/": `./${record.file}` };
+    const structureRef = `./${record.file}`;
     let linkedToLayout = false;
 
     if (multiBuilding) {
@@ -4485,7 +4485,7 @@ async function main() {
         if (layoutFile) {
           const relFile = `relationship_layout_${parentIndex}_has_structure_${record.index}.json`;
           const relOut = {
-            from: { "/": `./${layoutFile}` },
+            from: `./${layoutFile}`,
             to: structureRef,
           };
           await fsp.writeFile(
@@ -4500,7 +4500,7 @@ async function main() {
       if (layoutFile) {
         const relFile = `relationship_layout_${primaryBuildingIndex}_has_structure_${record.index}.json`;
         const relOut = {
-          from: { "/": `./${layoutFile}` },
+          from: `./${layoutFile}`,
           to: structureRef,
         };
         await fsp.writeFile(
