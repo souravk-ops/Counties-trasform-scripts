@@ -345,10 +345,6 @@ function extractUtility($, buildingElement, extraFeatures, buildingNumber) {
     well_installation_date: null,
     request_identifier: null,
     building_number: buildingNumber != null ? buildingNumber : null,
-    source_http_request: {
-      method: "GET",
-      url: "https://apps.paslc.gov/rerecordcard", // Placeholder, replace with actual source URL if available
-    },
   };
 
   // Attempt to infer public_utility_type from available data

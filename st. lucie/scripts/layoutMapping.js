@@ -626,10 +626,6 @@ function createDefaultLayout(
   const spaceIndex = spaceTypeCounters[spaceType];
 
   return {
-    source_http_request: {
-      method: "GET",
-      url: `https://apps.paslc.gov/rerecordcard, '')}`
-    },
     request_identifier: `${parcelId}_${spaceType.toLowerCase().replace(/\s/g, '')}_${spaceIndex}`,
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index

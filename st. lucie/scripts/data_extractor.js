@@ -1383,20 +1383,25 @@ function buildAddressRecord({
     }
   }
 
+  let candidate = null;
+
   if (structuredAddress && typeof structuredAddress === "object") {
-    return { ...record, ...structuredAddress };
+    candidate = { ...record, ...structuredAddress };
+  } else {
+    const normalizedUnnormalized =
+      normalizeUnnormalizedAddressValue(unnormalizedValue);
+    if (normalizedUnnormalized) {
+      candidate = {
+        ...record,
+        unnormalized_address: normalizedUnnormalized,
+      };
+    }
   }
 
-  const normalizedUnnormalized =
-    normalizeUnnormalizedAddressValue(unnormalizedValue);
-  if (normalizedUnnormalized) {
-    return {
-      ...record,
-      unnormalized_address: normalizedUnnormalized,
-    };
-  }
+  if (!candidate) return null;
 
-  return null;
+  const harmonized = harmonizeAddressPayload(candidate);
+  return harmonized || null;
 }
 
 function toTitleCaseName(part) {
@@ -2835,10 +2840,7 @@ async function main() {
   let propertyExists = false;
 
   // Base data for address output, derived from property_seed or unnormalized_address
-  // Ensure source_http_request is taken from property_seed if available, otherwise unnormalized_address
   const baseRequestData = propertySeedData || unnormalizedAddressData || {};
-  const sourceHttpRequest = baseRequestData.source_http_request || null;
-  const sourceHttpRequestUrl = sourceHttpRequest ? sourceHttpRequest.url : null;
 
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
@@ -4387,6 +4389,9 @@ async function main() {
     const fileName = `utility_${i + 1}.json`;
 
     const utilityOut = { ...util };
+    if (Object.prototype.hasOwnProperty.call(utilityOut, "source_http_request")) {
+      delete utilityOut.source_http_request;
+    }
     const utilityBuildingNumber =
       Object.prototype.hasOwnProperty.call(utilityOut, "building_number")
         ? utilityOut.building_number
@@ -4398,8 +4403,8 @@ async function main() {
       delete utilityOut.number_of_buildings;
     }
 
-    if (utilityOut.url && utilityOut.url.includes("placeholder")) {
-      utilityOut.url = sourceHttpRequestUrl;
+    if (Object.prototype.hasOwnProperty.call(utilityOut, "url")) {
+      delete utilityOut.url;
     }
     utilityOut.request_identifier = baseRequestData.request_identifier || null;
 
@@ -4471,6 +4476,9 @@ async function main() {
     const fileName = `structure_${i + 1}.json`;
 
     const structureOut = { ...structure };
+    if (Object.prototype.hasOwnProperty.call(structureOut, "source_http_request")) {
+      delete structureOut.source_http_request;
+    }
     const structureBuildingNumber =
       Object.prototype.hasOwnProperty.call(structureOut, "building_number")
         ? structureOut.building_number
@@ -4482,8 +4490,8 @@ async function main() {
       delete structureOut.number_of_buildings;
     }
 
-    if (structureOut.url && structureOut.url.includes("placeholder")) {
-      structureOut.url = sourceHttpRequestUrl;
+    if (Object.prototype.hasOwnProperty.call(structureOut, "url")) {
+      delete structureOut.url;
     }
     structureOut.request_identifier = baseRequestData.request_identifier || null;
 
@@ -4532,8 +4540,11 @@ async function main() {
     const fileName = `layout_${i + 1}.json`;
 
     const layoutOut = { ...layout };
-    if (layoutOut.url && layoutOut.url.includes("placeholder")) {
-      layoutOut.url = sourceHttpRequestUrl;
+    if (Object.prototype.hasOwnProperty.call(layoutOut, "source_http_request")) {
+      delete layoutOut.source_http_request;
+    }
+    if (Object.prototype.hasOwnProperty.call(layoutOut, "url")) {
+      delete layoutOut.url;
     }
     layoutOut.request_identifier = baseRequestData.request_identifier || null;
 
