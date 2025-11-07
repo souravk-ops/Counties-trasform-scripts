@@ -895,6 +895,58 @@ function coerceAddressPayloadToOneOf(payload) {
   return null;
 }
 
+function enforceAddressOneOfCompliance(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const clone = { ...payload };
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const hasUnnormalized =
+    typeof clone.unnormalized_address === "string" &&
+    clone.unnormalized_address.trim().length > 0;
+
+  if (hasStructured) {
+    delete clone.unnormalized_address;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+      const value = clone[key];
+      if (value == null) {
+        delete clone[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          delete clone[key];
+        } else {
+          clone[key] = trimmed;
+        }
+      }
+    }
+    return clone;
+  }
+
+  if (hasUnnormalized) {
+    const normalized = normalizeUnnormalizedAddressValue(
+      clone.unnormalized_address,
+    );
+    if (!normalized) return null;
+    clone.unnormalized_address = normalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    return clone;
+  }
+
+  return null;
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -1300,15 +1352,28 @@ function parsePersonNameTokens(name) {
   if (tokens.length === 1) {
     return { first_name: toTitleCaseName(tokens[0]), middle_name: null, last_name: null };
   }
-  const first = toTitleCaseName(tokens[0]);
-  const last = toTitleCaseName(tokens[tokens.length - 1]);
+  let first = toTitleCaseName(tokens[0]);
+  let last = toTitleCaseName(tokens[tokens.length - 1]);
   const middleRaw =
     tokens.length > 2 ? tokens.slice(1, -1).join(" ") || null : null;
   const middle = toTitleCaseName(middleRaw);
 
   // Validate middle name against the pattern if it exists
   const middleNamePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
-  const validatedMiddle = (middle && middleNamePattern.test(middle)) ? middle : null;
+  let validatedMiddle = (middle && middleNamePattern.test(middle)) ? middle : null;
+
+  if ((!last || last.length <= 1) && tokens.length >= 2) {
+    const altLast = toTitleCaseName(tokens[0]);
+    const altFirst = toTitleCaseName(tokens[1]);
+    const altMiddleRaw =
+      tokens.length > 2 ? tokens.slice(2).join(" ") || null : null;
+    const altMiddle = toTitleCaseName(altMiddleRaw);
+    const altValidatedMiddle =
+      altMiddle && middleNamePattern.test(altMiddle) ? altMiddle : null;
+    if (altLast) last = altLast;
+    if (altFirst) first = altFirst;
+    validatedMiddle = altValidatedMiddle;
+  }
 
   return {
     first_name: first || null,
@@ -2779,6 +2844,10 @@ async function main() {
     preparedAddressOutput =
       coerceAddressPayloadToOneOf(preparedAddressOutput) || null;
   }
+  if (preparedAddressOutput) {
+    preparedAddressOutput =
+      enforceAddressOneOfCompliance(preparedAddressOutput) || null;
+  }
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
@@ -2901,15 +2970,6 @@ async function main() {
       await fsp.writeFile(
         path.join("data", "relationship_property_has_address.json"),
         JSON.stringify(propertyHasAddressRel, null, 2),
-      );
-
-      const addressHasFactSheetRel = createRelationshipPayload(
-        addressRef,
-        propertyRef,
-      );
-      await fsp.writeFile(
-        path.join("data", "relationship_address_has_fact_sheet.json"),
-        JSON.stringify(addressHasFactSheetRel, null, 2),
       );
     }
     // Lot data
@@ -3425,6 +3485,10 @@ async function main() {
         preparedMailingAddress =
           coerceAddressPayloadToOneOf(preparedMailingAddress) || null;
       }
+      if (preparedMailingAddress) {
+        preparedMailingAddress =
+          enforceAddressOneOfCompliance(preparedMailingAddress) || null;
+      }
 
       if (preparedMailingAddress) {
         await fsp.writeFile(
@@ -3840,25 +3904,6 @@ async function main() {
     // --- Create relationship between latest owner (if person) and mailing address ---
     // This relationship should only be created if mailingAddressOut was successfully created
     // and ownerToFileMap is now fully populated.
-    if (propertyExists && ownerToFileMap.size > 0) {
-      const linkedPersonIndexes = new Set();
-      for (const meta of ownerToFileMap.values()) {
-        if (meta.type !== "person") continue;
-        if (linkedPersonIndexes.has(meta.index)) continue;
-        linkedPersonIndexes.add(meta.index);
-
-        const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
-        const relOut = createRelationshipPayload(
-          `./${meta.fileName}`,
-          propertyRef,
-        );
-        await fsp.writeFile(
-          path.join("data", relFileName),
-          JSON.stringify(relOut, null, 2),
-        );
-      }
-    }
-
     if (currentOwnerRecord  && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
       if (latestOwnerMeta) { // Ensure it's a person for this relationship
