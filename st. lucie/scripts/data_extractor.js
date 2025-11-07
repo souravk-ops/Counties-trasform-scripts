@@ -443,6 +443,38 @@ function reconcileAddressForSchema(address) {
   };
 }
 
+function pruneAddressFieldsForSchema(address, hasStructured, hasUnnormalized) {
+  if (!address || typeof address !== "object") return;
+  if (hasStructured) {
+    if (Object.prototype.hasOwnProperty.call(address, "unnormalized_address")) {
+      delete address.unnormalized_address;
+    }
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+      const value = address[key];
+      if (value == null) {
+        delete address[key];
+        continue;
+      }
+      if (typeof value === "string" && !value.trim()) {
+        delete address[key];
+      }
+    }
+  } else {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(address, key)) {
+        delete address[key];
+      }
+    }
+    if (
+      !hasUnnormalized &&
+      Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+    ) {
+      delete address.unnormalized_address;
+    }
+  }
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2276,13 +2308,12 @@ async function main() {
 
   const reconciliationResult =
     reconcileAddressForSchema(finalAddressOutput);
-  let hasStructuredAddress = reconciliationResult.hasStructured;
-  let hasUnnormalizedAddress = reconciliationResult.hasUnnormalized;
 
-  if (hasStructuredAddress && hasUnnormalizedAddress) {
-    delete finalAddressOutput.unnormalized_address;
-    hasUnnormalizedAddress = false;
-  }
+  pruneAddressFieldsForSchema(
+    finalAddressOutput,
+    reconciliationResult.hasStructured,
+    reconciliationResult.hasUnnormalized,
+  );
 
   const structuredAfterReconcile =
     hasStructuredAddressFields(finalAddressOutput);
@@ -3229,6 +3260,58 @@ async function main() {
           validatedOutput.veteran_status ?? null;
         personOut.request_identifier =
           validatedOutput.request_identifier ?? personOut.request_identifier ?? null;
+        if (
+          !personOut.last_name ||
+          !PERSON_NAME_PATTERN.test(personOut.last_name)
+        ) {
+          const companyName =
+            fallbackName ||
+            buildPersonDisplayName(record.person) ||
+            record.displayName ||
+            personOut.last_name ||
+            null;
+          record.type = "company";
+          record.company = {
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          record.person = undefined;
+          if (!record.displayName && companyName) {
+            record.displayName = companyName;
+          }
+          companyIdx += 1;
+          const companyFileName = `company_${companyIdx}.json`;
+          const companyOut = {
+            source_http_request: sourceHttpRequest,
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          await fsp.writeFile(
+            path.join("data", companyFileName),
+            JSON.stringify(companyOut, null, 2),
+          );
+          ownerToFileMap.set(record.id, {
+            fileName: companyFileName,
+            type: "company",
+            index: companyIdx,
+          });
+          continue;
+        }
+
+        if (
+          personOut.first_name &&
+          !PERSON_NAME_PATTERN.test(personOut.first_name)
+        ) {
+          personOut.first_name = null;
+        }
+
+        if (
+          personOut.middle_name &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+        ) {
+          personOut.middle_name = null;
+        }
+
         record.person = {
           ...record.person,
           first_name: personOut.first_name,
