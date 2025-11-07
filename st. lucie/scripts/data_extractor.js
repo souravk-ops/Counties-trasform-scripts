@@ -540,6 +540,111 @@ function pruneAddressFieldsForSchema(address, hasStructured, hasUnnormalized) {
   }
 }
 
+function finalizeAddressForSchema(address, preferredMode = null) {
+  if (!address || typeof address !== "object") {
+    return { mode: null, hasAddress: false };
+  }
+
+  const normalizedPreferred =
+    preferredMode === "structured"
+      ? "structured"
+      : preferredMode === "unnormalized"
+        ? "unnormalized"
+        : null;
+
+  const cleanupStructuredFields = () => {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+      const value = address[key];
+      if (value == null) {
+        delete address[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          delete address[key];
+        } else {
+          address[key] = trimmed;
+        }
+        continue;
+      }
+      delete address[key];
+    }
+  };
+
+  const dropStructuredFields = () => {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(address, key)) {
+        delete address[key];
+      }
+    }
+  };
+
+  cleanupStructuredFields();
+
+  let hasStructured = hasStructuredAddressFields(address);
+  let hasUnnormalized = hasUnnormalizedAddressValue(address);
+
+  const keepStructured = () => {
+    if (
+      Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+    ) {
+      delete address.unnormalized_address;
+    }
+    cleanupStructuredFields();
+    hasStructured = hasStructuredAddressFields(address);
+    return {
+      mode: hasStructured ? "structured" : null,
+      hasAddress: hasStructured,
+    };
+  };
+
+  const keepUnnormalized = () => {
+    dropStructuredFields();
+    if (
+      Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+    ) {
+      const normalized = normalizeUnnormalizedAddressValue(
+        address.unnormalized_address,
+      );
+      if (normalized) {
+        address.unnormalized_address = normalized;
+      } else {
+        delete address.unnormalized_address;
+      }
+    }
+    hasUnnormalized = hasUnnormalizedAddressValue(address);
+    return {
+      mode: hasUnnormalized ? "unnormalized" : null,
+      hasAddress: hasUnnormalized,
+    };
+  };
+
+  if (normalizedPreferred === "structured" && hasStructured) {
+    return keepStructured();
+  }
+  if (normalizedPreferred === "unnormalized" && hasUnnormalized) {
+    return keepUnnormalized();
+  }
+
+  if (hasStructured && hasUnnormalized) {
+    return keepStructured();
+  }
+  if (hasStructured) {
+    return keepStructured();
+  }
+  if (hasUnnormalized) {
+    return keepUnnormalized();
+  }
+
+  dropStructuredFields();
+  if (Object.prototype.hasOwnProperty.call(address, "unnormalized_address")) {
+    delete address.unnormalized_address;
+  }
+  return { mode: null, hasAddress: false };
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2399,28 +2504,12 @@ async function main() {
     reconciliationResult.hasUnnormalized,
   );
 
-  if (
-    hasStructuredAddressFields(finalAddressOutput) &&
-    hasUnnormalizedAddressValue(finalAddressOutput)
-  ) {
-    if (preferredAddressMode === "structured") {
-      delete finalAddressOutput.unnormalized_address;
-    } else {
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-          delete finalAddressOutput[key];
-        }
-      }
-    }
-  }
+  const addressResolution = finalizeAddressForSchema(
+    finalAddressOutput,
+    preferredAddressMode,
+  );
 
-  const structuredAfterReconcile =
-    hasStructuredAddressFields(finalAddressOutput);
-  const unnormalizedAfterReconcile =
-    hasUnnormalizedAddressValue(finalAddressOutput);
-
-  addressHasCoreData =
-    structuredAfterReconcile || unnormalizedAfterReconcile;
+  addressHasCoreData = addressResolution.hasAddress;
 
   if (addressHasCoreData) {
     await fsp.writeFile(
@@ -3054,11 +3143,20 @@ async function main() {
 
       console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
 
-      await fsp.writeFile(
-        path.join("data", "mailing_address.json"),
-        JSON.stringify(mailingAddressOut, null, 2),
+      const mailingAddressResolution = finalizeAddressForSchema(
+        mailingAddressOut,
+        "unnormalized",
       );
-      console.log("mailing_address.json created.");
+
+      if (mailingAddressResolution.hasAddress) {
+        await fsp.writeFile(
+          path.join("data", "mailing_address.json"),
+          JSON.stringify(mailingAddressOut, null, 2),
+        );
+        console.log("mailing_address.json created.");
+      } else {
+        mailingAddressOut = null;
+      }
     }
 
 
