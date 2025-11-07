@@ -367,6 +367,19 @@ const STRUCTURED_ADDRESS_REQUIRED_KEYS = [
   "postal_code",
 ];
 
+const STRUCTURED_ADDRESS_OPTIONAL_KEYS = STRUCTURED_ADDRESS_FIELDS.filter(
+  (key) => !STRUCTURED_ADDRESS_REQUIRED_KEYS.includes(key),
+);
+
+const ADDRESS_METADATA_KEYS = [
+  "county_name",
+  "latitude",
+  "longitude",
+  "township",
+  "range",
+  "section",
+];
+
 function normalizeUnnormalizedAddressValue(value) {
   if (value == null) return null;
   if (typeof value === "string") {
@@ -686,6 +699,57 @@ function normalizeAddressForOutput(address, preferredMode = null) {
   }
 
   return resolution;
+}
+
+function buildAddressPayload(address, mode) {
+  if (!address || typeof address !== "object") return null;
+  if (mode !== "structured" && mode !== "unnormalized") return null;
+
+  const payload = {
+    source_http_request: address.source_http_request || null,
+    request_identifier: address.request_identifier || null,
+  };
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const value = address[key];
+    if (value == null) continue;
+    payload[key] = value;
+  }
+
+  if (mode === "structured") {
+    const hasAllRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = address[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    if (!hasAllRequired) return null;
+
+    for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+      payload[key] = address[key].trim();
+    }
+
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+      const value = address[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) continue;
+        payload[key] = trimmed;
+      } else {
+        payload[key] = value;
+      }
+    }
+
+    return payload;
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    address.unnormalized_address,
+  );
+  if (!normalizedUnnormalized) return null;
+  payload.unnormalized_address = normalizedUnnormalized;
+  return payload;
 }
 
 const STREET_SUFFIX_NORMALIZATION = {
@@ -2560,45 +2624,17 @@ async function main() {
     preferredAddressMode,
   );
 
-  const hasStructuredFields = STRUCTURED_ADDRESS_FIELDS.some((key) => {
-    if (!Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-      return false;
-    }
-    const value = finalAddressOutput[key];
-    return typeof value === "string" && value.trim().length > 0;
-  });
-  const hasUnnormalizedValue =
-    typeof finalAddressOutput.unnormalized_address === "string" &&
-    finalAddressOutput.unnormalized_address.trim().length > 0;
+  const preparedAddressOutput = buildAddressPayload(
+    finalAddressOutput,
+    addressResolution.mode,
+  );
 
-  if (hasStructuredFields && hasUnnormalizedValue) {
-    if (addressResolution.mode === "structured") {
-      delete finalAddressOutput.unnormalized_address;
-    } else if (addressResolution.mode === "unnormalized") {
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-          delete finalAddressOutput[key];
-        }
-      }
-    } else if (preferredAddressMode === "structured") {
-      delete finalAddressOutput.unnormalized_address;
-    } else if (preferredAddressMode === "unnormalized") {
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-          delete finalAddressOutput[key];
-        }
-      }
-    } else {
-      delete finalAddressOutput.unnormalized_address;
-    }
-  }
-
-  addressHasCoreData = addressResolution.hasAddress;
+  addressHasCoreData = Boolean(preparedAddressOutput);
 
   if (addressHasCoreData) {
     await fsp.writeFile(
       path.join("data", "address.json"),
-      JSON.stringify(finalAddressOutput, null, 2),
+      JSON.stringify(preparedAddressOutput, null, 2),
     );
   }
 
@@ -3227,11 +3263,17 @@ async function main() {
         "unnormalized",
       );
 
-      if (mailingAddressResolution.hasAddress) {
+      const preparedMailingAddress = buildAddressPayload(
+        mailingAddressOut,
+        mailingAddressResolution.mode,
+      );
+
+      if (preparedMailingAddress) {
         await fsp.writeFile(
           path.join("data", "mailing_address.json"),
-          JSON.stringify(mailingAddressOut, null, 2),
+          JSON.stringify(preparedMailingAddress, null, 2),
         );
+        mailingAddressOut = preparedMailingAddress;
         console.log("mailing_address.json created.");
       } else {
         mailingAddressOut = null;
