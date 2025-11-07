@@ -823,6 +823,78 @@ function sanitizeAddressPayloadForOneOf(payload) {
   return null;
 }
 
+function coerceAddressPayloadToOneOf(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const base = {};
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "source_http_request") &&
+    payload.source_http_request != null
+  ) {
+    base.source_http_request = payload.source_http_request;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "request_identifier") &&
+    payload.request_identifier != null
+  ) {
+    const trimmed =
+      typeof payload.request_identifier === "string"
+        ? payload.request_identifier.trim()
+        : payload.request_identifier;
+    base.request_identifier = trimmed;
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      base[key] = trimmed;
+      continue;
+    }
+    base[key] = value;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = payload[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    payload.unnormalized_address,
+  );
+  const hasUnnormalized =
+    typeof normalizedUnnormalized === "string" &&
+    normalizedUnnormalized.length > 0;
+
+  if (hasStructured) {
+    const structured = {};
+    for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+      structured[key] = payload[key].trim();
+    }
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const raw = payload[key];
+      if (raw == null) continue;
+      const text =
+        typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
+      if (!text) continue;
+      structured[key] = text;
+    }
+    return { ...base, ...structured };
+  }
+
+  if (hasUnnormalized) {
+    return { ...base, unnormalized_address: normalizedUnnormalized };
+  }
+
+  return null;
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2703,6 +2775,10 @@ async function main() {
     preparedAddressOutput =
       sanitizeAddressPayloadForOneOf(preparedAddressOutput) || null;
   }
+  if (preparedAddressOutput) {
+    preparedAddressOutput =
+      coerceAddressPayloadToOneOf(preparedAddressOutput) || null;
+  }
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
@@ -3346,6 +3422,11 @@ async function main() {
       }
 
       if (preparedMailingAddress) {
+        preparedMailingAddress =
+          coerceAddressPayloadToOneOf(preparedMailingAddress) || null;
+      }
+
+      if (preparedMailingAddress) {
         await fsp.writeFile(
           path.join("data", "mailing_address.json"),
           JSON.stringify(preparedMailingAddress, null, 2),
@@ -3682,6 +3763,35 @@ async function main() {
         validatedOutput.last_name = finalLast;
         validatedOutput.first_name = finalFirst;
         validatedOutput.middle_name = finalMiddle ?? null;
+
+        const enforcedLastForOutput = record.person.last_name
+          ? record.person.last_name.trim()
+          : null;
+        const enforcedFirstForOutput = record.person.first_name
+          ? record.person.first_name.trim()
+          : null;
+        const enforcedMiddleForOutput =
+          record.person.middle_name &&
+          PERSON_MIDDLE_NAME_PATTERN.test(record.person.middle_name.trim())
+            ? record.person.middle_name.trim()
+            : null;
+
+        if (
+          !enforcedLastForOutput ||
+          !PERSON_NAME_PATTERN.test(enforcedLastForOutput) ||
+          !enforcedFirstForOutput ||
+          !PERSON_NAME_PATTERN.test(enforcedFirstForOutput)
+        ) {
+          await promoteToCompany(validationFallback);
+          continue;
+        }
+
+        record.person.last_name = enforcedLastForOutput;
+        record.person.first_name = enforcedFirstForOutput;
+        record.person.middle_name = enforcedMiddleForOutput;
+        validatedOutput.last_name = enforcedLastForOutput;
+        validatedOutput.first_name = enforcedFirstForOutput;
+        validatedOutput.middle_name = enforcedMiddleForOutput;
 
         personIdx += 1;
         const fileName = `person_${personIdx}.json`;
