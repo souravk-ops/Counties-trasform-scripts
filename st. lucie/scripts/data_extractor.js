@@ -2407,7 +2407,6 @@ async function main() {
   let range = null;
   let section = null;
   let addressHasCoreData = false;
-  let addressFileWritten = false;
 
   if (!isMulti) {
     $("article#property-identification table.container tr").each((i, tr) => {
@@ -2516,7 +2515,6 @@ async function main() {
       path.join("data", "address.json"),
       JSON.stringify(finalAddressOutput, null, 2),
     );
-    addressFileWritten = true;
   }
 
   // --- Parcel extraction ---
@@ -2653,35 +2651,6 @@ async function main() {
       JSON.stringify(lotOut, null, 2),
     );
 
-    if (addressFileWritten) {
-      const relationshipOut = {
-        type: "property_has_address",
-        from: { "/": "./property.json" },
-        to: { "/": "./address.json" },
-      };
-      await fsp.writeFile(
-        path.join("data", "relationship_property_has_address.json"),
-        JSON.stringify(relationshipOut, null, 2),
-      );
-
-      try {
-        const dataEntries = await fsp.readdir("data");
-        const factSheetFile = dataEntries.find((name) =>
-          /^fact_sheet.*\.json$/i.test(name),
-        );
-        if (factSheetFile) {
-          const addressFactSheetRel = {
-            type: "address_has_fact_sheet",
-            from: { "/": "./address.json" },
-            to: { "/": `./${factSheetFile}` },
-          };
-          await fsp.writeFile(
-            path.join("data", "relationship_address_has_fact_sheet.json"),
-            JSON.stringify(addressFactSheetRel, null, 2),
-          );
-        }
-      } catch {}
-    }
 
     const permitRows = $("article#permit-info table tbody tr").toArray();
     let propertyImprovementIdx = 0;
@@ -3442,6 +3411,24 @@ async function main() {
         ) {
           await promoteToCompany();
           continue;
+        }
+
+        const lastNameIsValid = PERSON_NAME_PATTERN.test(
+          validatedOutput.last_name,
+        );
+        const firstNameIsValid = PERSON_NAME_PATTERN.test(
+          validatedOutput.first_name,
+        );
+        if (!lastNameIsValid || !firstNameIsValid) {
+          await promoteToCompany();
+          continue;
+        }
+
+        if (
+          validatedOutput.middle_name &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(validatedOutput.middle_name)
+        ) {
+          validatedOutput.middle_name = null;
         }
 
         record.person = {
