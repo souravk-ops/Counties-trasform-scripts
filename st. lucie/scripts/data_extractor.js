@@ -985,6 +985,58 @@ function ensureExclusiveAddressMode(address) {
   return null;
 }
 
+function harmonizeAddressPayload(address) {
+  if (!address || typeof address !== "object") {
+    return null;
+  }
+
+  const clone = { ...address };
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const hasUnnormalized =
+    typeof clone.unnormalized_address === "string" &&
+    clone.unnormalized_address.trim().length > 0;
+
+  if (!hasStructured && !hasUnnormalized) {
+    return null;
+  }
+
+  if (hasStructured) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+      const value = clone[key];
+      if (value == null) {
+        delete clone[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          delete clone[key];
+          continue;
+        }
+        clone[key] = trimmed;
+      }
+    }
+    if (hasUnnormalized) {
+      delete clone.unnormalized_address;
+    }
+    return clone;
+  }
+
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(clone, key)) {
+      delete clone[key];
+    }
+  }
+  clone.unnormalized_address = clone.unnormalized_address.trim().replace(/\s+/g, " ");
+  return clone;
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2889,6 +2941,10 @@ async function main() {
     preparedAddressOutput =
       ensureExclusiveAddressMode(preparedAddressOutput) || null;
   }
+  if (preparedAddressOutput) {
+    preparedAddressOutput =
+      harmonizeAddressPayload(preparedAddressOutput) || null;
+  }
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
@@ -3002,6 +3058,17 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
     propertyExists = true;
+
+    if (addressHasCoreData) {
+      const propertyAddressRel = createRelationshipPayload(
+        propertyRef,
+        "./address.json",
+      );
+      await fsp.writeFile(
+        path.join("data", "relationship_property_has_address_1.json"),
+        JSON.stringify(propertyAddressRel, null, 2),
+      );
+    }
 
     // Lot data
 
@@ -3523,6 +3590,10 @@ async function main() {
       if (preparedMailingAddress) {
         preparedMailingAddress =
           ensureExclusiveAddressMode(preparedMailingAddress) || null;
+      }
+      if (preparedMailingAddress) {
+        preparedMailingAddress =
+          harmonizeAddressPayload(preparedMailingAddress) || null;
       }
 
       if (preparedMailingAddress) {
