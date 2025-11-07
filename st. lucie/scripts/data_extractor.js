@@ -27,7 +27,7 @@ function assignIfValue(target, key, value) {
 function relationshipRef(pathLike) {
   if (!pathLike || typeof pathLike !== "string") return null;
   const trimmed = pathLike.trim();
-  return trimmed ? { "/": trimmed } : null;
+  return trimmed || null;
 }
 
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
