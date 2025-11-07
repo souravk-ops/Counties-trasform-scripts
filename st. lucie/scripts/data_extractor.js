@@ -24,35 +24,15 @@ function assignIfValue(target, key, value) {
   target[key] = value;
 }
 
-function relationshipRef(pathLike) {
-  if (!pathLike) return null;
-  if (typeof pathLike === "object" && pathLike["/"]) {
-    const ref = String(pathLike["/"]).trim();
-    return ref ? { "/": ref } : null;
-  }
-  if (typeof pathLike === "string") {
-    const trimmed = pathLike.trim();
-    return trimmed ? { "/": trimmed } : null;
-  }
-  return null;
-}
-
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
   const payload =
     extras && typeof extras === "object" ? { ...extras } : {};
 
-  const fromRef = relationshipRef(fromPath);
-  const toRef = relationshipRef(toPath);
+  const includeFrom = fromPath !== undefined && fromPath !== false;
+  const includeTo = toPath !== undefined && toPath !== false;
 
-  if (fromPath != null && !fromRef) {
-    return null;
-  }
-  if (toPath != null && !toRef) {
-    return null;
-  }
-
-  if (fromRef) payload.from = fromRef;
-  if (toRef) payload.to = toRef;
+  if (includeFrom) payload.from = null;
+  if (includeTo) payload.to = null;
 
   return Object.keys(payload).length ? payload : null;
 }
