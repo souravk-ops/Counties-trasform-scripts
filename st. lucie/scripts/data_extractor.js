@@ -1416,14 +1416,24 @@ function buildAddressRecord({
     const trySanitize = (payload) => {
       if (!payload) return null;
       const sanitized = sanitizeAddressPayloadForOneOf({ ...payload });
-      if (sanitized) return sanitized;
+      if (sanitized) {
+        const exclusive = ensureExclusiveAddressMode(sanitized);
+        if (exclusive) return exclusive;
+        return sanitized;
+      }
 
       const enforced = enforceAddressOneOfCompliance(payload);
       if (enforced) {
         const sanitizedEnforced = sanitizeAddressPayloadForOneOf({
           ...enforced,
         });
-        if (sanitizedEnforced) return sanitizedEnforced;
+        if (sanitizedEnforced) {
+          const exclusive = ensureExclusiveAddressMode(sanitizedEnforced);
+          if (exclusive) return exclusive;
+          return sanitizedEnforced;
+        }
+        const exclusive = ensureExclusiveAddressMode(enforced);
+        if (exclusive) return exclusive;
         return enforced;
       }
 
@@ -1432,7 +1442,13 @@ function buildAddressRecord({
         const sanitizedCoerced = sanitizeAddressPayloadForOneOf({
           ...coerced,
         });
-        if (sanitizedCoerced) return sanitizedCoerced;
+        if (sanitizedCoerced) {
+          const exclusive = ensureExclusiveAddressMode(sanitizedCoerced);
+          if (exclusive) return exclusive;
+          return sanitizedCoerced;
+        }
+        const exclusive = ensureExclusiveAddressMode(coerced);
+        if (exclusive) return exclusive;
         return coerced;
       }
 
@@ -1455,16 +1471,16 @@ function buildAddressRecord({
     return candidate;
   };
 
-  if (normalizedUnnormalized) {
-    const unnormalizedCandidate = buildCandidate("unnormalized");
-    const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
-    if (resolvedUnnormalized) return resolvedUnnormalized;
-  }
-
   if (normalizedStructured) {
     const structuredCandidate = buildCandidate("structured");
     const resolvedStructured = finalizeCandidate(structuredCandidate);
     if (resolvedStructured) return resolvedStructured;
+  }
+
+  if (normalizedUnnormalized) {
+    const unnormalizedCandidate = buildCandidate("unnormalized");
+    const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
+    if (resolvedUnnormalized) return resolvedUnnormalized;
   }
 
   return null;
