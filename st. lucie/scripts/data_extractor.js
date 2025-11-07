@@ -24,6 +24,11 @@ function assignIfValue(target, key, value) {
   target[key] = value;
 }
 
+function deepClone(value) {
+  if (value === null || value === undefined) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
   const payload =
     extras && typeof extras === "object" ? { ...extras } : {};
@@ -1481,6 +1486,43 @@ function buildAddressRecord({
     const unnormalizedCandidate = buildCandidate("unnormalized");
     const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
     if (resolvedUnnormalized) return resolvedUnnormalized;
+  }
+
+  return null;
+}
+
+function resolveAddressForOutput(candidate, preferredMode = null) {
+  if (!candidate || typeof candidate !== "object") return null;
+
+  const attempts = [];
+  const enqueueAttempt = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    const clone = deepClone(payload);
+    if (!clone) return;
+    attempts.push(clone);
+  };
+
+  enqueueAttempt(candidate);
+
+  const sanitized = sanitizeAddressPayloadForOneOf(deepClone(candidate));
+  if (sanitized) enqueueAttempt(sanitized);
+
+  const enforced = enforceAddressOneOfCompliance(deepClone(candidate));
+  if (enforced) enqueueAttempt(enforced);
+
+  const coerced = coerceAddressPayloadToOneOf(deepClone(candidate));
+  if (coerced) enqueueAttempt(coerced);
+
+  for (const attempt of attempts) {
+    const working = deepClone(attempt);
+    if (!working) continue;
+    const resolution = normalizeAddressForOutput(working, preferredMode);
+    if (resolution && resolution.hasAddress && resolution.mode) {
+      return {
+        payload: working,
+        mode: resolution.mode,
+      };
+    }
   }
 
   return null;
@@ -3032,13 +3074,18 @@ async function main() {
     requestIdentifier: baseRequestData.request_identifier || null,
   });
 
-  addressHasCoreData = Boolean(preparedAddressOutput);
+  const resolvedAddressOutput = preparedAddressOutput
+    ? resolveAddressForOutput(preparedAddressOutput)
+    : null;
 
-  if (preparedAddressOutput) {
+  if (resolvedAddressOutput?.payload) {
+    addressHasCoreData = true;
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(preparedAddressOutput, null, 2),
+      JSON.stringify(resolvedAddressOutput.payload, null, 2),
     );
+  } else {
+    addressHasCoreData = false;
   }
 
   // --- Parcel extraction ---
@@ -3648,12 +3695,20 @@ async function main() {
       );
 
       if (preparedMailingAddress) {
-        await fsp.writeFile(
-          path.join("data", "mailing_address.json"),
-          JSON.stringify(preparedMailingAddress, null, 2),
+        const resolvedMailingAddress = resolveAddressForOutput(
+          preparedMailingAddress,
+          "unnormalized",
         );
-        mailingAddressOut = preparedMailingAddress;
-        console.log("mailing_address.json created.");
+        if (resolvedMailingAddress?.payload) {
+          await fsp.writeFile(
+            path.join("data", "mailing_address.json"),
+            JSON.stringify(resolvedMailingAddress.payload, null, 2),
+          );
+          mailingAddressOut = resolvedMailingAddress.payload;
+          console.log("mailing_address.json created.");
+        } else {
+          mailingAddressOut = null;
+        }
       } else {
         mailingAddressOut = null;
       }
