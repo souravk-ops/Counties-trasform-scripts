@@ -2350,11 +2350,11 @@ async function main() {
   const structuredCandidate = normalizedAddressSource
     ? pickStructuredAddress(normalizedAddressSource)
     : null;
+  let fallbackAddress = null;
 
   if (structuredCandidate) {
     Object.assign(finalAddressOutput, structuredCandidate);
   } else {
-    let fallbackAddress = null;
     if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
       fallbackAddress = textClean(unnormalizedAddressData.full_address);
     }
@@ -2370,6 +2370,12 @@ async function main() {
       }
     }
   }
+
+  const preferredAddressMode = structuredCandidate
+    ? "structured"
+    : fallbackAddress
+      ? "unnormalized"
+      : null;
 
   if (secTownRange) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
@@ -2392,6 +2398,21 @@ async function main() {
     reconciliationResult.hasStructured,
     reconciliationResult.hasUnnormalized,
   );
+
+  if (
+    hasStructuredAddressFields(finalAddressOutput) &&
+    hasUnnormalizedAddressValue(finalAddressOutput)
+  ) {
+    if (preferredAddressMode === "structured") {
+      delete finalAddressOutput.unnormalized_address;
+    } else {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+          delete finalAddressOutput[key];
+        }
+      }
+    }
+  }
 
   const structuredAfterReconcile =
     hasStructuredAddressFields(finalAddressOutput);
@@ -3253,16 +3274,53 @@ async function main() {
           continue;
         }
 
-        record.person = {
-          ...record.person,
-          first_name: sanitizedFirst ?? null,
-          last_name: sanitizedLast,
-          middle_name: sanitizedMiddle ?? null,
+        const promoteToCompany = async (nameOverride = null) => {
+          const companyName =
+            nameOverride ||
+            fallbackName ||
+            buildPersonDisplayName(record.person) ||
+            record.displayName ||
+            sanitizedLast ||
+            null;
+          record.type = "company";
+          record.company = {
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          record.person = undefined;
+          if (!record.displayName && companyName) {
+            record.displayName = companyName;
+          }
+          companyIdx += 1;
+          const companyFileName = `company_${companyIdx}.json`;
+          const companyOut = {
+            source_http_request: sourceHttpRequest,
+            name: companyName,
+            request_identifier: requestIdForPerson,
+          };
+          await fsp.writeFile(
+            path.join("data", companyFileName),
+            JSON.stringify(companyOut, null, 2),
+          );
+          ownerToFileMap.set(record.id, {
+            fileName: companyFileName,
+            type: "company",
+            index: companyIdx,
+          });
         };
 
-        personIdx += 1;
-        const personOut = {
-          source_http_request: sourceHttpRequest,
+        if (!sanitizedLast) {
+          await promoteToCompany();
+          continue;
+        }
+
+        const validationFallback =
+          fallbackName ||
+          buildPersonDisplayName(record.person) ||
+          record.displayName ||
+          null;
+
+        const validationInput = {
           birth_date: record.person?.birth_date ?? null,
           first_name: sanitizedFirst ?? null,
           last_name: sanitizedLast,
@@ -3273,132 +3331,39 @@ async function main() {
           veteran_status: record.person?.veteran_status ?? null,
           request_identifier: requestIdForPerson,
         };
-        const validationFallback =
-          fallbackName ||
-          buildPersonDisplayName(record.person) ||
-          record.displayName ||
-          null;
+
         const validatedOutput =
-          sanitizePersonData(
-            {
-              birth_date: personOut.birth_date,
-              first_name: personOut.first_name,
-              last_name: personOut.last_name,
-              middle_name: personOut.middle_name,
-              prefix_name: personOut.prefix_name,
-              suffix_name: personOut.suffix_name,
-              us_citizenship_status: personOut.us_citizenship_status,
-              veteran_status: personOut.veteran_status,
-              request_identifier: personOut.request_identifier,
-            },
-            validationFallback,
-          ) || null;
-        if (!validatedOutput || !validatedOutput.last_name) {
-          const companyName =
-            fallbackName ||
-            buildPersonDisplayName(record.person) ||
-            record.displayName ||
-            personOut.last_name ||
-            null;
-          record.type = "company";
-          record.company = {
-            name: companyName,
-            request_identifier: requestIdForPerson,
-          };
-          record.person = undefined;
-          if (!record.displayName && companyName) {
-            record.displayName = companyName;
-          }
-          companyIdx += 1;
-          const companyFileName = `company_${companyIdx}.json`;
-          const companyOut = {
-            source_http_request: sourceHttpRequest,
-            name: companyName,
-            request_identifier: requestIdForPerson,
-          };
-          await fsp.writeFile(
-            path.join("data", companyFileName),
-            JSON.stringify(companyOut, null, 2),
-          );
-          ownerToFileMap.set(record.id, {
-            fileName: companyFileName,
-            type: "company",
-            index: companyIdx,
-          });
-          continue;
-        }
-        personOut.first_name = validatedOutput.first_name ?? null;
-        personOut.last_name = validatedOutput.last_name;
-        personOut.middle_name = validatedOutput.middle_name ?? null;
-        personOut.prefix_name = validatedOutput.prefix_name ?? null;
-        personOut.suffix_name = validatedOutput.suffix_name ?? null;
-        personOut.us_citizenship_status =
-          validatedOutput.us_citizenship_status ?? null;
-        personOut.veteran_status =
-          validatedOutput.veteran_status ?? null;
-        personOut.request_identifier =
-          validatedOutput.request_identifier ?? personOut.request_identifier ?? null;
-        if (
-          !personOut.last_name ||
-          !PERSON_NAME_PATTERN.test(personOut.last_name)
-        ) {
-          const companyName =
-            fallbackName ||
-            buildPersonDisplayName(record.person) ||
-            record.displayName ||
-            personOut.last_name ||
-            null;
-          record.type = "company";
-          record.company = {
-            name: companyName,
-            request_identifier: requestIdForPerson,
-          };
-          record.person = undefined;
-          if (!record.displayName && companyName) {
-            record.displayName = companyName;
-          }
-          companyIdx += 1;
-          const companyFileName = `company_${companyIdx}.json`;
-          const companyOut = {
-            source_http_request: sourceHttpRequest,
-            name: companyName,
-            request_identifier: requestIdForPerson,
-          };
-          await fsp.writeFile(
-            path.join("data", companyFileName),
-            JSON.stringify(companyOut, null, 2),
-          );
-          ownerToFileMap.set(record.id, {
-            fileName: companyFileName,
-            type: "company",
-            index: companyIdx,
-          });
-          continue;
-        }
+          sanitizePersonData(validationInput, validationFallback) || null;
 
         if (
-          personOut.first_name &&
-          !PERSON_NAME_PATTERN.test(personOut.first_name)
+          !validatedOutput ||
+          !validatedOutput.last_name ||
+          !validatedOutput.first_name
         ) {
-          personOut.first_name = null;
-        }
-
-        if (
-          personOut.middle_name &&
-          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
-        ) {
-          personOut.middle_name = null;
+          await promoteToCompany();
+          continue;
         }
 
         record.person = {
           ...record.person,
-          first_name: personOut.first_name,
-          last_name: personOut.last_name,
-          middle_name: personOut.middle_name,
-          prefix_name: personOut.prefix_name,
-          suffix_name: personOut.suffix_name,
+          ...validatedOutput,
         };
+
+        personIdx += 1;
         const fileName = `person_${personIdx}.json`;
+        const personOut = {
+          source_http_request: sourceHttpRequest,
+          birth_date: validatedOutput.birth_date ?? null,
+          first_name: validatedOutput.first_name,
+          last_name: validatedOutput.last_name,
+          middle_name: validatedOutput.middle_name ?? null,
+          prefix_name: validatedOutput.prefix_name ?? null,
+          suffix_name: validatedOutput.suffix_name ?? null,
+          us_citizenship_status: validatedOutput.us_citizenship_status ?? null,
+          veteran_status: validatedOutput.veteran_status ?? null,
+          request_identifier: validatedOutput.request_identifier ?? null,
+        };
+
         await fsp.writeFile(
           path.join("data", fileName),
           JSON.stringify(personOut, null, 2),
