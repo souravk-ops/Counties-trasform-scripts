@@ -1161,6 +1161,19 @@ function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
   return pattern.test(trimmed) ? trimmed : null;
 }
 
+function ensurePersonNamePattern(value, pattern = PERSON_NAME_PATTERN) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (pattern.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  const normalized = normalizePersonNameValue(value, pattern);
+  if (!normalized) return null;
+  return pattern.test(normalized) ? normalized : null;
+}
+
 function sanitizePersonData(raw, fallbackDisplay) {
   if (!raw || typeof raw !== "object") return null;
   const base = {
@@ -2547,6 +2560,39 @@ async function main() {
     preferredAddressMode,
   );
 
+  const hasStructuredFields = STRUCTURED_ADDRESS_FIELDS.some((key) => {
+    if (!Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+      return false;
+    }
+    const value = finalAddressOutput[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+  const hasUnnormalizedValue =
+    typeof finalAddressOutput.unnormalized_address === "string" &&
+    finalAddressOutput.unnormalized_address.trim().length > 0;
+
+  if (hasStructuredFields && hasUnnormalizedValue) {
+    if (addressResolution.mode === "structured") {
+      delete finalAddressOutput.unnormalized_address;
+    } else if (addressResolution.mode === "unnormalized") {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+          delete finalAddressOutput[key];
+        }
+      }
+    } else if (preferredAddressMode === "structured") {
+      delete finalAddressOutput.unnormalized_address;
+    } else if (preferredAddressMode === "unnormalized") {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+          delete finalAddressOutput[key];
+        }
+      }
+    } else {
+      delete finalAddressOutput.unnormalized_address;
+    }
+  }
+
   addressHasCoreData = addressResolution.hasAddress;
 
   if (addressHasCoreData) {
@@ -3466,32 +3512,27 @@ async function main() {
         const validatedOutput =
           sanitizePersonData(validationInput, validationFallback) || null;
 
-        if (
-          !validatedOutput ||
-          !validatedOutput.last_name ||
-          !validatedOutput.first_name
-        ) {
+        const safeLast = ensurePersonNamePattern(
+          validatedOutput?.last_name,
+          PERSON_NAME_PATTERN,
+        );
+        const safeFirst = ensurePersonNamePattern(
+          validatedOutput?.first_name,
+          PERSON_NAME_PATTERN,
+        );
+        const safeMiddle = ensurePersonNamePattern(
+          validatedOutput?.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+
+        if (!validatedOutput || !safeLast || !safeFirst) {
           await promoteToCompany();
           continue;
         }
 
-        const lastNameIsValid = PERSON_NAME_PATTERN.test(
-          validatedOutput.last_name,
-        );
-        const firstNameIsValid = PERSON_NAME_PATTERN.test(
-          validatedOutput.first_name,
-        );
-        if (!lastNameIsValid || !firstNameIsValid) {
-          await promoteToCompany();
-          continue;
-        }
-
-        if (
-          validatedOutput.middle_name &&
-          !PERSON_MIDDLE_NAME_PATTERN.test(validatedOutput.middle_name)
-        ) {
-          validatedOutput.middle_name = null;
-        }
+        validatedOutput.last_name = safeLast;
+        validatedOutput.first_name = safeFirst;
+        validatedOutput.middle_name = safeMiddle ?? null;
 
         record.person = {
           ...record.person,
