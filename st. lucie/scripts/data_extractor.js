@@ -3063,6 +3063,23 @@ async function main() {
     );
     propertyExists = true;
 
+    if (addressHasCoreData) {
+      const propertyToAddressRelationship = createRelationshipPayload(
+        propertyRef,
+        "./address.json",
+      );
+      if (
+        propertyToAddressRelationship &&
+        propertyToAddressRelationship.from &&
+        propertyToAddressRelationship.to
+      ) {
+        await fsp.writeFile(
+          path.join("data", "relationship_property_has_address.json"),
+          JSON.stringify(propertyToAddressRelationship, null, 2),
+        );
+      }
+    }
+
     // Lot data
 
     const lotOut = {
