@@ -1394,10 +1394,11 @@ function buildAddressRecord({
   const normalizedUnnormalized =
     normalizeUnnormalizedAddressValue(unnormalizedValue);
   if (normalizedUnnormalized) {
-    return {
+    const candidate = {
       ...baseRecord,
       unnormalized_address: normalizedUnnormalized,
     };
+    return enforceAddressOneOfCompliance(candidate);
   }
 
   if (structuredAddress && typeof structuredAddress === "object") {
@@ -1406,8 +1407,10 @@ function buildAddressRecord({
       ...structuredAddress,
     });
     if (structuredCandidate) {
-      const exclusive = ensureExclusiveAddressMode(structuredCandidate);
-      return exclusive || structuredCandidate;
+      const exclusive =
+        ensureExclusiveAddressMode(structuredCandidate) || structuredCandidate;
+      const enforced = enforceAddressOneOfCompliance(exclusive);
+      if (enforced) return enforced;
     }
   }
 
@@ -3056,23 +3059,6 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
     propertyExists = true;
-
-    if (addressHasCoreData) {
-      const propertyToAddressRelationship = createRelationshipPayload(
-        propertyRef,
-        "./address.json",
-      );
-      if (
-        propertyToAddressRelationship &&
-        propertyToAddressRelationship.from &&
-        propertyToAddressRelationship.to
-      ) {
-        await fsp.writeFile(
-          path.join("data", "relationship_property_has_address.json"),
-          JSON.stringify(propertyToAddressRelationship, null, 2),
-        );
-      }
-    }
 
     // Lot data
 
