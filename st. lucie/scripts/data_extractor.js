@@ -1392,7 +1392,7 @@ function buildAddressRecord({
   metadata = {},
   requestIdentifier = null,
 }) {
-  const appendMetadata = (target) => {
+  const applyCommonFields = (target) => {
     assignIfValue(target, "request_identifier", requestIdentifier);
     if (!metadata || typeof metadata !== "object") return;
     for (const key of ADDRESS_METADATA_KEYS) {
@@ -1402,27 +1402,69 @@ function buildAddressRecord({
     }
   };
 
-  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-    unnormalizedValue,
-  );
-  if (normalizedUnnormalized) {
-    const payload = {};
-    appendMetadata(payload);
-    payload.unnormalized_address = normalizedUnnormalized;
-    return payload;
-  }
-
-  const cleanedStructured =
+  const normalizedStructured =
     structuredAddress && typeof structuredAddress === "object"
       ? pickStructuredAddress(structuredAddress)
       : null;
-  if (cleanedStructured) {
-    const payload = {};
-    appendMetadata(payload);
-    for (const key of Object.keys(cleanedStructured)) {
-      assignIfValue(payload, key, cleanedStructured[key]);
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    unnormalizedValue,
+  );
+
+  const finalizeCandidate = (source) => {
+    if (!source || typeof source !== "object") return null;
+
+    const trySanitize = (payload) => {
+      if (!payload) return null;
+      const sanitized = sanitizeAddressPayloadForOneOf({ ...payload });
+      if (sanitized) return sanitized;
+
+      const enforced = enforceAddressOneOfCompliance(payload);
+      if (enforced) {
+        const sanitizedEnforced = sanitizeAddressPayloadForOneOf({
+          ...enforced,
+        });
+        if (sanitizedEnforced) return sanitizedEnforced;
+        return enforced;
+      }
+
+      const coerced = coerceAddressPayloadToOneOf(payload);
+      if (coerced) {
+        const sanitizedCoerced = sanitizeAddressPayloadForOneOf({
+          ...coerced,
+        });
+        if (sanitizedCoerced) return sanitizedCoerced;
+        return coerced;
+      }
+
+      return null;
+    };
+
+    return trySanitize(source);
+  };
+
+  const buildCandidate = (mode) => {
+    const candidate = {};
+    applyCommonFields(candidate);
+    if (mode === "unnormalized" && normalizedUnnormalized) {
+      assignIfValue(candidate, "unnormalized_address", normalizedUnnormalized);
+    } else if (mode === "structured" && normalizedStructured) {
+      for (const [key, value] of Object.entries(normalizedStructured)) {
+        assignIfValue(candidate, key, value);
+      }
     }
-    return payload;
+    return candidate;
+  };
+
+  if (normalizedUnnormalized) {
+    const unnormalizedCandidate = buildCandidate("unnormalized");
+    const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
+    if (resolvedUnnormalized) return resolvedUnnormalized;
+  }
+
+  if (normalizedStructured) {
+    const structuredCandidate = buildCandidate("structured");
+    const resolvedStructured = finalizeCandidate(structuredCandidate);
+    if (resolvedStructured) return resolvedStructured;
   }
 
   return null;
@@ -2881,9 +2923,6 @@ async function main() {
   const propertyRef = "./property.json";
   let propertyExists = false;
   const addressFileName = "address.json";
-  const addressRef = `./${addressFileName}`;
-  let addressExists = false;
-  const propertyHasAddressRelFile = "relationship_property_has_address.json";
 
   // Base data for address output, derived from property_seed or unnormalized_address
   const baseRequestData = propertySeedData || unnormalizedAddressData || {};
@@ -2984,7 +3023,6 @@ async function main() {
       path.join("data", addressFileName),
       JSON.stringify(preparedAddressOutput, null, 2),
     );
-    addressExists = true;
   }
 
   // --- Parcel extraction ---
@@ -3088,14 +3126,6 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
     propertyExists = true;
-
-    if (addressExists) {
-      await writeRelationshipFile(
-        propertyHasAddressRelFile,
-        propertyRef,
-        addressRef,
-      );
-    }
 
     // Lot data
 
