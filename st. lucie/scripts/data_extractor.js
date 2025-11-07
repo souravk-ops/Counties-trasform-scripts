@@ -1399,70 +1399,59 @@ function buildAddressRecord({
   metadata = {},
   requestIdentifier = null,
 }) {
-  const baseRecord = {};
+  const cleanedStructured =
+    structuredAddress && typeof structuredAddress === "object"
+      ? pickStructuredAddress(structuredAddress)
+      : null;
+  const cleanedUnnormalized = normalizeUnnormalizedAddressValue(
+    unnormalizedValue,
+  );
 
-  assignIfValue(baseRecord, "request_identifier", requestIdentifier);
-
-  if (metadata && typeof metadata === "object") {
+  const applyMetadata = (target) => {
+    if (!metadata || typeof metadata !== "object") return;
     for (const key of ADDRESS_METADATA_KEYS) {
       if (Object.prototype.hasOwnProperty.call(metadata, key)) {
-        assignIfValue(baseRecord, key, metadata[key]);
+        assignIfValue(target, key, metadata[key]);
       }
     }
-  }
+  };
 
-  let primaryCandidate = null;
+  const appendRequestIdentifier = (target) => {
+    assignIfValue(target, "request_identifier", requestIdentifier);
+  };
 
-  if (structuredAddress && typeof structuredAddress === "object") {
-    const structuredCandidate = harmonizeAddressPayload(structuredAddress);
-    if (structuredCandidate) {
-      const exclusiveStructured =
-        ensureExclusiveAddressMode(structuredCandidate) ||
-        structuredCandidate;
-      const enforcedStructured =
-        enforceAddressOneOfCompliance(exclusiveStructured);
-      if (enforcedStructured) {
-        primaryCandidate = enforcedStructured;
+  if (cleanedStructured) {
+    const payload = {};
+    appendRequestIdentifier(payload);
+    applyMetadata(payload);
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(cleanedStructured, key)) {
+        assignIfValue(payload, key, cleanedStructured[key]);
       }
     }
-  }
 
-  if (!primaryCandidate) {
-    const normalizedUnnormalized =
-      normalizeUnnormalizedAddressValue(unnormalizedValue);
-    if (normalizedUnnormalized) {
-      const unnormalizedCandidate = {
-        unnormalized_address: normalizedUnnormalized,
-      };
-      const enforcedUnnormalized =
-        enforceAddressOneOfCompliance(unnormalizedCandidate);
-      if (enforcedUnnormalized) {
-        primaryCandidate = enforcedUnnormalized;
-      }
+    const hasAllRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(payload, key) &&
+        typeof payload[key] === "string" &&
+        payload[key].trim().length > 0,
+    );
+
+    if (hasAllRequired) {
+      return payload;
     }
   }
 
-  if (!primaryCandidate) return null;
-
-  const mergedCandidate = { ...primaryCandidate };
-  const exclusive = ensureExclusiveAddressMode(mergedCandidate) || mergedCandidate;
-  const enforced = enforceAddressOneOfCompliance({ ...baseRecord, ...exclusive });
-  if (!enforced) return null;
-
-  const coerced = coerceAddressPayloadToOneOf(enforced) || enforced;
-  const finalPayload = enforceAddressOneOfCompliance(coerced);
-  if (!finalPayload) return null;
-
-  if (baseRecord.request_identifier != null) {
-    finalPayload.request_identifier = baseRecord.request_identifier;
-  }
-  for (const key of ADDRESS_METADATA_KEYS) {
-    if (baseRecord[key] != null) {
-      finalPayload[key] = baseRecord[key];
-    }
+  if (cleanedUnnormalized) {
+    const payload = {
+      unnormalized_address: cleanedUnnormalized,
+    };
+    appendRequestIdentifier(payload);
+    applyMetadata(payload);
+    return payload;
   }
 
-  return finalPayload;
+  return null;
 }
 
 function toTitleCaseName(part) {
@@ -2964,21 +2953,16 @@ async function main() {
     (unnormalizedAddressData && unnormalizedAddressData.normalized_address) ||
     null;
 
-  const structuredCandidate = normalizedAddressSource
-    ? pickStructuredAddress(normalizedAddressSource)
-    : null;
   let fallbackAddress = null;
-  if (!structuredCandidate) {
-    if (unnormalizedAddressData) {
-      fallbackAddress =
-        textClean(
-          unnormalizedAddressData.unnormalized_address ||
-            unnormalizedAddressData.full_address,
-        ) || null;
-    }
-    if (!fallbackAddress && siteAddress) {
-      fallbackAddress = textClean(siteAddress);
-    }
+  if (unnormalizedAddressData) {
+    fallbackAddress =
+      textClean(
+        unnormalizedAddressData.unnormalized_address ||
+          unnormalizedAddressData.full_address,
+      ) || null;
+  }
+  if (!fallbackAddress && siteAddress) {
+    fallbackAddress = textClean(siteAddress);
   }
 
   if (secTownRange) {
@@ -2994,20 +2978,12 @@ async function main() {
   if (range) addressMetadata.range = range;
   if (section) addressMetadata.section = section;
 
-  let preparedAddressOutput = null;
-  if (structuredCandidate) {
-    preparedAddressOutput = buildAddressRecord({
-      structuredAddress: structuredCandidate,
-      metadata: addressMetadata,
-      requestIdentifier: baseRequestData.request_identifier || null,
-    });
-  } else if (fallbackAddress) {
-    preparedAddressOutput = buildAddressRecord({
-      unnormalizedValue: fallbackAddress,
-      metadata: addressMetadata,
-      requestIdentifier: baseRequestData.request_identifier || null,
-    });
-  }
+  const preparedAddressOutput = buildAddressRecord({
+    structuredAddress: normalizedAddressSource,
+    unnormalizedValue: fallbackAddress,
+    metadata: addressMetadata,
+    requestIdentifier: baseRequestData.request_identifier || null,
+  });
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
