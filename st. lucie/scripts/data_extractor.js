@@ -1438,7 +1438,8 @@ function buildAddressRecord({
     );
 
     if (hasAllRequired) {
-      return payload;
+      const sanitized = enforceAddressOneOfCompliance(payload);
+      if (sanitized) return sanitized;
     }
   }
 
@@ -1448,7 +1449,8 @@ function buildAddressRecord({
     };
     appendRequestIdentifier(payload);
     applyMetadata(payload);
-    return payload;
+    const sanitized = enforceAddressOneOfCompliance(payload);
+    if (sanitized) return sanitized;
   }
 
   return null;

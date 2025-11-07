@@ -258,6 +258,7 @@ function parsePersonName(raw, propertyId) {
     const firstToken = restTokens.shift();
     const formattedFirst = titleCaseNamePart(firstToken);
     if (!formattedFirst) return null;
+    if (!PERSON_NAME_PATTERN.test(formattedFirst)) return null;
     first = formattedFirst;
 
     if (restTokens.length) {
@@ -274,6 +275,7 @@ function parsePersonName(raw, propertyId) {
     const formattedFirst = titleCaseNamePart(tokens[0]);
     const formattedLast = titleCaseNamePart(tokens[tokens.length - 1]);
     if (!formattedFirst || !formattedLast) return null;
+    if (!PERSON_NAME_PATTERN.test(formattedFirst)) return null;
     if (!PERSON_NAME_PATTERN.test(formattedLast)) return null;
 
     first = formattedFirst;
@@ -294,6 +296,15 @@ function parsePersonName(raw, propertyId) {
   person.prefix_name = prefix;
   person.suffix_name = suffix;
   person._removed_designations = removedDesignations;
+
+  if (!PERSON_NAME_PATTERN.test(person.first_name)) return null;
+  if (!PERSON_NAME_PATTERN.test(person.last_name)) return null;
+  if (
+    person.middle_name != null &&
+    !MIDDLE_NAME_PATTERN.test(person.middle_name)
+  ) {
+    person.middle_name = null;
+  }
 
   return person;
 }
