@@ -645,6 +645,49 @@ function finalizeAddressForSchema(address, preferredMode = null) {
   return { mode: null, hasAddress: false };
 }
 
+function stripStructuredAddressFields(address) {
+  if (!address || typeof address !== "object") return;
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(address, key)) {
+      delete address[key];
+    }
+  }
+}
+
+function removeUnnormalizedAddress(address) {
+  if (
+    address &&
+    typeof address === "object" &&
+    Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+  ) {
+    delete address.unnormalized_address;
+  }
+}
+
+function normalizeAddressForOutput(address, preferredMode = null) {
+  const reconciliation = reconcileAddressForSchema(address);
+  pruneAddressFieldsForSchema(
+    address,
+    reconciliation.hasStructured,
+    reconciliation.hasUnnormalized,
+  );
+  const resolution = finalizeAddressForSchema(address, preferredMode);
+
+  if (!resolution.hasAddress) {
+    stripStructuredAddressFields(address);
+    removeUnnormalizedAddress(address);
+    return resolution;
+  }
+
+  if (resolution.mode === "structured") {
+    removeUnnormalizedAddress(address);
+  } else if (resolution.mode === "unnormalized") {
+    stripStructuredAddressFields(address);
+  }
+
+  return resolution;
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2494,16 +2537,7 @@ async function main() {
   if (range) assignIfValue(finalAddressOutput, "range", range);
   if (section) assignIfValue(finalAddressOutput, "section", section);
 
-  const reconciliationResult =
-    reconcileAddressForSchema(finalAddressOutput);
-
-  pruneAddressFieldsForSchema(
-    finalAddressOutput,
-    reconciliationResult.hasStructured,
-    reconciliationResult.hasUnnormalized,
-  );
-
-  const addressResolution = finalizeAddressForSchema(
+  const addressResolution = normalizeAddressForOutput(
     finalAddressOutput,
     preferredAddressMode,
   );
@@ -3114,7 +3148,7 @@ async function main() {
 
       console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
 
-      const mailingAddressResolution = finalizeAddressForSchema(
+      const mailingAddressResolution = normalizeAddressForOutput(
         mailingAddressOut,
         "unnormalized",
       );
