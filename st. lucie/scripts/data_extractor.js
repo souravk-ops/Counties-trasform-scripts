@@ -947,6 +947,44 @@ function enforceAddressOneOfCompliance(payload) {
   return null;
 }
 
+function ensureExclusiveAddressMode(address) {
+  if (!address || typeof address !== "object") return null;
+
+  const clone = { ...address };
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    clone.unnormalized_address,
+  );
+  const hasUnnormalized =
+    typeof normalizedUnnormalized === "string" &&
+    normalizedUnnormalized.length > 0;
+
+  if (hasStructured && hasUnnormalized) {
+    delete clone.unnormalized_address;
+    return clone;
+  }
+
+  if (hasStructured) {
+    return clone;
+  }
+
+  if (hasUnnormalized) {
+    clone.unnormalized_address = normalizedUnnormalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    return clone;
+  }
+
+  return null;
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2712,7 +2750,6 @@ async function main() {
   const propertySeedData = await readJson(propertySeedPath).catch(() => null); // Read property_seed.json
 
   const propertyRef = "./property.json";
-  const addressRef = "./address.json";
   let propertyExists = false;
 
   // Base data for address output, derived from property_seed or unnormalized_address
@@ -2848,6 +2885,10 @@ async function main() {
     preparedAddressOutput =
       enforceAddressOneOfCompliance(preparedAddressOutput) || null;
   }
+  if (preparedAddressOutput) {
+    preparedAddressOutput =
+      ensureExclusiveAddressMode(preparedAddressOutput) || null;
+  }
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
@@ -2962,16 +3003,6 @@ async function main() {
     );
     propertyExists = true;
 
-    if (addressHasCoreData) {
-      const propertyHasAddressRel = createRelationshipPayload(
-        propertyRef,
-        addressRef,
-      );
-      await fsp.writeFile(
-        path.join("data", "relationship_property_has_address.json"),
-        JSON.stringify(propertyHasAddressRel, null, 2),
-      );
-    }
     // Lot data
 
     const lotOut = {
@@ -3488,6 +3519,10 @@ async function main() {
       if (preparedMailingAddress) {
         preparedMailingAddress =
           enforceAddressOneOfCompliance(preparedMailingAddress) || null;
+      }
+      if (preparedMailingAddress) {
+        preparedMailingAddress =
+          ensureExclusiveAddressMode(preparedMailingAddress) || null;
       }
 
       if (preparedMailingAddress) {
