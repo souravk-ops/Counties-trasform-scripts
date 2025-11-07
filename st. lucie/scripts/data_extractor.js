@@ -649,7 +649,11 @@ function finalizeAddressForSchema(address, preferredMode = null) {
     };
   };
 
-  if (normalizedPreferred === "structured" && hasStructured) {
+  if (
+    normalizedPreferred === "structured" &&
+    hasStructured &&
+    !hasUnnormalized
+  ) {
     return keepStructured();
   }
   if (normalizedPreferred === "unnormalized" && hasUnnormalized) {
@@ -657,7 +661,7 @@ function finalizeAddressForSchema(address, preferredMode = null) {
   }
 
   if (hasStructured && hasUnnormalized) {
-    return keepStructured();
+    return keepUnnormalized();
   }
   if (hasStructured) {
     return keepStructured();
@@ -3058,17 +3062,6 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
     propertyExists = true;
-
-    if (addressHasCoreData) {
-      const propertyAddressRel = createRelationshipPayload(
-        propertyRef,
-        "./address.json",
-      );
-      await fsp.writeFile(
-        path.join("data", "relationship_property_has_address_1.json"),
-        JSON.stringify(propertyAddressRel, null, 2),
-      );
-    }
 
     // Lot data
 
