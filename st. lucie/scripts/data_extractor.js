@@ -3123,20 +3123,25 @@ async function main() {
         : null,
   };
 
-  const normalizedAddressSource =
+  const normalizedAddressSourceRaw =
     (baseRequestData && baseRequestData.normalized_address) ||
     (unnormalizedAddressData && unnormalizedAddressData.normalized_address) ||
     null;
 
+  const structuredAddressCandidate =
+    normalizedAddressSourceRaw && typeof normalizedAddressSourceRaw === "object"
+      ? pickStructuredAddress(normalizedAddressSourceRaw)
+      : null;
+
   let fallbackAddress = null;
-  if (unnormalizedAddressData) {
+  if (!structuredAddressCandidate && unnormalizedAddressData) {
     fallbackAddress =
       textClean(
         unnormalizedAddressData.unnormalized_address ||
           unnormalizedAddressData.full_address,
       ) || null;
   }
-  if (!fallbackAddress && siteAddress) {
+  if (!structuredAddressCandidate && !fallbackAddress && siteAddress) {
     fallbackAddress = textClean(siteAddress);
   }
 
@@ -3154,18 +3159,17 @@ async function main() {
   if (section) addressMetadata.section = section;
 
   const preparedAddressOutput = buildAddressRecord({
-    structuredAddress: normalizedAddressSource,
+    structuredAddress: structuredAddressCandidate,
     unnormalizedValue: fallbackAddress,
     metadata: addressMetadata,
     requestIdentifier: baseRequestData.request_identifier || null,
   });
 
-  const preferredAddressMode =
-    fallbackAddress
+  const preferredAddressMode = structuredAddressCandidate
+    ? "structured"
+    : fallbackAddress
       ? "unnormalized"
-      : normalizedAddressSource && typeof normalizedAddressSource === "object"
-        ? "structured"
-        : null;
+      : null;
 
   const resolvedAddressOutput = preparedAddressOutput
     ? resolveAddressForOutput(preparedAddressOutput, preferredAddressMode)
