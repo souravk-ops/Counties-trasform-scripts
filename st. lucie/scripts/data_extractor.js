@@ -752,6 +752,62 @@ function buildAddressPayload(address, mode) {
   return payload;
 }
 
+function sanitizeAddressPayloadForOneOf(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = payload[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const rawUnnormalized = Object.prototype.hasOwnProperty.call(
+    payload,
+    "unnormalized_address",
+  )
+    ? payload.unnormalized_address
+    : null;
+
+  const hasUnnormalized =
+    typeof rawUnnormalized === "string" && rawUnnormalized.trim().length > 0;
+
+  if (hasStructured) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const value = payload[key];
+      if (value == null) {
+        delete payload[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          delete payload[key];
+        } else {
+          payload[key] = trimmed;
+        }
+      }
+    }
+    if (hasUnnormalized) {
+      delete payload.unnormalized_address;
+    }
+    return payload;
+  }
+
+  if (hasUnnormalized) {
+    const normalized = normalizeUnnormalizedAddressValue(rawUnnormalized);
+    if (!normalized) return null;
+    payload.unnormalized_address = normalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        delete payload[key];
+      }
+    }
+    return payload;
+  }
+
+  return null;
+}
+
 const STREET_SUFFIX_NORMALIZATION = {
   ALLEY: "Aly",
   ALY: "Aly",
@@ -2624,10 +2680,14 @@ async function main() {
     preferredAddressMode,
   );
 
-  const preparedAddressOutput = buildAddressPayload(
+  let preparedAddressOutput = buildAddressPayload(
     finalAddressOutput,
     addressResolution.mode,
   );
+  if (preparedAddressOutput) {
+    preparedAddressOutput =
+      sanitizeAddressPayloadForOneOf(preparedAddressOutput) || null;
+  }
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
@@ -3263,10 +3323,14 @@ async function main() {
         "unnormalized",
       );
 
-      const preparedMailingAddress = buildAddressPayload(
+      let preparedMailingAddress = buildAddressPayload(
         mailingAddressOut,
         mailingAddressResolution.mode,
       );
+      if (preparedMailingAddress) {
+        preparedMailingAddress =
+          sanitizeAddressPayloadForOneOf(preparedMailingAddress) || null;
+      }
 
       if (preparedMailingAddress) {
         await fsp.writeFile(
@@ -3580,6 +3644,31 @@ async function main() {
           ...record.person,
           ...validatedOutput,
         };
+
+        const finalLast = ensurePersonNamePattern(
+          record.person.last_name,
+          PERSON_NAME_PATTERN,
+        );
+        const finalFirst = ensurePersonNamePattern(
+          record.person.first_name,
+          PERSON_NAME_PATTERN,
+        );
+        const finalMiddle = ensurePersonNamePattern(
+          record.person.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+
+        if (!finalLast || !finalFirst) {
+          await promoteToCompany(validationFallback);
+          continue;
+        }
+
+        record.person.last_name = finalLast;
+        record.person.first_name = finalFirst;
+        record.person.middle_name = finalMiddle ?? null;
+        validatedOutput.last_name = finalLast;
+        validatedOutput.first_name = finalFirst;
+        validatedOutput.middle_name = finalMiddle ?? null;
 
         personIdx += 1;
         const fileName = `person_${personIdx}.json`;
