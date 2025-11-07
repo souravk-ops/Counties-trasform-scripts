@@ -1422,7 +1422,10 @@ function buildAddressRecord({
     appendRequestIdentifier(payload);
     applyMetadata(payload);
     const sanitized = enforceAddressOneOfCompliance(payload);
-    if (sanitized) return sanitized;
+    if (sanitized) {
+      const exclusive = ensureExclusiveAddressMode(sanitized);
+      if (exclusive) return exclusive;
+    }
   }
 
   if (cleanedStructured) {
@@ -1444,7 +1447,10 @@ function buildAddressRecord({
 
     if (hasAllRequired) {
       const sanitized = enforceAddressOneOfCompliance(payload);
-      if (sanitized) return sanitized;
+      if (sanitized) {
+        const exclusive = ensureExclusiveAddressMode(sanitized);
+        if (exclusive) return exclusive;
+      }
     }
   }
 
@@ -1483,7 +1489,7 @@ function guessOwnerType(name) {
   return COMPANY_NAME_REGEX.test(name) ? "company" : "person";
 }
 
-function parsePersonNameTokens(name) {
+function parsePersonNameTokens(name, options = {}) {
   let cleaned = textClean(name);
   if (!cleaned) return null;
 
@@ -1524,6 +1530,25 @@ function parsePersonNameTokens(name) {
   if (tokens.length === 1) {
     return { first_name: toTitleCaseName(tokens[0]), middle_name: null, last_name: null };
   }
+  const middleNamePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
+
+  if (options && options.assumeLastFirst && tokens.length >= 2) {
+    const lastToken = toTitleCaseName(tokens[0]);
+    const firstToken = toTitleCaseName(tokens[1]);
+    const middleRaw =
+      tokens.length > 2 ? tokens.slice(2).join(" ") || null : null;
+    const middleCandidate = toTitleCaseName(middleRaw);
+    const validatedMiddle =
+      middleCandidate && middleNamePattern.test(middleCandidate)
+        ? middleCandidate
+        : null;
+    return {
+      first_name: firstToken || null,
+      middle_name: validatedMiddle,
+      last_name: lastToken || null,
+    };
+  }
+
   let first = toTitleCaseName(tokens[0]);
   let last = toTitleCaseName(tokens[tokens.length - 1]);
   const middleRaw =
@@ -1531,7 +1556,6 @@ function parsePersonNameTokens(name) {
   const middle = toTitleCaseName(middleRaw);
 
   // Validate middle name against the pattern if it exists
-  const middleNamePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
   let validatedMiddle = (middle && middleNamePattern.test(middle)) ? middle : null;
 
   if ((!last || last.length <= 1) && tokens.length >= 2) {
@@ -3371,13 +3395,25 @@ async function main() {
       return record;
     }
 
-    function ensureOwnerRecordFromName(name) {
+    function ensureOwnerRecordFromName(name, options = {}) {
       const cleaned = textClean(name);
       if (!cleaned) return null;
       const existing = getOwnerRecordByAlias(cleaned);
       if (existing) {
         registerAlias(existing, cleaned);
         return existing;
+      }
+      if (options && options.assumeLastFirst) {
+        const tokens = cleaned.split(/\s+/).filter(Boolean);
+        if (tokens.length >= 2) {
+          const swappedTokens = [...tokens.slice(1), tokens[0]];
+          const swappedCandidate = swappedTokens.join(" ");
+          const swappedExisting = getOwnerRecordByAlias(swappedCandidate);
+          if (swappedExisting) {
+            registerAlias(swappedExisting, cleaned);
+            return swappedExisting;
+          }
+        }
       }
       const ownerType = guessOwnerType(cleaned);
       if (ownerType === "company") {
@@ -3388,7 +3424,7 @@ async function main() {
         registerAlias(record, cleaned);
         return record;
       }
-      const parsed = parsePersonNameTokens(cleaned) || null;
+      const parsed = parsePersonNameTokens(cleaned, options) || null;
       const sanitizedPerson =
         sanitizePersonData(
           {
@@ -3656,7 +3692,9 @@ async function main() {
       sale._grantee_name = previousGranteeName;
 
       // Ensure grantor record exists or create it
-      let grantorRecord = sale._grantor_name ? ensureOwnerRecordFromName(sale._grantor_name) : null;
+      let grantorRecord = sale._grantor_name
+        ? ensureOwnerRecordFromName(sale._grantor_name, { assumeLastFirst: true })
+        : null;
       sale._grantor_record_id = grantorRecord ? grantorRecord.id : null;
 
       // For the next iteration (previous sale chronologically), this sale's grantor becomes the grantee
