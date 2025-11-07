@@ -2851,6 +2851,10 @@ async function main() {
 
   const propertyRef = "./property.json";
   let propertyExists = false;
+  const addressFileName = "address.json";
+  const addressRef = `./${addressFileName}`;
+  let addressExists = false;
+  const propertyHasAddressRelFile = "relationship_property_has_address.json";
 
   // Base data for address output, derived from property_seed or unnormalized_address
   const baseRequestData = propertySeedData || unnormalizedAddressData || {};
@@ -2942,20 +2946,29 @@ async function main() {
   if (range) addressMetadata.range = range;
   if (section) addressMetadata.section = section;
 
-  const preparedAddressOutput = buildAddressRecord({
-    structuredAddress: structuredCandidate,
-    unnormalizedValue: fallbackAddress,
-    metadata: addressMetadata,
-    requestIdentifier: baseRequestData.request_identifier || null,
-  });
+  let preparedAddressOutput = null;
+  if (structuredCandidate) {
+    preparedAddressOutput = buildAddressRecord({
+      structuredAddress: structuredCandidate,
+      metadata: addressMetadata,
+      requestIdentifier: baseRequestData.request_identifier || null,
+    });
+  } else if (fallbackAddress) {
+    preparedAddressOutput = buildAddressRecord({
+      unnormalizedValue: fallbackAddress,
+      metadata: addressMetadata,
+      requestIdentifier: baseRequestData.request_identifier || null,
+    });
+  }
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
   if (preparedAddressOutput) {
     await fsp.writeFile(
-      path.join("data", "address.json"),
+      path.join("data", addressFileName),
       JSON.stringify(preparedAddressOutput, null, 2),
     );
+    addressExists = true;
   }
 
   // --- Parcel extraction ---
@@ -3059,6 +3072,17 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
     propertyExists = true;
+
+    if (addressExists) {
+      const propertyAddressRelationship = createRelationshipPayload(
+        propertyRef,
+        addressRef,
+      );
+      await fsp.writeFile(
+        path.join("data", propertyHasAddressRelFile),
+        JSON.stringify(propertyAddressRelationship, null, 2),
+      );
+    }
 
     // Lot data
 
@@ -3930,6 +3954,22 @@ async function main() {
           veteran_status: validatedOutput.veteran_status ?? null,
           request_identifier: validatedOutput.request_identifier ?? null,
         };
+
+        const ensuresPattern = (value, pattern) =>
+          typeof value === "string" && pattern.test(value.trim());
+        if (
+          !ensuresPattern(personOut.first_name, PERSON_NAME_PATTERN) ||
+          !ensuresPattern(personOut.last_name, PERSON_NAME_PATTERN)
+        ) {
+          await promoteToCompany(validationFallback);
+          continue;
+        }
+        if (
+          personOut.middle_name != null &&
+          !ensuresPattern(personOut.middle_name, PERSON_MIDDLE_NAME_PATTERN)
+        ) {
+          personOut.middle_name = null;
+        }
 
         await fsp.writeFile(
           path.join("data", fileName),
