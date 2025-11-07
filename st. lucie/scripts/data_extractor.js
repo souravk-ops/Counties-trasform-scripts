@@ -1518,8 +1518,26 @@ function resolveAddressForOutput(candidate, preferredMode = null) {
     if (!working) continue;
     const resolution = normalizeAddressForOutput(working, preferredMode);
     if (resolution && resolution.hasAddress && resolution.mode) {
+      let payloadCandidate = ensureExclusiveAddressMode(working);
+      if (!payloadCandidate) continue;
+
+      const primarySanitized = sanitizeAddressPayloadForOneOf({
+        ...payloadCandidate,
+      });
+      if (primarySanitized) {
+        payloadCandidate = primarySanitized;
+      } else {
+        const enforced = enforceAddressOneOfCompliance(payloadCandidate);
+        if (enforced) {
+          payloadCandidate = enforced;
+        }
+      }
+
+      payloadCandidate = ensureExclusiveAddressMode(payloadCandidate);
+      if (!payloadCandidate) continue;
+
       return {
-        payload: working,
+        payload: payloadCandidate,
         mode: resolution.mode,
       };
     }
@@ -3074,8 +3092,15 @@ async function main() {
     requestIdentifier: baseRequestData.request_identifier || null,
   });
 
+  const preferredAddressMode =
+    normalizedAddressSource && typeof normalizedAddressSource === "object"
+      ? "structured"
+      : fallbackAddress
+        ? "unnormalized"
+        : null;
+
   const resolvedAddressOutput = preparedAddressOutput
-    ? resolveAddressForOutput(preparedAddressOutput)
+    ? resolveAddressForOutput(preparedAddressOutput, preferredAddressMode)
     : null;
 
   if (resolvedAddressOutput?.payload) {
@@ -4083,20 +4108,22 @@ async function main() {
           request_identifier: validatedOutput.request_identifier ?? null,
         };
 
-        const ensuresPattern = (value, pattern) =>
-          typeof value === "string" && pattern.test(value.trim());
-        if (
-          !ensuresPattern(personOut.first_name, PERSON_NAME_PATTERN) ||
-          !ensuresPattern(personOut.last_name, PERSON_NAME_PATTERN)
-        ) {
+        personOut.last_name = ensurePersonNamePattern(
+          personOut.last_name,
+          PERSON_NAME_PATTERN,
+        );
+        personOut.first_name = ensurePersonNamePattern(
+          personOut.first_name,
+          PERSON_NAME_PATTERN,
+        );
+        personOut.middle_name = ensurePersonNamePattern(
+          personOut.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+
+        if (!personOut.first_name || !personOut.last_name) {
           await promoteToCompany(validationFallback);
           continue;
-        }
-        if (
-          personOut.middle_name != null &&
-          !ensuresPattern(personOut.middle_name, PERSON_MIDDLE_NAME_PATTERN)
-        ) {
-          personOut.middle_name = null;
         }
 
         await fsp.writeFile(
