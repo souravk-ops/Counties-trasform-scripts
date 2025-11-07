@@ -725,7 +725,6 @@ function buildAddressPayload(address, mode) {
   if (mode !== "structured" && mode !== "unnormalized") return null;
 
   const payload = {
-    source_http_request: address.source_http_request || null,
     request_identifier: address.request_identifier || null,
   };
 
@@ -831,13 +830,6 @@ function coerceAddressPayloadToOneOf(payload) {
   if (!payload || typeof payload !== "object") return null;
 
   const base = {};
-
-  if (
-    Object.prototype.hasOwnProperty.call(payload, "source_http_request") &&
-    payload.source_http_request != null
-  ) {
-    base.source_http_request = payload.source_http_request;
-  }
 
   if (
     Object.prototype.hasOwnProperty.call(payload, "request_identifier") &&
@@ -1371,6 +1363,40 @@ function pickStructuredAddress(candidate) {
   }
 
   return structured;
+}
+
+function buildAddressRecord({
+  structuredAddress = null,
+  unnormalizedValue = null,
+  metadata = {},
+  requestIdentifier = null,
+}) {
+  const record = {};
+
+  assignIfValue(record, "request_identifier", requestIdentifier);
+
+  if (metadata && typeof metadata === "object") {
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(metadata, key)) {
+        assignIfValue(record, key, metadata[key]);
+      }
+    }
+  }
+
+  if (structuredAddress && typeof structuredAddress === "object") {
+    return { ...record, ...structuredAddress };
+  }
+
+  const normalizedUnnormalized =
+    normalizeUnnormalizedAddressValue(unnormalizedValue);
+  if (normalizedUnnormalized) {
+    return {
+      ...record,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  }
+
+  return null;
 }
 
 function toTitleCaseName(part) {
@@ -2849,28 +2875,22 @@ async function main() {
     });
   }
 
-  const finalAddressOutput = {
-    source_http_request: sourceHttpRequest || null,
-    request_identifier: baseRequestData.request_identifier || null,
-  };
-
   const countySource =
     (unnormalizedAddressData && unnormalizedAddressData.county_jurisdiction) ||
     jurisdiction ||
     null;
   const normalizedCounty = normalizeCountyName(countySource) || "St. Lucie";
-  assignIfValue(finalAddressOutput, "county_name", normalizedCounty);
-
-  assignIfValue(
-    finalAddressOutput,
-    "latitude",
-    unnormalizedAddressData ? unnormalizedAddressData.latitude ?? null : null,
-  );
-  assignIfValue(
-    finalAddressOutput,
-    "longitude",
-    unnormalizedAddressData ? unnormalizedAddressData.longitude ?? null : null,
-  );
+  const addressMetadata = {
+    county_name: normalizedCounty,
+    latitude:
+      unnormalizedAddressData && unnormalizedAddressData.latitude != null
+        ? unnormalizedAddressData.latitude
+        : null,
+    longitude:
+      unnormalizedAddressData && unnormalizedAddressData.longitude != null
+        ? unnormalizedAddressData.longitude
+        : null,
+  };
 
   const normalizedAddressSource =
     (baseRequestData && baseRequestData.normalized_address) ||
@@ -2881,31 +2901,18 @@ async function main() {
     ? pickStructuredAddress(normalizedAddressSource)
     : null;
   let fallbackAddress = null;
-
-  if (structuredCandidate) {
-    Object.assign(finalAddressOutput, structuredCandidate);
-  } else {
-    if (unnormalizedAddressData && unnormalizedAddressData.full_address) {
-      fallbackAddress = textClean(unnormalizedAddressData.full_address);
+  if (!structuredCandidate) {
+    if (unnormalizedAddressData) {
+      fallbackAddress =
+        textClean(
+          unnormalizedAddressData.unnormalized_address ||
+            unnormalizedAddressData.full_address,
+        ) || null;
     }
     if (!fallbackAddress && siteAddress) {
       fallbackAddress = textClean(siteAddress);
     }
-    if (fallbackAddress) {
-      assignIfValue(finalAddressOutput, "unnormalized_address", fallbackAddress);
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-          delete finalAddressOutput[key];
-        }
-      }
-    }
   }
-
-  const preferredAddressMode = structuredCandidate
-    ? "structured"
-    : fallbackAddress
-      ? "unnormalized"
-      : null;
 
   if (secTownRange) {
     const strMatch = secTownRange.match(/^(\d+)\/(\d+[NS])\/(\d+[EW])$/i);
@@ -2916,43 +2923,20 @@ async function main() {
     }
   }
 
-  if (township) assignIfValue(finalAddressOutput, "township", township);
-  if (range) assignIfValue(finalAddressOutput, "range", range);
-  if (section) assignIfValue(finalAddressOutput, "section", section);
+  if (township) addressMetadata.township = township;
+  if (range) addressMetadata.range = range;
+  if (section) addressMetadata.section = section;
 
-  const addressResolution = normalizeAddressForOutput(
-    finalAddressOutput,
-    preferredAddressMode,
-  );
-
-  let preparedAddressOutput = buildAddressPayload(
-    finalAddressOutput,
-    addressResolution.mode,
-  );
-  if (preparedAddressOutput) {
-    preparedAddressOutput =
-      sanitizeAddressPayloadForOneOf(preparedAddressOutput) || null;
-  }
-  if (preparedAddressOutput) {
-    preparedAddressOutput =
-      coerceAddressPayloadToOneOf(preparedAddressOutput) || null;
-  }
-  if (preparedAddressOutput) {
-    preparedAddressOutput =
-      enforceAddressOneOfCompliance(preparedAddressOutput) || null;
-  }
-  if (preparedAddressOutput) {
-    preparedAddressOutput =
-      ensureExclusiveAddressMode(preparedAddressOutput) || null;
-  }
-  if (preparedAddressOutput) {
-    preparedAddressOutput =
-      harmonizeAddressPayload(preparedAddressOutput) || null;
-  }
+  const preparedAddressOutput = buildAddressRecord({
+    structuredAddress: structuredCandidate,
+    unnormalizedValue: fallbackAddress,
+    metadata: addressMetadata,
+    requestIdentifier: baseRequestData.request_identifier || null,
+  });
 
   addressHasCoreData = Boolean(preparedAddressOutput);
 
-  if (addressHasCoreData) {
+  if (preparedAddressOutput) {
     await fsp.writeFile(
       path.join("data", "address.json"),
       JSON.stringify(preparedAddressOutput, null, 2),
@@ -2962,7 +2946,6 @@ async function main() {
   // --- Parcel extraction ---
   // parcelIdentifierDashed is already extracted from HTML
   const parcelOut = {
-    source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
     request_identifier: baseRequestData.request_identifier || null,
     parcel_identifier: parcelIdentifierDashed || null,
   };
@@ -3037,7 +3020,6 @@ async function main() {
     });
 
     propertyOut = {
-      source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
       request_identifier: baseRequestData.request_identifier || null,
       parcel_identifier: parcelIdentifierDashed || null, // Use the extracted parcel ID
       property_legal_description_text: legalDescription || null,
@@ -3083,7 +3065,6 @@ async function main() {
     // Lot data
 
     const lotOut = {
-      source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
       request_identifier: baseRequestData.request_identifier || null,
       lot_type: null,
       lot_length_feet: null,
@@ -3132,7 +3113,6 @@ async function main() {
       const improvementAction = mapImprovementAction(descriptionText);
 
       const improvementOut = {
-        source_http_request: sourceHttpRequest,
         request_identifier: baseRequestData.request_identifier || null,
         permit_number: permitNumber || null,
         permit_issue_date: permitIssueDate || null,
@@ -3563,48 +3543,16 @@ async function main() {
 
     // --- Mailing Address File Creation ---
     if (mailingAddressText) {
-      mailingAddressOut = {
-        source_http_request: sourceHttpRequest || null,
-        request_identifier: baseRequestData.request_identifier || null,
-      };
-      assignIfValue(
-        mailingAddressOut,
-        "unnormalized_address",
-        mailingAddressText,
+      const preparedMailingAddress = buildAddressRecord({
+        unnormalizedValue: mailingAddressText,
+        metadata: {},
+        requestIdentifier: baseRequestData.request_identifier || null,
+      });
+
+      console.log(
+        "Final Mailing Address Object (unnormalized):",
+        preparedMailingAddress,
       );
-
-      console.log("Final Mailing Address Object (unnormalized):", mailingAddressOut);
-
-      const mailingAddressResolution = normalizeAddressForOutput(
-        mailingAddressOut,
-        "unnormalized",
-      );
-
-      let preparedMailingAddress = buildAddressPayload(
-        mailingAddressOut,
-        mailingAddressResolution.mode,
-      );
-      if (preparedMailingAddress) {
-        preparedMailingAddress =
-          sanitizeAddressPayloadForOneOf(preparedMailingAddress) || null;
-      }
-
-      if (preparedMailingAddress) {
-        preparedMailingAddress =
-          coerceAddressPayloadToOneOf(preparedMailingAddress) || null;
-      }
-      if (preparedMailingAddress) {
-        preparedMailingAddress =
-          enforceAddressOneOfCompliance(preparedMailingAddress) || null;
-      }
-      if (preparedMailingAddress) {
-        preparedMailingAddress =
-          ensureExclusiveAddressMode(preparedMailingAddress) || null;
-      }
-      if (preparedMailingAddress) {
-        preparedMailingAddress =
-          harmonizeAddressPayload(preparedMailingAddress) || null;
-      }
 
       if (preparedMailingAddress) {
         await fsp.writeFile(
@@ -3810,11 +3758,10 @@ async function main() {
           };
           record.person = undefined;
           if (!record.displayName && companyName) {
-            record.displayName = companyName;
-          }
-          companyIdx += 1;
-          const companyOut = {
-            source_http_request: sourceHttpRequest,
+          record.displayName = companyName;
+        }
+        companyIdx += 1;
+        const companyOut = {
             name: companyName,
             request_identifier: requestIdForPerson,
           };
@@ -3851,7 +3798,6 @@ async function main() {
           companyIdx += 1;
           const companyFileName = `company_${companyIdx}.json`;
           const companyOut = {
-            source_http_request: sourceHttpRequest,
             name: companyName,
             request_identifier: requestIdForPerson,
           };
@@ -3976,7 +3922,6 @@ async function main() {
         personIdx += 1;
         const fileName = `person_${personIdx}.json`;
         const personOut = {
-          source_http_request: sourceHttpRequest,
           birth_date: validatedOutput.birth_date ?? null,
           first_name: validatedOutput.first_name,
           last_name: validatedOutput.last_name,
@@ -4000,7 +3945,6 @@ async function main() {
       } else {
         companyIdx += 1;
         const companyOut = {
-          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
           name: record.company?.name ?? record.displayName ?? null,
           request_identifier: record.company?.request_identifier ?? null,
         };
@@ -4224,7 +4168,6 @@ async function main() {
       const sale = sales[i];
       const saleFileName = `sales_history_${i + 1}.json`;
       const saleOut = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         request_identifier: baseRequestData.request_identifier || null,
         ownership_transfer_date: sale.ownership_transfer_date,
         purchase_price_amount: sale.purchase_price_amount,
@@ -4240,7 +4183,6 @@ async function main() {
       if (deedType !== null) {
         const deedFileName = `deed_${i + 1}.json`;
         const deedOut = {
-          source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
           deed_type: deedType,
         };
         await fsp.writeFile(
@@ -4298,7 +4240,6 @@ async function main() {
           fileIdx += 1;
           const fileFileName = `file_${fileIdx}.json`;
           const fileOut = {
-            source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
             request_identifier: baseRequestData.request_identifier || null,
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url) || null,
@@ -4367,7 +4308,6 @@ async function main() {
     if (foundTargetYear) { // Only write tax data if 2025 is found
       const taxFileName = `tax_${targetTaxYear}.json`;
       const taxOut = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         request_identifier: baseRequestData.request_identifier || null,
         tax_year: targetTaxYear,
         property_assessed_value_amount:
@@ -4461,7 +4401,6 @@ async function main() {
     if (utilityOut.url && utilityOut.url.includes("placeholder")) {
       utilityOut.url = sourceHttpRequestUrl;
     }
-    utilityOut.source_http_request = sourceHttpRequest;
     utilityOut.request_identifier = baseRequestData.request_identifier || null;
 
     await fsp.writeFile(
@@ -4546,7 +4485,6 @@ async function main() {
     if (structureOut.url && structureOut.url.includes("placeholder")) {
       structureOut.url = sourceHttpRequestUrl;
     }
-    structureOut.source_http_request = sourceHttpRequest;
     structureOut.request_identifier = baseRequestData.request_identifier || null;
 
     await fsp.writeFile(
@@ -4597,7 +4535,6 @@ async function main() {
     if (layoutOut.url && layoutOut.url.includes("placeholder")) {
       layoutOut.url = sourceHttpRequestUrl;
     }
-    layoutOut.source_http_request = sourceHttpRequest;
     layoutOut.request_identifier = baseRequestData.request_identifier || null;
 
     if (layoutOut.space_type === "Building") {
@@ -4824,7 +4761,6 @@ async function main() {
       currentFileIdx += 1;
       const fileFileName = `file_${currentFileIdx}.json`;
       const rec = {
-        source_http_request: sourceHttpRequest, // Use the extracted sourceHttpRequest
         request_identifier: baseRequestData.request_identifier || null,
         file_format: getFileFormatFromUrl(u),
         name: path.basename(u || "") || null,
