@@ -367,6 +367,65 @@ const STRUCTURED_ADDRESS_REQUIRED_KEYS = [
   "postal_code",
 ];
 
+function normalizeUnnormalizedAddressValue(value) {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((part) => (typeof part === "string" ? textClean(part) : textClean(String(part ?? ""))))
+      .filter((part) => part && part.length > 0);
+    if (parts.length === 0) return null;
+    const joined = parts.join(" ").replace(/\s+/g, " ").trim();
+    return joined.length > 0 ? joined : null;
+  }
+  if (typeof value === "object") {
+    const preferredKeys = [
+      "unnormalized_address",
+      "full_address",
+      "address",
+      "line1",
+      "line_1",
+      "line2",
+      "line_2",
+      "line3",
+      "line_3",
+      "city",
+      "state",
+      "state_code",
+      "postal_code",
+      "zip",
+      "zip_code",
+    ];
+    const seen = new Set();
+    const parts = [];
+    for (const key of preferredKeys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      const rawPart = value[key];
+      if (rawPart == null) continue;
+      const cleaned =
+        typeof rawPart === "string"
+          ? textClean(rawPart)
+          : textClean(String(rawPart));
+      if (!cleaned) continue;
+      const signature = `${key}:${cleaned}`;
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      parts.push(cleaned);
+    }
+    if (parts.length > 0) {
+      const joined = parts.join(" ").replace(/\s+/g, " ").trim();
+      if (joined.length > 0) return joined;
+    }
+    const fallback = textClean(String(value));
+    return fallback && fallback.length > 0 ? fallback : null;
+  }
+  const fallback = textClean(String(value));
+  return fallback && fallback.length > 0 ? fallback : null;
+}
+
 function hasStructuredAddressFields(address) {
   if (!address || typeof address !== "object") return false;
   return STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
@@ -377,8 +436,10 @@ function hasStructuredAddressFields(address) {
 
 function hasUnnormalizedAddressValue(address) {
   if (!address || typeof address !== "object") return false;
-  const raw = address.unnormalized_address;
-  return typeof raw === "string" && raw.trim().length > 0;
+  const normalized = normalizeUnnormalizedAddressValue(
+    address.unnormalized_address,
+  );
+  return typeof normalized === "string" && normalized.length > 0;
 }
 
 function reconcileAddressForSchema(address) {
@@ -403,24 +464,28 @@ function reconcileAddressForSchema(address) {
     }
   }
 
-  let hasStructured = hasStructuredAddressFields(address);
-  let hasUnnormalized = false;
-  if (Object.prototype.hasOwnProperty.call(address, "unnormalized_address")) {
-    const normalized = normalizeStructuredValue(address.unnormalized_address);
-    if (normalized) {
-      address.unnormalized_address = normalized;
-      hasUnnormalized = true;
-    } else {
-      delete address.unnormalized_address;
-    }
+  const normalizedUnnormalized = Object.prototype.hasOwnProperty.call(
+    address,
+    "unnormalized_address",
+  )
+    ? normalizeUnnormalizedAddressValue(address.unnormalized_address)
+    : null;
+
+  if (normalizedUnnormalized) {
+    address.unnormalized_address = normalizedUnnormalized;
+  } else if (
+    Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+  ) {
+    delete address.unnormalized_address;
   }
+
+  let hasStructured = hasStructuredAddressFields(address);
+  let hasUnnormalized = normalizedUnnormalized != null;
 
   if (hasStructured && hasUnnormalized) {
     delete address.unnormalized_address;
     hasUnnormalized = false;
-  }
-
-  if (!hasStructured && hasUnnormalized) {
+  } else if (!hasStructured && hasUnnormalized) {
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(address, key)) {
         delete address[key];
@@ -928,7 +993,20 @@ function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
   const titleCased = toTitleCaseName(cleaned);
   if (!titleCased) return null;
 
-  const trimmed = titleCased.replace(/([ \-',.])+$/g, "").trim();
+  let trimmed = titleCased.replace(/([ \-',.])+$/g, "").trim();
+  if (!trimmed) return null;
+
+  trimmed = trimmed
+    .replace(/,/g, " ")
+    .replace(/\.(?=[A-Za-z])/g, " ")
+    .replace(/\./g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/-+/g, "-")
+    .replace(/'+/g, "'")
+    .trim();
+
+  trimmed = trimmed.replace(/([ \-',])+$/g, "").trim();
+
   if (!trimmed) return null;
   if (!/[A-Za-z]$/.test(trimmed)) return null;
 
