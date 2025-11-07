@@ -32,7 +32,7 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    return { resource: trimmed };
+    return { "/": trimmed };
   };
 
   const shouldIncludeFrom = fromPath !== undefined && fromPath !== false;
