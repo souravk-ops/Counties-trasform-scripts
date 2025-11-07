@@ -2655,6 +2655,7 @@ async function main() {
 
     if (addressFileWritten) {
       const relationshipOut = {
+        type: "property_has_address",
         from: { "/": "./property.json" },
         to: { "/": "./address.json" },
       };
@@ -2670,6 +2671,7 @@ async function main() {
         );
         if (factSheetFile) {
           const addressFactSheetRel = {
+            type: "address_has_fact_sheet",
             from: { "/": "./address.json" },
             to: { "/": `./${factSheetFile}` },
           };
@@ -3499,6 +3501,7 @@ async function main() {
       if (latestOwnerMeta) { // Ensure it's a person for this relationship
         const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
         const relOut = {
+          type: "person_has_mailing_address",
           from: { "/": `./${latestOwnerMeta.fileName}` },
           to: { "/": "./mailing_address.json" },
         };
