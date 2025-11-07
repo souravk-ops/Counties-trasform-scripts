@@ -1420,6 +1420,18 @@ function buildAddressRecord({
     assignIfValue(target, "request_identifier", requestIdentifier);
   };
 
+  // Prefer the raw, unnormalized value when it exists. The upstream pipeline
+  // will populate normalized data later if available.
+  if (cleanedUnnormalized) {
+    const payload = {
+      unnormalized_address: cleanedUnnormalized,
+    };
+    appendRequestIdentifier(payload);
+    applyMetadata(payload);
+    const sanitized = enforceAddressOneOfCompliance(payload);
+    if (sanitized) return sanitized;
+  }
+
   if (cleanedStructured) {
     const payload = {};
     appendRequestIdentifier(payload);
@@ -1441,16 +1453,6 @@ function buildAddressRecord({
       const sanitized = enforceAddressOneOfCompliance(payload);
       if (sanitized) return sanitized;
     }
-  }
-
-  if (cleanedUnnormalized) {
-    const payload = {
-      unnormalized_address: cleanedUnnormalized,
-    };
-    appendRequestIdentifier(payload);
-    applyMetadata(payload);
-    const sanitized = enforceAddressOneOfCompliance(payload);
-    if (sanitized) return sanitized;
   }
 
   return null;
