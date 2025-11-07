@@ -25,13 +25,21 @@ function assignIfValue(target, key, value) {
 }
 
 function relationshipRef(pathLike) {
-  if (!pathLike || typeof pathLike !== "string") return null;
-  const trimmed = pathLike.trim();
-  return trimmed || null;
+  if (!pathLike) return null;
+  if (typeof pathLike === "object" && pathLike["/"]) {
+    const ref = String(pathLike["/"]).trim();
+    return ref ? { "/": ref } : null;
+  }
+  if (typeof pathLike === "string") {
+    const trimmed = pathLike.trim();
+    return trimmed ? { "/": trimmed } : null;
+  }
+  return null;
 }
 
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
-  const payload = { ...extras };
+  const payload =
+    extras && typeof extras === "object" ? { ...extras } : {};
   const fromRef = relationshipRef(fromPath);
   const toRef = relationshipRef(toPath);
   if (fromRef) payload.from = fromRef;
