@@ -40,11 +40,31 @@ function relationshipRef(pathLike) {
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
   const payload =
     extras && typeof extras === "object" ? { ...extras } : {};
+
   const fromRef = relationshipRef(fromPath);
   const toRef = relationshipRef(toPath);
+
+  if (fromPath != null && !fromRef) {
+    return null;
+  }
+  if (toPath != null && !toRef) {
+    return null;
+  }
+
   if (fromRef) payload.from = fromRef;
   if (toRef) payload.to = toRef;
-  return payload;
+
+  return Object.keys(payload).length ? payload : null;
+}
+
+async function writeRelationshipFile(fileName, fromPath, toPath, extras = {}) {
+  const payload = createRelationshipPayload(fromPath, toPath, extras);
+  if (!payload) return false;
+  await fsp.writeFile(
+    path.join("data", fileName),
+    JSON.stringify(payload, null, 2),
+  );
+  return true;
 }
 
 function textClean(s) {
@@ -1391,30 +1411,58 @@ function buildAddressRecord({
     }
   }
 
-  const normalizedUnnormalized =
-    normalizeUnnormalizedAddressValue(unnormalizedValue);
-  if (normalizedUnnormalized) {
-    const candidate = {
-      ...baseRecord,
-      unnormalized_address: normalizedUnnormalized,
-    };
-    return enforceAddressOneOfCompliance(candidate);
-  }
+  let primaryCandidate = null;
 
   if (structuredAddress && typeof structuredAddress === "object") {
-    const structuredCandidate = harmonizeAddressPayload({
-      ...baseRecord,
-      ...structuredAddress,
-    });
+    const structuredCandidate = harmonizeAddressPayload(structuredAddress);
     if (structuredCandidate) {
-      const exclusive =
-        ensureExclusiveAddressMode(structuredCandidate) || structuredCandidate;
-      const enforced = enforceAddressOneOfCompliance(exclusive);
-      if (enforced) return enforced;
+      const exclusiveStructured =
+        ensureExclusiveAddressMode(structuredCandidate) ||
+        structuredCandidate;
+      const enforcedStructured =
+        enforceAddressOneOfCompliance(exclusiveStructured);
+      if (enforcedStructured) {
+        primaryCandidate = enforcedStructured;
+      }
     }
   }
 
-  return null;
+  if (!primaryCandidate) {
+    const normalizedUnnormalized =
+      normalizeUnnormalizedAddressValue(unnormalizedValue);
+    if (normalizedUnnormalized) {
+      const unnormalizedCandidate = {
+        unnormalized_address: normalizedUnnormalized,
+      };
+      const enforcedUnnormalized =
+        enforceAddressOneOfCompliance(unnormalizedCandidate);
+      if (enforcedUnnormalized) {
+        primaryCandidate = enforcedUnnormalized;
+      }
+    }
+  }
+
+  if (!primaryCandidate) return null;
+
+  const mergedCandidate = { ...primaryCandidate };
+  const exclusive = ensureExclusiveAddressMode(mergedCandidate) || mergedCandidate;
+  const enforced = enforceAddressOneOfCompliance({ ...baseRecord, ...exclusive });
+  if (!enforced) return null;
+
+  const coerced = coerceAddressPayloadToOneOf(enforced) || enforced;
+  const finalPayload = enforceAddressOneOfCompliance(coerced);
+  if (!finalPayload) return null;
+
+  if (baseRecord.request_identifier != null) {
+    finalPayload.request_identifier = baseRecord.request_identifier;
+  }
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (baseRecord[key] != null) {
+      finalPayload[key] = baseRecord[key];
+    }
+  }
+
+  return finalPayload;
 }
 
 function toTitleCaseName(part) {
@@ -3074,13 +3122,10 @@ async function main() {
     propertyExists = true;
 
     if (addressExists) {
-      const propertyAddressRelationship = createRelationshipPayload(
+      await writeRelationshipFile(
+        propertyHasAddressRelFile,
         propertyRef,
         addressRef,
-      );
-      await fsp.writeFile(
-        path.join("data", propertyHasAddressRelFile),
-        JSON.stringify(propertyAddressRelationship, null, 2),
       );
     }
 
@@ -4006,15 +4051,18 @@ async function main() {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
       if (latestOwnerMeta) { // Ensure it's a person for this relationship
         const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
-        const relOut = createRelationshipPayload(
+        const wroteRelationship = await writeRelationshipFile(
+          relFileName,
           `./${latestOwnerMeta.fileName}`,
           "./mailing_address.json",
         );
-        await fsp.writeFile(
-          path.join("data", relFileName),
-          JSON.stringify(relOut, null, 2),
-        );
-        console.log(`Created mailing address relationship: ${relFileName}`);
+        if (wroteRelationship) {
+          console.log(`Created mailing address relationship: ${relFileName}`);
+        } else {
+          console.log(
+            `Skipped mailing address relationship ${relFileName} due to unresolved reference.`,
+          );
+        }
       } else {
         console.log("Warning: Could not find metadata for currentOwnerRecord (or it's not a person) to create mailing address relationship.");
       }
@@ -4036,13 +4084,10 @@ async function main() {
         for (const role of roles) {
           propertyRelCounters[meta.type] += 1;
           const relFileName = `relationship_property_has_${meta.type}_${propertyRelCounters[meta.type]}_${slugify(role)}.json`;
-          const relOut = createRelationshipPayload(
+          await writeRelationshipFile(
+            relFileName,
             propertyRef,
             `./${meta.fileName}`,
-          );
-          await fsp.writeFile(
-            path.join("data", relFileName),
-            JSON.stringify(relOut, null, 2),
           );
         }
       }
@@ -4228,16 +4273,10 @@ async function main() {
           JSON.stringify(deedOut, null, 2),
         );
 
-        const relSalesDeed = createRelationshipPayload(
+        await writeRelationshipFile(
+          `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
           `./${saleFileName}`,
           `./${deedFileName}`,
-        );
-        await fsp.writeFile(
-          path.join(
-            "data",
-            `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
-          ),
-          JSON.stringify(relSalesDeed, null, 2),
         );
 
         // --- Create sales_history_has_person/company relationships ---
@@ -4261,13 +4300,10 @@ async function main() {
           const granteeMeta = ownerToFileMap.get(sale._grantee_record_id);
           if (granteeMeta) {
             const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
-            const relOut = createRelationshipPayload(
+            await writeRelationshipFile(
+              relFileName,
               `./${saleFileName}`,
               `./${granteeMeta.fileName}`,
-            );
-            await fsp.writeFile(
-              path.join("data", relFileName),
-              JSON.stringify(relOut, null, 2),
             );
           }
         }
@@ -4290,13 +4326,10 @@ async function main() {
             JSON.stringify(fileOut, null, 2),
           );
 
-          const relDeedFile = createRelationshipPayload(
+          await writeRelationshipFile(
+            `relationship_deed_${i + 1}_to_file_${fileIdx}.json`,
             `./${deedFileName}`,
             `./${fileFileName}`,
-          );
-          await fsp.writeFile(
-            path.join("data", `relationship_deed_${i + 1}_to_file_${fileIdx}.json`),
-            JSON.stringify(relDeedFile, null, 2),
           );
         }
       } // End of if (deedType !== null)
@@ -4657,13 +4690,10 @@ async function main() {
       layoutIndexToFile.has(parentIndex)
     ) {
       const relFile = `relationship_layout_${parentIndex}_has_layout_${record.index}.json`;
-      const relOut = createRelationshipPayload(
+      await writeRelationshipFile(
+        relFile,
         `./${layoutIndexToFile.get(parentIndex)}`,
         `./${record.file}`,
-      );
-      await fsp.writeFile(
-        path.join("data", relFile),
-        JSON.stringify(relOut, null, 2),
       );
     }
   }
@@ -4695,43 +4725,34 @@ async function main() {
         const layoutFile = layoutIndexToFile.get(parentIndex);
         if (layoutFile) {
           const relFile = `relationship_layout_${parentIndex}_has_utility_${record.index}.json`;
-          const relOut = createRelationshipPayload(
+          const wroteRel = await writeRelationshipFile(
+            relFile,
             `./${layoutFile}`,
             utilityRef,
           );
-          await fsp.writeFile(
-            path.join("data", relFile),
-            JSON.stringify(relOut, null, 2),
-          );
-          linkedToLayout = true;
+          if (wroteRel) {
+            linkedToLayout = true;
+          }
         }
       }
     } else if (hasSingleBuildingLayout && primaryBuildingIndex != null) {
       const layoutFile = layoutIndexToFile.get(primaryBuildingIndex);
       if (layoutFile) {
         const relFile = `relationship_layout_${primaryBuildingIndex}_has_utility_${record.index}.json`;
-        const relOut = createRelationshipPayload(
+        const wroteRel = await writeRelationshipFile(
+          relFile,
           `./${layoutFile}`,
           utilityRef,
         );
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
-        linkedToLayout = true;
+        if (wroteRel) {
+          linkedToLayout = true;
+        }
       }
     }
 
     if (!linkedToLayout && propertyOut) {
       const relFile = `relationship_property_has_utility_${record.index}.json`;
-      const relOut = createRelationshipPayload(
-        propertyRef,
-        utilityRef,
-      );
-      await fsp.writeFile(
-        path.join("data", relFile),
-        JSON.stringify(relOut, null, 2),
-      );
+      await writeRelationshipFile(relFile, propertyRef, utilityRef);
     }
   }
 
@@ -4748,43 +4769,34 @@ async function main() {
         const layoutFile = layoutIndexToFile.get(parentIndex);
         if (layoutFile) {
           const relFile = `relationship_layout_${parentIndex}_has_structure_${record.index}.json`;
-          const relOut = createRelationshipPayload(
+          const wroteRel = await writeRelationshipFile(
+            relFile,
             `./${layoutFile}`,
             structureRef,
           );
-          await fsp.writeFile(
-            path.join("data", relFile),
-            JSON.stringify(relOut, null, 2),
-          );
-          linkedToLayout = true;
+          if (wroteRel) {
+            linkedToLayout = true;
+          }
         }
       }
     } else if (hasSingleBuildingLayout && primaryBuildingIndex != null) {
       const layoutFile = layoutIndexToFile.get(primaryBuildingIndex);
       if (layoutFile) {
         const relFile = `relationship_layout_${primaryBuildingIndex}_has_structure_${record.index}.json`;
-        const relOut = createRelationshipPayload(
+        const wroteRel = await writeRelationshipFile(
+          relFile,
           `./${layoutFile}`,
           structureRef,
         );
-        await fsp.writeFile(
-          path.join("data", relFile),
-          JSON.stringify(relOut, null, 2),
-        );
-        linkedToLayout = true;
+        if (wroteRel) {
+          linkedToLayout = true;
+        }
       }
     }
 
     if (!linkedToLayout && propertyOut) {
       const relFile = `relationship_property_has_structure_${record.index}.json`;
-      const relOut = createRelationshipPayload(
-        propertyRef,
-        structureRef,
-      );
-      await fsp.writeFile(
-        path.join("data", relFile),
-        JSON.stringify(relOut, null, 2),
-      );
+      await writeRelationshipFile(relFile, propertyRef, structureRef);
     }
   }
 
