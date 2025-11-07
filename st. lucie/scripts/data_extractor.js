@@ -1393,6 +1393,13 @@ function buildAddressRecord({
 
   const normalizedUnnormalized =
     normalizeUnnormalizedAddressValue(unnormalizedValue);
+  if (normalizedUnnormalized) {
+    return {
+      ...baseRecord,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  }
+
   if (structuredAddress && typeof structuredAddress === "object") {
     const structuredCandidate = harmonizeAddressPayload({
       ...baseRecord,
@@ -1401,17 +1408,6 @@ function buildAddressRecord({
     if (structuredCandidate) {
       const exclusive = ensureExclusiveAddressMode(structuredCandidate);
       return exclusive || structuredCandidate;
-    }
-  }
-
-  if (normalizedUnnormalized) {
-    const unnormalizedCandidate = harmonizeAddressPayload({
-      ...baseRecord,
-      unnormalized_address: normalizedUnnormalized,
-    });
-    if (unnormalizedCandidate) {
-      const exclusive = ensureExclusiveAddressMode(unnormalizedCandidate);
-      return exclusive || unnormalizedCandidate;
     }
   }
 
@@ -3939,9 +3935,9 @@ async function main() {
         const fileName = `person_${personIdx}.json`;
         const personOut = {
           birth_date: validatedOutput.birth_date ?? null,
-          first_name: validatedOutput.first_name,
-          last_name: validatedOutput.last_name,
-          middle_name: validatedOutput.middle_name ?? null,
+          first_name: enforcedFirstForOutput,
+          last_name: enforcedLastForOutput,
+          middle_name: enforcedMiddleForOutput ?? null,
           prefix_name: validatedOutput.prefix_name ?? null,
           suffix_name: validatedOutput.suffix_name ?? null,
           us_citizenship_status: validatedOutput.us_citizenship_status ?? null,
@@ -4259,7 +4255,7 @@ async function main() {
             request_identifier: baseRequestData.request_identifier || null,
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url) || null,
-            original_url: sale._book_page_url,
+            original_url: null,
             ipfs_url: null,
             document_type: "ConveyanceDeed",
           };
@@ -4782,17 +4778,17 @@ async function main() {
     const uniqueNonDeedUrls = [...urls].filter(u => !processedDeedUrls.has(u));
 
     let currentFileIdx = fileIdx; // Continue numbering from where deed files left off
-    for (const u of uniqueNonDeedUrls) {
-      currentFileIdx += 1;
-      const fileFileName = `file_${currentFileIdx}.json`;
-      const rec = {
-        request_identifier: baseRequestData.request_identifier || null,
-        file_format: getFileFormatFromUrl(u),
-        name: path.basename(u || "") || null,
-        original_url: u || null,
-        ipfs_url: null,
-        document_type: null,
-      };
+      for (const u of uniqueNonDeedUrls) {
+        currentFileIdx += 1;
+        const fileFileName = `file_${currentFileIdx}.json`;
+        const rec = {
+          request_identifier: baseRequestData.request_identifier || null,
+          file_format: getFileFormatFromUrl(u),
+          name: path.basename(u || "") || null,
+          original_url: null,
+          ipfs_url: null,
+          document_type: null,
+        };
       // Map document_type to schema-compliant values
       // Changed "Miscellaneous" to null as "Miscellaneous" is not in the schema's enum.
       // If "TaxDocument" and "MapDocument" are truly, the schema must be updated.
