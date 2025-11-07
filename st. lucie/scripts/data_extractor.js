@@ -1392,15 +1392,8 @@ function buildAddressRecord({
   metadata = {},
   requestIdentifier = null,
 }) {
-  const cleanedStructured =
-    structuredAddress && typeof structuredAddress === "object"
-      ? pickStructuredAddress(structuredAddress)
-      : null;
-  const cleanedUnnormalized = normalizeUnnormalizedAddressValue(
-    unnormalizedValue,
-  );
-
-  const applyMetadata = (target) => {
+  const appendMetadata = (target) => {
+    assignIfValue(target, "request_identifier", requestIdentifier);
     if (!metadata || typeof metadata !== "object") return;
     for (const key of ADDRESS_METADATA_KEYS) {
       if (Object.prototype.hasOwnProperty.call(metadata, key)) {
@@ -1409,49 +1402,27 @@ function buildAddressRecord({
     }
   };
 
-  const appendRequestIdentifier = (target) => {
-    assignIfValue(target, "request_identifier", requestIdentifier);
-  };
-
-  // Prefer the raw, unnormalized value when it exists. The upstream pipeline
-  // will populate normalized data later if available.
-  if (cleanedUnnormalized) {
-    const payload = {
-      unnormalized_address: cleanedUnnormalized,
-    };
-    appendRequestIdentifier(payload);
-    applyMetadata(payload);
-    const sanitized = enforceAddressOneOfCompliance(payload);
-    if (sanitized) {
-      const exclusive = ensureExclusiveAddressMode(sanitized);
-      if (exclusive) return exclusive;
-    }
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    unnormalizedValue,
+  );
+  if (normalizedUnnormalized) {
+    const payload = {};
+    appendMetadata(payload);
+    payload.unnormalized_address = normalizedUnnormalized;
+    return payload;
   }
 
+  const cleanedStructured =
+    structuredAddress && typeof structuredAddress === "object"
+      ? pickStructuredAddress(structuredAddress)
+      : null;
   if (cleanedStructured) {
     const payload = {};
-    appendRequestIdentifier(payload);
-    applyMetadata(payload);
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(cleanedStructured, key)) {
-        assignIfValue(payload, key, cleanedStructured[key]);
-      }
+    appendMetadata(payload);
+    for (const key of Object.keys(cleanedStructured)) {
+      assignIfValue(payload, key, cleanedStructured[key]);
     }
-
-    const hasAllRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-      (key) =>
-        Object.prototype.hasOwnProperty.call(payload, key) &&
-        typeof payload[key] === "string" &&
-        payload[key].trim().length > 0,
-    );
-
-    if (hasAllRequired) {
-      const sanitized = enforceAddressOneOfCompliance(payload);
-      if (sanitized) {
-        const exclusive = ensureExclusiveAddressMode(sanitized);
-        if (exclusive) return exclusive;
-      }
-    }
+    return payload;
   }
 
   return null;
