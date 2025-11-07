@@ -2426,6 +2426,10 @@ async function main() {
   const unnormalizedAddressData = await readJson(unnormalizedAddressPath).catch(() => null);
   const propertySeedData = await readJson(propertySeedPath).catch(() => null); // Read property_seed.json
 
+  const propertyRef = { "/": "./property.json" };
+  const addressRef = { "/": "./address.json" };
+  let propertyExists = false;
+
   // Base data for address output, derived from property_seed or unnormalized_address
   // Ensure source_http_request is taken from property_seed if available, otherwise unnormalized_address
   const baseRequestData = propertySeedData || unnormalizedAddressData || {};
@@ -2436,6 +2440,7 @@ async function main() {
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_address.*\.json$/);
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
+  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
   await removeExisting(/^address\.json$/);
   const propertyImprovementRecords = [];
 
@@ -2653,6 +2658,29 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+    propertyExists = true;
+
+    if (addressHasCoreData) {
+      const propertyHasAddressRel = {
+        type: "property_has_address",
+        from: propertyRef,
+        to: addressRef,
+      };
+      await fsp.writeFile(
+        path.join("data", "relationship_property_has_address.json"),
+        JSON.stringify(propertyHasAddressRel, null, 2),
+      );
+
+      const addressHasFactSheetRel = {
+        type: "address_has_fact_sheet",
+        from: addressRef,
+        to: propertyRef,
+      };
+      await fsp.writeFile(
+        path.join("data", "relationship_address_has_fact_sheet.json"),
+        JSON.stringify(addressHasFactSheetRel, null, 2),
+      );
+    }
     // Lot data
 
     const lotOut = {
@@ -3517,6 +3545,26 @@ async function main() {
     // --- Create relationship between latest owner (if person) and mailing address ---
     // This relationship should only be created if mailingAddressOut was successfully created
     // and ownerToFileMap is now fully populated.
+    if (propertyExists && ownerToFileMap.size > 0) {
+      const linkedPersonIndexes = new Set();
+      for (const meta of ownerToFileMap.values()) {
+        if (meta.type !== "person") continue;
+        if (linkedPersonIndexes.has(meta.index)) continue;
+        linkedPersonIndexes.add(meta.index);
+
+        const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
+        const relOut = {
+          type: "person_has_fact_sheet",
+          from: { "/": `./${meta.fileName}` },
+          to: propertyRef,
+        };
+        await fsp.writeFile(
+          path.join("data", relFileName),
+          JSON.stringify(relOut, null, 2),
+        );
+      }
+    }
+
     if (currentOwnerRecord  && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
       if (latestOwnerMeta) { // Ensure it's a person for this relationship
@@ -4183,8 +4231,6 @@ async function main() {
       );
     }
   }
-
-  const propertyRef = { "/": "./property.json" };
 
   // if (propertyOut) {
   //   for (const record of propertyImprovementRecords) {
