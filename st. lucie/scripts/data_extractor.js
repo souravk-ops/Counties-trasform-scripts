@@ -3601,25 +3601,16 @@ async function main() {
     requestIdentifier: baseRequestData.request_identifier || null,
   };
 
+  let addressFileRef = null;
   let addressRecordInput = null;
-  let preferredAddressMode = null;
+  let preferredAddressMode = structuredAddressSource ? "structured" : null;
 
-  if (normalizedUnnormalizedCandidate) {
-    addressRecordInput = buildAddressRecord({
-      structuredAddress: null,
-      unnormalizedValue: normalizedUnnormalizedCandidate,
-      ...addressArgsBase,
-    });
-    if (addressRecordInput) preferredAddressMode = "unnormalized";
-  }
-
-  if (!addressRecordInput && structuredAddressSource) {
+  if (structuredAddressSource) {
     addressRecordInput = buildAddressRecord({
       structuredAddress: structuredAddressSource,
       unnormalizedValue: null,
       ...addressArgsBase,
     });
-    if (addressRecordInput) preferredAddressMode = "structured";
   }
 
   if (
@@ -3632,7 +3623,34 @@ async function main() {
       unnormalizedValue: normalizedUnnormalizedCandidate,
       ...addressArgsBase,
     });
+  }
+
+  if (!addressRecordInput && normalizedUnnormalizedCandidate) {
+    addressRecordInput = buildAddressRecord({
+      structuredAddress: null,
+      unnormalizedValue: normalizedUnnormalizedCandidate,
+      ...addressArgsBase,
+    });
     if (addressRecordInput) preferredAddressMode = "unnormalized";
+  }
+
+  if (!preferredAddressMode && normalizedUnnormalizedCandidate) {
+    preferredAddressMode = "unnormalized";
+  }
+
+  if (addressRecordInput) {
+    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = addressRecordInput[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    const hasUnnormalized =
+      typeof addressRecordInput.unnormalized_address === "string" &&
+      addressRecordInput.unnormalized_address.trim().length > 0;
+    if (hasStructured && !hasUnnormalized) {
+      preferredAddressMode = "structured";
+    } else if (!hasStructured && hasUnnormalized) {
+      preferredAddressMode = "unnormalized";
+    }
   }
 
   let preparedAddressPayload = null;
@@ -3658,6 +3676,7 @@ async function main() {
       path.join("data", addressFileName),
       JSON.stringify(preparedAddressPayload, null, 2),
     );
+    addressFileRef = `./${addressFileName}`;
   }
 
   // --- Parcel extraction ---
@@ -3760,6 +3779,19 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+
+    if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
+      await writeRelationshipFile(
+        "relationship_address_has_fact_sheet.json",
+        addressFileRef,
+        propertyRef,
+      );
+    }
 
     // Lot data
 
@@ -4738,6 +4770,18 @@ async function main() {
             relFileName,
             propertyRef,
             `./${meta.fileName}`,
+          );
+        }
+      } else if (meta.type === "person") {
+        const hasCurrentRole = Array.from(roles).some(
+          (role) => typeof role === "string" && role.toLowerCase() === "current",
+        );
+        if (hasCurrentRole) {
+          const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
+          await writeRelationshipFile(
+            relFileName,
+            `./${meta.fileName}`,
+            propertyRef,
           );
         }
       }
