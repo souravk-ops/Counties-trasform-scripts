@@ -2153,17 +2153,10 @@ const PERSON_NAME_PATTERN =
 const PERSON_MIDDLE_NAME_PATTERN =
   /^[A-Z][a-zA-Z\s\-',.]*$/;
 
-function enforceNamePattern(value, pattern) {
-  if (value == null) return null;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return pattern.test(trimmed) ? trimmed : null;
-}
-
-function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
+function normalizeNameToPattern(value, pattern) {
   if (!value) return null;
   let cleaned = textClean(String(value));
+  if (!cleaned) return null;
   if (cleaned.normalize) {
     cleaned = cleaned.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }
@@ -2173,30 +2166,35 @@ function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
     .trim();
   if (!cleaned) return null;
 
-  cleaned = cleaned.replace(/([ \-',.])+$/g, "").trim();
-  if (!cleaned) return null;
+  let result = "";
+  let shouldCapitalize = true;
+  for (const ch of cleaned) {
+    if (/[A-Za-z]/.test(ch)) {
+      const letter = shouldCapitalize ? ch.toUpperCase() : ch.toLowerCase();
+      result += letter;
+      shouldCapitalize = false;
+    } else if (/[ \-',.]/.test(ch)) {
+      if (result.length && /[ \-',.]$/.test(result)) continue;
+      result += ch === " " ? " " : ch;
+      shouldCapitalize = true;
+    }
+  }
 
-  const titleCased = toTitleCaseName(cleaned);
-  if (!titleCased) return null;
+  result = result.replace(/\s+/g, " ").replace(/([ \-',.])+$/g, "").trim();
+  if (!result) return null;
+  return pattern.test(result) ? result : null;
+}
 
-  let trimmed = titleCased.replace(/([ \-',.])+$/g, "").trim();
+function enforceNamePattern(value, pattern) {
+  if (value == null) return null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
   if (!trimmed) return null;
-
-  trimmed = trimmed
-    .replace(/,/g, " ")
-    .replace(/\.(?=[A-Za-z])/g, " ")
-    .replace(/\./g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/-+/g, "-")
-    .replace(/'+/g, "'")
-    .trim();
-
-  trimmed = trimmed.replace(/([ \-',])+$/g, "").trim();
-
-  if (!trimmed) return null;
-  if (!/[A-Za-z]$/.test(trimmed)) return null;
-
   return pattern.test(trimmed) ? trimmed : null;
+}
+
+function normalizePersonNameValue(value, pattern = PERSON_NAME_PATTERN) {
+  return normalizeNameToPattern(value, pattern);
 }
 
 function ensurePersonNamePattern(value, pattern = PERSON_NAME_PATTERN) {
@@ -2207,7 +2205,7 @@ function ensurePersonNamePattern(value, pattern = PERSON_NAME_PATTERN) {
       return trimmed;
     }
   }
-  const normalized = normalizePersonNameValue(value, pattern);
+  const normalized = normalizeNameToPattern(value, pattern);
   if (!normalized) return null;
   return pattern.test(normalized) ? normalized : null;
 }
@@ -3766,18 +3764,7 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
-      await writeRelationshipFile(
-        "relationship_address_has_fact_sheet.json",
-        addressFileRef,
-        propertyRef,
-      );
-    }
+    // Address relationships are generated downstream; avoid emitting duplicates here.
 
     // Lot data
 
