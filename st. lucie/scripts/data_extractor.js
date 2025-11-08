@@ -3757,79 +3757,112 @@ async function main() {
       ? pickStructuredAddress(structuredAddressSource)
       : null;
 
-  const baseAddressOut = {};
-  assignIfValue(
-    baseAddressOut,
-    "request_identifier",
+  const preferredAddressMode =
+    normalizedUnnormalized && normalizedUnnormalized.length > 0
+      ? "unnormalized"
+      : structuredCandidate
+      ? "structured"
+      : "unnormalized";
+
+  const requestIdentifierValue =
     baseRequestData && baseRequestData.request_identifier
       ? baseRequestData.request_identifier
-      : null,
-  );
-  if (cleanedAddressMetadata && typeof cleanedAddressMetadata === "object") {
-    for (const key of ADDRESS_METADATA_KEYS) {
-      if (
-        Object.prototype.hasOwnProperty.call(cleanedAddressMetadata, key)
-      ) {
-        assignIfValue(baseAddressOut, key, cleanedAddressMetadata[key]);
+      : null;
+
+  const addressRecordPayload =
+    buildAddressRecord({
+      structuredAddress: structuredCandidate,
+      unnormalizedValue: unnormalizedAddressCandidate,
+      metadata: cleanedAddressMetadata,
+      requestIdentifier: requestIdentifierValue,
+    }) ||
+    createAddressPayload({
+      structuredSource: structuredCandidate,
+      unnormalizedValue: unnormalizedAddressCandidate,
+      metadata: cleanedAddressMetadata,
+      requestIdentifier: requestIdentifierValue,
+      preferStructured: preferredAddressMode === "structured",
+    });
+
+  let finalAddressOutput = null;
+  if (addressRecordPayload) {
+    const preparedAddress =
+      prepareAddressForWrite(addressRecordPayload, {
+        fallbackUnnormalized: unnormalizedAddressCandidate,
+        preferMode: preferredAddressMode,
+      }) || ensureExclusiveAddressMode(addressRecordPayload);
+
+    const candidateForFinalize = preparedAddress || addressRecordPayload;
+
+    finalAddressOutput =
+      finalizeAddressOutputForSchema(
+        candidateForFinalize,
+        unnormalizedAddressCandidate,
+      ) ||
+      buildSchemaCompliantAddress(
+        candidateForFinalize,
+        unnormalizedAddressCandidate,
+      );
+
+    if (!finalAddressOutput && preparedAddress) {
+      const resolution = resolveAddressForOutput(
+        preparedAddress,
+        preferredAddressMode,
+      );
+      const finalizedResolution = finalizeResolvedAddressPayload(
+        resolution,
+        preferredAddressMode,
+      );
+      if (finalizedResolution && finalizedResolution.payload) {
+        finalAddressOutput = finalizeAddressOutputForSchema(
+          finalizedResolution.payload,
+          unnormalizedAddressCandidate,
+        );
+      }
+    }
+
+    if (!finalAddressOutput) {
+      const resolution = resolveAddressForOutput(
+        addressRecordPayload,
+        preferredAddressMode,
+      );
+      const finalizedResolution = finalizeResolvedAddressPayload(
+        resolution,
+        preferredAddressMode,
+      );
+      if (finalizedResolution && finalizedResolution.payload) {
+        finalAddressOutput = finalizeAddressOutputForSchema(
+          finalizedResolution.payload,
+          unnormalizedAddressCandidate,
+        );
       }
     }
   }
 
-  let selectedAddress = null;
-  if (normalizedUnnormalized) {
-    selectedAddress = {
-      ...baseAddressOut,
+  if (!finalAddressOutput && normalizedUnnormalized) {
+    const fallbackAddress = {
+      ...cleanedAddressMetadata,
       unnormalized_address: normalizedUnnormalized,
     };
-  } else if (
-    structuredCandidate &&
-    STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-      (key) =>
-        typeof structuredCandidate[key] === "string" &&
-        structuredCandidate[key].trim().length > 0,
-    )
-  ) {
-    selectedAddress = { ...baseAddressOut };
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(structuredCandidate, key)) {
-        assignIfValue(selectedAddress, key, structuredCandidate[key]);
-      }
+    if (requestIdentifierValue) {
+      fallbackAddress.request_identifier = requestIdentifierValue;
     }
-    if (!selectedAddress.country_code) {
-      selectedAddress.country_code = "US";
-    }
+    finalAddressOutput = ensureExclusiveAddressMode(fallbackAddress);
   }
 
-  const addressOutput = {};
-  if (selectedAddress) {
-    for (const [key, value] of Object.entries(selectedAddress)) {
-      if (value == null) continue;
-      if (typeof value === "string") {
-        const cleaned = textClean(value);
-        if (!cleaned) continue;
-        addressOutput[key] = cleaned;
-      } else if (typeof value === "number") {
-        if (Number.isFinite(value)) {
-          addressOutput[key] = value;
-        }
-      } else {
-        addressOutput[key] = value;
-      }
-    }
-    if (addressOutput.unnormalized_address) {
-      for (const field of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(addressOutput, field)) {
-          delete addressOutput[field];
-        }
-      }
-    }
+  if (finalAddressOutput) {
+    finalAddressOutput = ensureExclusiveAddressMode(finalAddressOutput);
   }
 
   let addressFileRef = null;
-  if (selectedAddress && Object.keys(addressOutput).length > 0) {
+  if (
+    finalAddressOutput &&
+    typeof finalAddressOutput === "object" &&
+    Object.keys(finalAddressOutput).length > 0
+  ) {
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(addressOutput, null, 2),
+      JSON.stringify(finalAddressOutput, null, 2),
     );
     addressFileRef = `./${addressFileName}`;
   }
