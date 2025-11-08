@@ -1574,6 +1574,14 @@ function buildAddressRecord({
       ? pickStructuredAddress(structuredAddress)
       : null;
 
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    unnormalizedValue,
+  );
+  if (normalizedUnnormalized) {
+    payload.unnormalized_address = normalizedUnnormalized;
+    return payload;
+  }
+
   const hasStructured =
     structuredCandidate &&
     STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
@@ -1587,19 +1595,6 @@ function buildAddressRecord({
     }
     if (Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
       delete payload.unnormalized_address;
-    }
-    return payload;
-  }
-
-  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-    unnormalizedValue,
-  );
-  if (normalizedUnnormalized) {
-    payload.unnormalized_address = normalizedUnnormalized;
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(payload, key)) {
-        delete payload[key];
-      }
     }
     return payload;
   }
@@ -1867,6 +1862,79 @@ function buildSchemaCompliantAddress(payload, fallbackUnnormalized = null) {
         unnormalized_address: normalizedFallback,
       };
     }
+  }
+
+  return null;
+}
+
+function finalizeAddressOutputForSchema(address, fallbackUnnormalized = null) {
+  if (!address || typeof address !== "object") return null;
+
+  const base = {};
+
+  if (Object.prototype.hasOwnProperty.call(address, "request_identifier")) {
+    const rawRequestId = address.request_identifier;
+    if (rawRequestId != null) {
+      if (typeof rawRequestId === "string") {
+        const trimmed = rawRequestId.trim();
+        if (trimmed) base.request_identifier = trimmed;
+      } else {
+        base.request_identifier = rawRequestId;
+      }
+    }
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const value = address[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (!cleaned) continue;
+      base[key] = cleaned;
+    } else {
+      base[key] = value;
+    }
+  }
+
+  const rawUnnormalized = Object.prototype.hasOwnProperty.call(
+    address,
+    "unnormalized_address",
+  )
+    ? address.unnormalized_address
+    : null;
+
+  let normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    rawUnnormalized,
+  );
+  if (!normalizedUnnormalized && typeof fallbackUnnormalized === "string") {
+    normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      fallbackUnnormalized,
+    );
+  }
+
+  if (normalizedUnnormalized) {
+    return {
+      ...base,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  }
+
+  const structuredCandidate = pickStructuredAddress(address);
+  if (structuredCandidate) {
+    const structuredOut = {};
+    for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+      structuredOut[key] = structuredCandidate[key];
+    }
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(structuredCandidate, key)) {
+        structuredOut[key] = structuredCandidate[key];
+      }
+    }
+    return {
+      ...base,
+      ...structuredOut,
+    };
   }
 
   return null;
@@ -3689,13 +3757,22 @@ async function main() {
 
   let addressFileRef = null;
   if (addressPayload) {
+    const preferMode =
+      normalizeUnnormalizedAddressValue(unnormalizedAddressCandidate) != null
+        ? "unnormalized"
+        : "structured";
     const preparedAddress = prepareAddressForWrite(addressPayload, {
       fallbackUnnormalized: unnormalizedAddressCandidate,
+      preferMode,
     });
-    if (preparedAddress) {
+    const finalAddress = finalizeAddressOutputForSchema(
+      preparedAddress,
+      unnormalizedAddressCandidate,
+    );
+    if (finalAddress) {
       await fsp.writeFile(
         path.join("data", addressFileName),
-        JSON.stringify(preparedAddress, null, 2),
+        JSON.stringify(finalAddress, null, 2),
       );
       addressFileRef = `./${addressFileName}`;
     }
@@ -4312,12 +4389,16 @@ async function main() {
             preferMode: "unnormalized",
           },
         );
-        if (preparedMailingAddress) {
+        const finalMailingAddress = finalizeAddressOutputForSchema(
+          preparedMailingAddress,
+          mailingAddressText,
+        );
+        if (finalMailingAddress) {
           await fsp.writeFile(
             path.join("data", "mailing_address.json"),
-            JSON.stringify(preparedMailingAddress, null, 2),
+            JSON.stringify(finalMailingAddress, null, 2),
           );
-          mailingAddressOut = preparedMailingAddress;
+          mailingAddressOut = finalMailingAddress;
           console.log("mailing_address.json created.");
         } else {
           mailingAddressOut = null;
