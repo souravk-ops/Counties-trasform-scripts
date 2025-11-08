@@ -3568,60 +3568,50 @@ async function main() {
   if (range) addressMetadata.range = range;
   if (section) addressMetadata.section = section;
 
-  const preparedAddressOutput = buildAddressRecord({
-    structuredAddress: structuredAddressCandidate,
-    unnormalizedValue: fallbackAddress,
-    metadata: addressMetadata,
-    requestIdentifier: baseRequestData.request_identifier || null,
-  });
+  const cleanedAddressMetadata = {};
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(addressMetadata, key)) continue;
+    const rawValue = addressMetadata[key];
+    if (rawValue == null) continue;
+    if (typeof rawValue === "string") {
+      const cleaned = textClean(rawValue);
+      if (!cleaned) continue;
+      cleanedAddressMetadata[key] = cleaned;
+    } else {
+      cleanedAddressMetadata[key] = rawValue;
+    }
+  }
 
-  const preferredAddressMode = structuredAddressCandidate
-    ? "structured"
-    : fallbackAddress
-      ? "unnormalized"
-      : null;
-
-  const resolvedAddressOutput = preparedAddressOutput
-    ? resolveAddressForOutput(preparedAddressOutput, preferredAddressMode)
+  const structuredAddressForWrite = structuredAddressCandidate
+    ? pickStructuredAddress(structuredAddressCandidate)
     : null;
+  const normalizedUnnormalizedFallback = normalizeUnnormalizedAddressValue(
+    fallbackAddress,
+  );
 
-  const exclusiveAddressResolution = resolvedAddressOutput
-    ? finalizeResolvedAddressPayload(
-        resolvedAddressOutput,
-        preferredAddressMode,
-      )
-    : null;
+  let finalizedAddressPayload = null;
+  if (structuredAddressForWrite) {
+    finalizedAddressPayload = {
+      ...cleanedAddressMetadata,
+      ...structuredAddressForWrite,
+    };
+  } else if (normalizedUnnormalizedFallback) {
+    finalizedAddressPayload = {
+      ...cleanedAddressMetadata,
+      unnormalized_address: normalizedUnnormalizedFallback,
+    };
+  }
 
-  const finalizedAddressPayload = exclusiveAddressResolution
-    ? prepareAddressPayloadForWrite(exclusiveAddressResolution)
-    : null;
-
-  const addressPayloadCandidate =
-    finalizedAddressPayload ||
-    (fallbackAddress
-      ? {
-          ...addressMetadata,
-          request_identifier: baseRequestData.request_identifier || null,
-          unnormalized_address: fallbackAddress,
-        }
-      : null);
-
-  const schemaReadyAddress = addressPayloadCandidate
-    ? buildSchemaCompliantAddress(addressPayloadCandidate, fallbackAddress)
-    : null;
-
-  const sanitizedAddressForWrite = schemaReadyAddress
-    ? enforceAddressOneOfForWrite(
-        schemaReadyAddress,
-        structuredAddressCandidate ? "structured" : "unnormalized",
-      )
-    : null;
-
-  if (sanitizedAddressForWrite) {
+  if (finalizedAddressPayload) {
+    assignIfValue(
+      finalizedAddressPayload,
+      "request_identifier",
+      baseRequestData.request_identifier,
+    );
     addressHasCoreData = true;
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(sanitizedAddressForWrite, null, 2),
+      JSON.stringify(finalizedAddressPayload, null, 2),
     );
   } else {
     addressHasCoreData = false;
@@ -4616,6 +4606,20 @@ async function main() {
         validatedOutput.last_name = personOut.last_name;
         validatedOutput.first_name = personOut.first_name;
         validatedOutput.middle_name = personOut.middle_name;
+
+        if (
+          !PERSON_NAME_PATTERN.test(personOut.last_name) ||
+          !PERSON_NAME_PATTERN.test(personOut.first_name)
+        ) {
+          await promoteToCompany(validationFallback);
+          continue;
+        }
+        if (
+          personOut.middle_name != null &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+        ) {
+          personOut.middle_name = null;
+        }
 
         personIdx += 1;
         const fileName = `person_${personIdx}.json`;
