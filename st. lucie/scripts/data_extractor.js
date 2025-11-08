@@ -3268,6 +3268,87 @@ function sanitizeAddressRecordForOneOf(address, preferStructured = false) {
   });
 }
 
+function buildSchemaReadyAddress({
+  requestIdentifier = null,
+  metadataSources = [],
+  structuredSources = [],
+  unnormalizedCandidates = [],
+  preferStructured = false,
+} = {}) {
+  const payload = {};
+  assignIfValue(payload, "request_identifier", requestIdentifier);
+
+  const metadataList = Array.isArray(metadataSources)
+    ? metadataSources
+    : [metadataSources];
+  for (const source of metadataList) {
+    if (!source || typeof source !== "object") continue;
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+      assignIfValue(payload, key, source[key]);
+    }
+  }
+
+  const structuredList = Array.isArray(structuredSources)
+    ? structuredSources
+    : [structuredSources];
+  let structuredCandidate = null;
+  for (const source of structuredList) {
+    if (!source || typeof source !== "object") continue;
+    const candidate = pickStructuredAddress(source);
+    if (candidate) {
+      structuredCandidate = candidate;
+      break;
+    }
+  }
+
+  const unnormalizedList = Array.isArray(unnormalizedCandidates)
+    ? unnormalizedCandidates
+    : [unnormalizedCandidates];
+  let normalizedUnnormalized = null;
+  for (const candidate of unnormalizedList) {
+    const normalized = normalizeUnnormalizedAddressValue(candidate);
+    if (normalized) {
+      normalizedUnnormalized = normalized;
+      break;
+    }
+  }
+
+  if (structuredCandidate && preferStructured) {
+    if (Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
+      delete payload.unnormalized_address;
+    }
+    return { ...payload, ...structuredCandidate };
+  }
+
+  if (structuredCandidate && !normalizedUnnormalized) {
+    if (Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
+      delete payload.unnormalized_address;
+    }
+    return { ...payload, ...structuredCandidate };
+  }
+
+  if (normalizedUnnormalized) {
+    const base = { ...payload };
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(base, key)) {
+        delete base[key];
+      }
+    }
+    base.unnormalized_address = normalizedUnnormalized;
+    return base;
+  }
+
+  if (structuredCandidate) {
+    if (Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
+      delete payload.unnormalized_address;
+    }
+    return { ...payload, ...structuredCandidate };
+  }
+
+  return null;
+}
+
 function buildPreferredSchemaAddressPayload({
   candidate = null,
   structuredSources = [],
@@ -5974,10 +6055,37 @@ async function main() {
     try {
       const rawAddress = await fsp.readFile(addressPath, "utf8");
       const parsedAddress = JSON.parse(rawAddress);
-      const sanitizedAddress = sanitizeAddressRecordForOneOf(
-        parsedAddress,
-        Boolean(structuredCandidate),
-      );
+      const sanitizedAddress = buildSchemaReadyAddress({
+        requestIdentifier:
+          parsedAddress.request_identifier ??
+          requestIdentifierValue ??
+          addressRecordPayload?.request_identifier ??
+          null,
+        metadataSources: [
+          cleanedAddressMetadata,
+          parsedAddress,
+          addressRecordPayload,
+          finalAddressOutput,
+          addressForWrite,
+        ],
+        structuredSources: [
+          parsedAddress,
+          structuredCandidate,
+          finalAddressOutput,
+          addressRecordPayload,
+          addressForWrite,
+          structuredAddressSource,
+        ],
+        unnormalizedCandidates: [
+          parsedAddress.unnormalized_address,
+          normalizedUnnormalized,
+          fallbackUnnormalizedValue,
+          unnormalizedAddressCandidate,
+          finalAddressOutput?.unnormalized_address,
+          addressRecordPayload?.unnormalized_address,
+        ],
+        preferStructured: Boolean(structuredCandidate),
+      });
       if (sanitizedAddress) {
         await fsp.writeFile(
           addressPath,
@@ -5993,18 +6101,24 @@ async function main() {
   }
 
   if (!addressFileRef) {
-    const fallbackAddressRecord = buildCanonicalAddressPayload({
+    const fallbackAddressRecord = buildSchemaReadyAddress({
       requestIdentifier: requestIdentifierValue,
-      structuredSource: structuredCandidate || structuredAddressSource,
       metadataSources: [
         cleanedAddressMetadata,
         addressRecordPayload,
         finalAddressOutput,
         addressForWrite,
       ],
+      structuredSources: [
+        structuredCandidate,
+        structuredAddressSource,
+        finalAddressOutput,
+        addressRecordPayload,
+        addressForWrite,
+      ],
       unnormalizedCandidates: [
-        unnormalizedAddressCandidate,
         normalizedUnnormalized,
+        unnormalizedAddressCandidate,
         fallbackUnnormalizedValue,
         baseRequestData?.unnormalized_address,
         baseRequestData?.full_address,
