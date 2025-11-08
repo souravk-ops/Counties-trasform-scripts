@@ -4058,6 +4058,39 @@ async function main() {
     }
   }
 
+  if (finalAddressOutput) {
+    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = finalAddressOutput[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    const normalizedUnnormalizedValue = normalizeUnnormalizedAddressValue(
+      Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")
+        ? finalAddressOutput.unnormalized_address
+        : null,
+    );
+
+    if (normalizedUnnormalizedValue) {
+      stripStructuredAddressFields(finalAddressOutput);
+      finalAddressOutput.unnormalized_address = normalizedUnnormalizedValue;
+    } else if (hasStructured) {
+      removeUnnormalizedAddress(finalAddressOutput);
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
+          const value = finalAddressOutput[key];
+          if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (trimmed) finalAddressOutput[key] = trimmed;
+            else delete finalAddressOutput[key];
+          } else if (value == null) {
+            delete finalAddressOutput[key];
+          }
+        }
+      }
+    } else {
+      finalAddressOutput = null;
+    }
+  }
+
   let addressFileRef = null;
   if (
     finalAddressOutput &&
@@ -4717,6 +4750,38 @@ async function main() {
             Object.keys(sanitizedMailing).length > 0
           ) {
             finalMailingAddress = sanitizedMailing;
+          } else {
+            finalMailingAddress = null;
+          }
+        }
+        if (finalMailingAddress) {
+          const hasMailingStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+            const value = finalMailingAddress[key];
+            return typeof value === "string" && value.trim().length > 0;
+          });
+          const normalizedMailingUnnormalized = normalizeUnnormalizedAddressValue(
+            Object.prototype.hasOwnProperty.call(finalMailingAddress, "unnormalized_address")
+              ? finalMailingAddress.unnormalized_address
+              : null,
+          );
+
+          if (normalizedMailingUnnormalized) {
+            stripStructuredAddressFields(finalMailingAddress);
+            finalMailingAddress.unnormalized_address = normalizedMailingUnnormalized;
+          } else if (hasMailingStructured) {
+            removeUnnormalizedAddress(finalMailingAddress);
+            for (const key of STRUCTURED_ADDRESS_FIELDS) {
+              if (Object.prototype.hasOwnProperty.call(finalMailingAddress, key)) {
+                const value = finalMailingAddress[key];
+                if (typeof value === "string") {
+                  const trimmed = value.trim();
+                  if (trimmed) finalMailingAddress[key] = trimmed;
+                  else delete finalMailingAddress[key];
+                } else if (value == null) {
+                  delete finalMailingAddress[key];
+                }
+              }
+            }
           } else {
             finalMailingAddress = null;
           }
