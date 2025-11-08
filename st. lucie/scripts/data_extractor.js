@@ -1558,95 +1558,50 @@ function buildAddressRecord({
   metadata = {},
   requestIdentifier = null,
 }) {
-  const applyCommonFields = (target) => {
-    assignIfValue(target, "request_identifier", requestIdentifier);
-    if (!metadata || typeof metadata !== "object") return;
-    for (const key of ADDRESS_METADATA_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(metadata, key)) {
-        assignIfValue(target, key, metadata[key]);
-      }
-    }
-  };
+  const payload = {};
 
-  const normalizedStructured =
+  assignIfValue(payload, "request_identifier", requestIdentifier);
+
+  if (metadata && typeof metadata === "object") {
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(metadata, key)) continue;
+      assignIfValue(payload, key, metadata[key]);
+    }
+  }
+
+  const structuredCandidate =
     structuredAddress && typeof structuredAddress === "object"
       ? pickStructuredAddress(structuredAddress)
       : null;
+
+  const hasStructured =
+    structuredCandidate &&
+    STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = structuredCandidate[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+
+  if (hasStructured) {
+    for (const [key, value] of Object.entries(structuredCandidate)) {
+      assignIfValue(payload, key, value);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
+      delete payload.unnormalized_address;
+    }
+    return payload;
+  }
+
   const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
     unnormalizedValue,
   );
-
-  const finalizeCandidate = (source) => {
-    if (!source || typeof source !== "object") return null;
-
-    const trySanitize = (payload) => {
-      if (!payload) return null;
-      const sanitized = sanitizeAddressPayloadForOneOf({ ...payload });
-      if (sanitized) {
-        const exclusive = ensureExclusiveAddressMode(sanitized);
-        if (exclusive) return exclusive;
-        return null;
-      }
-
-      const enforced = enforceAddressOneOfCompliance(payload);
-      if (enforced) {
-        const sanitizedEnforced = sanitizeAddressPayloadForOneOf({
-          ...enforced,
-        });
-        if (sanitizedEnforced) {
-          const exclusive = ensureExclusiveAddressMode(sanitizedEnforced);
-          if (exclusive) return exclusive;
-          return null;
-        }
-        const exclusive = ensureExclusiveAddressMode(enforced);
-        if (exclusive) return exclusive;
-        return null;
-      }
-
-      const coerced = coerceAddressPayloadToOneOf(payload);
-      if (coerced) {
-        const sanitizedCoerced = sanitizeAddressPayloadForOneOf({
-          ...coerced,
-        });
-        if (sanitizedCoerced) {
-          const exclusive = ensureExclusiveAddressMode(sanitizedCoerced);
-          if (exclusive) return exclusive;
-          return null;
-        }
-        const exclusive = ensureExclusiveAddressMode(coerced);
-        if (exclusive) return exclusive;
-        return null;
-      }
-
-      return null;
-    };
-
-    return trySanitize(source);
-  };
-
-  const buildCandidate = (mode) => {
-    const candidate = {};
-    applyCommonFields(candidate);
-    if (mode === "unnormalized" && normalizedUnnormalized) {
-      assignIfValue(candidate, "unnormalized_address", normalizedUnnormalized);
-    } else if (mode === "structured" && normalizedStructured) {
-      for (const [key, value] of Object.entries(normalizedStructured)) {
-        assignIfValue(candidate, key, value);
+  if (normalizedUnnormalized) {
+    payload.unnormalized_address = normalizedUnnormalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        delete payload[key];
       }
     }
-    return candidate;
-  };
-
-  if (normalizedStructured) {
-    const structuredCandidate = buildCandidate("structured");
-    const resolvedStructured = finalizeCandidate(structuredCandidate);
-    if (resolvedStructured) return resolvedStructured;
-  }
-
-  if (normalizedUnnormalized) {
-    const unnormalizedCandidate = buildCandidate("unnormalized");
-    const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
-    if (resolvedUnnormalized) return resolvedUnnormalized;
+    return payload;
   }
 
   return null;
@@ -2320,23 +2275,24 @@ function preparePersonForWrite(rawPerson) {
     rawPerson.first_name,
     PERSON_NAME_PATTERN,
   );
-  if (!normalizedLast || !normalizedFirst) return null;
-
-  if (
-    !PERSON_NAME_PATTERN.test(normalizedLast) ||
-    !PERSON_NAME_PATTERN.test(normalizedFirst)
-  ) {
-    return null;
-  }
+  const safeLast = ensurePersonNamePattern(
+    normalizedLast,
+    PERSON_NAME_PATTERN,
+  );
+  const safeFirst = ensurePersonNamePattern(
+    normalizedFirst,
+    PERSON_NAME_PATTERN,
+  );
+  if (!safeLast || !safeFirst) return null;
 
   const normalizedMiddle = normalizePersonNameValue(
     rawPerson.middle_name,
     PERSON_MIDDLE_NAME_PATTERN,
   );
-  const middleValue =
-    normalizedMiddle && PERSON_MIDDLE_NAME_PATTERN.test(normalizedMiddle)
-      ? normalizedMiddle
-      : null;
+  const middleValue = ensurePersonNamePattern(
+    normalizedMiddle,
+    PERSON_MIDDLE_NAME_PATTERN,
+  );
 
   const sanitizeLooseField = (value) => {
     if (value == null) return null;
@@ -2349,8 +2305,8 @@ function preparePersonForWrite(rawPerson) {
 
   return {
     birth_date: sanitizeLooseField(rawPerson.birth_date),
-    first_name: normalizedFirst,
-    last_name: normalizedLast,
+    first_name: safeFirst,
+    last_name: safeLast,
     middle_name: middleValue ?? null,
     prefix_name: sanitizeLooseField(rawPerson.prefix_name),
     suffix_name: sanitizeLooseField(rawPerson.suffix_name),
