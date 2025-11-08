@@ -500,6 +500,76 @@ function normalizeUnnormalizedAddressValue(value) {
   return fallback && fallback.length > 0 ? fallback : null;
 }
 
+function buildFallbackUnnormalizedAddress(structuredValues) {
+  if (!structuredValues || typeof structuredValues !== "object") return null;
+
+  const normalizedPart = (value, transform = (v) => v) => {
+    if (value == null) return null;
+    const text = typeof value === "string" ? value.trim() : String(value).trim();
+    if (!text) return null;
+    return transform(text);
+  };
+
+  const line1Parts = [
+    normalizedPart(structuredValues.street_number),
+    normalizedPart(
+      structuredValues.street_pre_directional_text,
+      (v) => v.toUpperCase(),
+    ),
+    normalizedPart(structuredValues.street_name),
+    normalizedPart(structuredValues.street_suffix_type, (v) => v),
+    normalizedPart(structuredValues.unit_identifier),
+  ].filter(Boolean);
+
+  const line1 = line1Parts.join(" ").replace(/\s+/g, " ").trim();
+
+  const cityStateZipParts = [];
+  const city = normalizedPart(
+    structuredValues.city_name,
+    (v) => v.toUpperCase(),
+  );
+  if (city) cityStateZipParts.push(city);
+
+  const state = normalizedPart(
+    structuredValues.state_code,
+    (v) => v.toUpperCase(),
+  );
+  if (state) cityStateZipParts.push(state);
+
+  let postalSegment = normalizedPart(structuredValues.postal_code, (v) =>
+    v.replace(/\s+/g, ""),
+  );
+  const plusFour = normalizedPart(
+    structuredValues.plus_four_postal_code,
+    (v) => v.replace(/\s+/g, ""),
+  );
+  if (postalSegment && plusFour) {
+    postalSegment = `${postalSegment}-${plusFour}`;
+  } else if (!postalSegment && plusFour) {
+    postalSegment = plusFour;
+  }
+  if (postalSegment) cityStateZipParts.push(postalSegment);
+
+  const line2 = cityStateZipParts.join(" ").replace(/\s+/g, " ").trim();
+
+  const trailingParts = [
+    normalizedPart(structuredValues.municipality_name),
+    normalizedPart(structuredValues.route_number),
+    normalizedPart(structuredValues.block),
+    normalizedPart(structuredValues.lot),
+  ].filter(Boolean);
+
+  const segments = [];
+  if (line1) segments.push(line1);
+  if (line2) segments.push(line2);
+  if (trailingParts.length) segments.push(trailingParts.join(" "));
+
+  if (!segments.length) return null;
+
+  const fallback = segments.join(", ").replace(/\s+/g, " ").trim();
+  return fallback.length > 0 ? fallback : null;
+}
+
 function hasStructuredAddressFields(address) {
   if (!address || typeof address !== "object") return false;
   return STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
@@ -1769,45 +1839,13 @@ function buildSchemaCompliantAddress(payload, fallbackUnnormalized = null) {
   }
 
   if (Object.keys(structured).length > 0) {
-    const line1Parts = [];
-    if (structured.street_number) line1Parts.push(structured.street_number);
-    if (structured.street_pre_directional_text)
-      line1Parts.push(structured.street_pre_directional_text);
-    if (structured.street_name) line1Parts.push(structured.street_name);
-    if (structured.street_suffix_type)
-      line1Parts.push(structured.street_suffix_type);
-    if (structured.unit_identifier)
-      line1Parts.push(structured.unit_identifier);
-    const line1 = line1Parts
-      .filter(Boolean)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const line2Parts = [];
-    if (structured.city_name)
-      line2Parts.push(String(structured.city_name).toUpperCase());
-    if (structured.state_code)
-      line2Parts.push(String(structured.state_code).toUpperCase());
-    if (structured.postal_code) line2Parts.push(structured.postal_code);
-    const line2 = line2Parts
-      .filter(Boolean)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const fallback = [line1, line2]
-      .filter(Boolean)
-      .join(", ")
-      .replace(/,\s*$/, "");
-    if (fallback) {
-      const normalizedFallback = normalizeUnnormalizedAddressValue(fallback);
-      if (normalizedFallback) {
-        return {
-          ...metadata,
-          unnormalized_address: normalizedFallback,
-        };
-      }
+    const fallback = buildFallbackUnnormalizedAddress(structured);
+    const normalizedFallback = normalizeUnnormalizedAddressValue(fallback);
+    if (normalizedFallback) {
+      return {
+        ...metadata,
+        unnormalized_address: normalizedFallback,
+      };
     }
   }
 
@@ -1876,6 +1914,12 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
     }
   }
 
+  const structuredSnapshot = {};
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
+    structuredSnapshot[key] = sanitized[key];
+  }
+
   const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
     Object.prototype.hasOwnProperty.call(sanitized, "unnormalized_address")
       ? sanitized.unnormalized_address
@@ -1883,73 +1927,48 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
   );
   if (normalizedUnnormalized) {
     sanitized.unnormalized_address = normalizedUnnormalized;
-  } else if (
-    Object.prototype.hasOwnProperty.call(sanitized, "unnormalized_address")
-  ) {
+  } else {
     delete sanitized.unnormalized_address;
   }
 
   const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
-    const value = sanitized[key];
+    if (!Object.prototype.hasOwnProperty.call(structuredSnapshot, key)) {
+      return false;
+    }
+    const value = structuredSnapshot[key];
     return typeof value === "string" && value.trim().length > 0;
   });
 
-  const hasUnnormalized =
-    typeof sanitized.unnormalized_address === "string" &&
-    sanitized.unnormalized_address.trim().length > 0;
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(sanitized);
+    sanitized.unnormalized_address = normalizedUnnormalized;
+    return sanitized;
+  }
 
-  const pruneStructuredFields = () => {
+  if (hasStructured) {
+    delete sanitized.unnormalized_address;
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+      if (!Object.prototype.hasOwnProperty.call(structuredSnapshot, key)) {
         delete sanitized[key];
       }
     }
-  };
-
-  if (hasStructured && hasUnnormalized) {
-    if (preferMode === "unnormalized") {
-      pruneStructuredFields();
-      sanitized.unnormalized_address = normalizeUnnormalizedAddressValue(
-        sanitized.unnormalized_address,
-      );
-    } else {
-      delete sanitized.unnormalized_address;
-    }
-  } else if (hasStructured) {
-    delete sanitized.unnormalized_address;
-  } else if (hasUnnormalized) {
-    pruneStructuredFields();
-    sanitized.unnormalized_address = normalizeUnnormalizedAddressValue(
-      sanitized.unnormalized_address,
-    );
-  } else {
-    const hasAnyStructuredField = STRUCTURED_ADDRESS_FIELDS.some((key) =>
-      Object.prototype.hasOwnProperty.call(sanitized, key),
-    );
-    if (hasAnyStructuredField) {
-      pruneStructuredFields();
-    }
-    if (normalizedUnnormalized) {
-      sanitized.unnormalized_address = normalizedUnnormalized;
-    } else {
-      return null;
-    }
+    return sanitized;
   }
 
-  const hasRemainingStructured = STRUCTURED_ADDRESS_FIELDS.some((key) =>
-    Object.prototype.hasOwnProperty.call(sanitized, key),
+  const fallbackUnnormalized = buildFallbackUnnormalizedAddress(
+    structuredSnapshot,
   );
-
-  const hasRemainingUnnormalized = Object.prototype.hasOwnProperty.call(
-    sanitized,
-    "unnormalized_address",
-  );
-
-  if (!hasRemainingStructured && !hasRemainingUnnormalized) {
-    return null;
+  const normalizedFallback =
+    normalizeUnnormalizedAddressValue(fallbackUnnormalized);
+  if (normalizedFallback) {
+    stripStructuredAddressFields(sanitized);
+    sanitized.unnormalized_address = normalizedFallback;
+    return sanitized;
   }
 
-  return sanitized;
+  stripStructuredAddressFields(sanitized);
+  delete sanitized.unnormalized_address;
+  return null;
 }
 
 function toTitleCaseName(part) {
