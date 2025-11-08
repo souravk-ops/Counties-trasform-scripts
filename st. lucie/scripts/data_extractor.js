@@ -5343,12 +5343,121 @@ async function main() {
         typeof oneOfSafeAddress === "object" &&
         Object.keys(oneOfSafeAddress).length > 0
       ) {
-        addressForWrite = oneOfSafeAddress;
-        await fsp.writeFile(
-          path.join("data", addressFileName),
-          JSON.stringify(addressForWrite, null, 2),
-        );
-        addressFileRef = `./${addressFileName}`;
+        let normalizedAddressForWrite = deepClone(oneOfSafeAddress);
+        if (
+          normalizedAddressForWrite &&
+          typeof normalizedAddressForWrite === "object"
+        ) {
+          const normalizedPrimaryUnnormalized = normalizeUnnormalizedAddressValue(
+            Object.prototype.hasOwnProperty.call(
+              normalizedAddressForWrite,
+              "unnormalized_address",
+            )
+              ? normalizedAddressForWrite.unnormalized_address
+              : null,
+          );
+          if (normalizedPrimaryUnnormalized) {
+            normalizedAddressForWrite.unnormalized_address =
+              normalizedPrimaryUnnormalized;
+            stripStructuredAddressFields(normalizedAddressForWrite);
+          } else {
+            const hasStructuredForWrite = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+              (key) => {
+                if (
+                  !Object.prototype.hasOwnProperty.call(
+                    normalizedAddressForWrite,
+                    key,
+                  )
+                ) {
+                  return false;
+                }
+                const value = normalizedAddressForWrite[key];
+                if (value == null) return false;
+                if (typeof value === "string") {
+                  const trimmed = value.trim();
+                  if (!trimmed) return false;
+                  if (key === "city_name" || key === "state_code") {
+                    normalizedAddressForWrite[key] = trimmed.toUpperCase();
+                  } else if (
+                    key === "postal_code" ||
+                    key === "plus_four_postal_code"
+                  ) {
+                    normalizedAddressForWrite[key] = trimmed.replace(/\s+/g, "");
+                  } else {
+                    normalizedAddressForWrite[key] = trimmed;
+                  }
+                }
+                return true;
+              },
+            );
+
+            if (hasStructuredForWrite) {
+              delete normalizedAddressForWrite.unnormalized_address;
+              for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+                if (
+                  !Object.prototype.hasOwnProperty.call(
+                    normalizedAddressForWrite,
+                    key,
+                  )
+                ) {
+                  continue;
+                }
+                const optionalValue = normalizedAddressForWrite[key];
+                if (optionalValue == null) {
+                  delete normalizedAddressForWrite[key];
+                  continue;
+                }
+                if (typeof optionalValue === "string") {
+                  const trimmedOptional = optionalValue.trim();
+                  if (!trimmedOptional) {
+                    delete normalizedAddressForWrite[key];
+                    continue;
+                  }
+                  if (key === "city_name" || key === "state_code") {
+                    normalizedAddressForWrite[key] = trimmedOptional.toUpperCase();
+                  } else if (
+                    key === "postal_code" ||
+                    key === "plus_four_postal_code"
+                  ) {
+                    normalizedAddressForWrite[key] =
+                      trimmedOptional.replace(/\s+/g, "");
+                  } else {
+                    normalizedAddressForWrite[key] = trimmedOptional;
+                  }
+                }
+              }
+            } else {
+              const fallbackUnnormalizedForWrite =
+                normalizeUnnormalizedAddressValue(
+                  fallbackUnnormalizedValue != null
+                    ? fallbackUnnormalizedValue
+                    : normalizedUnnormalized,
+                );
+              if (fallbackUnnormalizedForWrite) {
+                stripStructuredAddressFields(normalizedAddressForWrite);
+                normalizedAddressForWrite.unnormalized_address =
+                  fallbackUnnormalizedForWrite;
+              } else {
+                normalizedAddressForWrite = null;
+              }
+            }
+          }
+        }
+
+        if (
+          normalizedAddressForWrite &&
+          typeof normalizedAddressForWrite === "object" &&
+          Object.keys(normalizedAddressForWrite).length > 0
+        ) {
+          addressForWrite = normalizedAddressForWrite;
+          await fsp.writeFile(
+            path.join("data", addressFileName),
+            JSON.stringify(addressForWrite, null, 2),
+          );
+          addressFileRef = `./${addressFileName}`;
+        } else {
+          addressForWrite = null;
+        }
       } else {
         addressForWrite = null;
       }
@@ -6109,12 +6218,118 @@ async function main() {
               typeof oneOfSafeMailing === "object" &&
               Object.keys(oneOfSafeMailing).length > 0
             ) {
-              await fsp.writeFile(
-                path.join("data", "mailing_address.json"),
-                JSON.stringify(oneOfSafeMailing, null, 2),
-              );
-              mailingAddressOut = oneOfSafeMailing;
-              console.log("mailing_address.json created.");
+              let normalizedMailingForWrite = deepClone(oneOfSafeMailing);
+              if (
+                normalizedMailingForWrite &&
+                typeof normalizedMailingForWrite === "object"
+              ) {
+                const normalizedMailingUnnormalized = normalizeUnnormalizedAddressValue(
+                  Object.prototype.hasOwnProperty.call(
+                    normalizedMailingForWrite,
+                    "unnormalized_address",
+                  )
+                    ? normalizedMailingForWrite.unnormalized_address
+                    : null,
+                );
+                if (normalizedMailingUnnormalized) {
+                  normalizedMailingForWrite.unnormalized_address =
+                    normalizedMailingUnnormalized;
+                  stripStructuredAddressFields(normalizedMailingForWrite);
+                } else {
+                  const hasMailingStructuredForWrite =
+                    STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+                      if (
+                        !Object.prototype.hasOwnProperty.call(
+                          normalizedMailingForWrite,
+                          key,
+                        )
+                      ) {
+                        return false;
+                      }
+                      const value = normalizedMailingForWrite[key];
+                      if (value == null) return false;
+                      if (typeof value === "string") {
+                        const trimmed = value.trim();
+                        if (!trimmed) return false;
+                        if (key === "city_name" || key === "state_code") {
+                          normalizedMailingForWrite[key] = trimmed.toUpperCase();
+                        } else if (
+                          key === "postal_code" ||
+                          key === "plus_four_postal_code"
+                        ) {
+                          normalizedMailingForWrite[key] =
+                            trimmed.replace(/\s+/g, "");
+                        } else {
+                          normalizedMailingForWrite[key] = trimmed;
+                        }
+                      }
+                      return true;
+                    });
+
+                  if (hasMailingStructuredForWrite) {
+                    delete normalizedMailingForWrite.unnormalized_address;
+                    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+                      if (
+                        !Object.prototype.hasOwnProperty.call(
+                          normalizedMailingForWrite,
+                          key,
+                        )
+                      ) {
+                        continue;
+                      }
+                      const optionalValue = normalizedMailingForWrite[key];
+                      if (optionalValue == null) {
+                        delete normalizedMailingForWrite[key];
+                        continue;
+                      }
+                      if (typeof optionalValue === "string") {
+                        const trimmedOptional = optionalValue.trim();
+                        if (!trimmedOptional) {
+                          delete normalizedMailingForWrite[key];
+                          continue;
+                        }
+                        if (key === "city_name" || key === "state_code") {
+                          normalizedMailingForWrite[key] =
+                            trimmedOptional.toUpperCase();
+                        } else if (
+                          key === "postal_code" ||
+                          key === "plus_four_postal_code"
+                        ) {
+                          normalizedMailingForWrite[key] =
+                            trimmedOptional.replace(/\s+/g, "");
+                        } else {
+                          normalizedMailingForWrite[key] = trimmedOptional;
+                        }
+                      }
+                    }
+                  } else {
+                    const fallbackMailingUnnormalizedForWrite =
+                      normalizeUnnormalizedAddressValue(mailingAddressText);
+                    if (fallbackMailingUnnormalizedForWrite) {
+                      stripStructuredAddressFields(normalizedMailingForWrite);
+                      normalizedMailingForWrite.unnormalized_address =
+                        fallbackMailingUnnormalizedForWrite;
+                    } else {
+                      normalizedMailingForWrite = null;
+                    }
+                  }
+                }
+              }
+
+              if (
+                normalizedMailingForWrite &&
+                typeof normalizedMailingForWrite === "object" &&
+                Object.keys(normalizedMailingForWrite).length > 0
+              ) {
+                await fsp.writeFile(
+                  path.join("data", "mailing_address.json"),
+                  JSON.stringify(normalizedMailingForWrite, null, 2),
+                );
+                mailingAddressOut = normalizedMailingForWrite;
+                console.log("mailing_address.json created.");
+              } else {
+                mailingAddressOut = null;
+              }
             } else {
               mailingAddressOut = null;
             }
@@ -6610,6 +6825,31 @@ async function main() {
         continue;
       }
       personOut = finalizedPersonOut;
+
+      const finalLastForWrite = normalizeNameToPattern(
+        personOut.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      const finalFirstForWrite = normalizeNameToPattern(
+        personOut.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      const finalMiddleForWrite =
+        personOut.middle_name != null
+          ? normalizeNameToPattern(
+              personOut.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
+
+      if (!finalLastForWrite || !finalFirstForWrite) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+
+      personOut.last_name = finalLastForWrite;
+      personOut.first_name = finalFirstForWrite;
+      personOut.middle_name = finalMiddleForWrite ?? null;
 
       personIdx += 1;
       const fileName = `person_${personIdx}.json`;
