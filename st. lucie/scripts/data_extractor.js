@@ -1623,7 +1623,7 @@ function prepareAddressPayloadForWrite(resolution) {
   if (!payload || typeof payload !== "object") return null;
   if (mode !== "structured" && mode !== "unnormalized") return null;
 
-  const cleaned = {};
+  const metadata = {};
 
   if (
     Object.prototype.hasOwnProperty.call(payload, "request_identifier") &&
@@ -1632,9 +1632,9 @@ function prepareAddressPayloadForWrite(resolution) {
     const raw = payload.request_identifier;
     if (typeof raw === "string") {
       const trimmed = raw.trim();
-      if (trimmed) cleaned.request_identifier = trimmed;
+      if (trimmed) metadata.request_identifier = trimmed;
     } else {
-      cleaned.request_identifier = raw;
+      metadata.request_identifier = raw;
     }
   }
 
@@ -1643,46 +1643,29 @@ function prepareAddressPayloadForWrite(resolution) {
     const value = payload[key];
     if (value == null) continue;
     if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) continue;
-      cleaned[key] = trimmed;
+      const cleaned = textClean(value);
+      if (!cleaned) continue;
+      metadata[key] = cleaned;
     } else {
-      cleaned[key] = value;
+      metadata[key] = value;
     }
   }
 
-  if (mode === "unnormalized") {
-    const normalized = normalizeUnnormalizedAddressValue(
-      payload.unnormalized_address,
-    );
-    if (!normalized) return null;
-    cleaned.unnormalized_address = normalized;
-    return cleaned;
+  if (mode === "structured") {
+    const normalizedStructured = pickStructuredAddress(payload);
+    if (!normalizedStructured) return null;
+    return { ...metadata, ...normalizedStructured };
   }
 
-  const structured = {};
-  for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
-    const value = payload[key];
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    structured[key] = trimmed;
-  }
-  for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
-    const value = payload[key];
-    if (value == null) continue;
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) continue;
-      structured[key] = trimmed;
-    } else {
-      structured[key] = value;
-    }
-  }
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    payload.unnormalized_address,
+  );
+  if (!normalizedUnnormalized) return null;
 
-  return { ...cleaned, ...structured };
+  return {
+    ...metadata,
+    unnormalized_address: normalizedUnnormalized,
+  };
 }
 
 function toTitleCaseName(part) {
@@ -1920,6 +1903,48 @@ function sanitizePersonData(raw, fallbackDisplay) {
   );
 
   return base;
+}
+
+function preparePersonForWrite(rawPerson) {
+  if (!rawPerson || typeof rawPerson !== "object") return null;
+
+  const normalizedLast = ensurePersonNamePattern(
+    rawPerson.last_name,
+    PERSON_NAME_PATTERN,
+  );
+  const normalizedFirst = ensurePersonNamePattern(
+    rawPerson.first_name,
+    PERSON_NAME_PATTERN,
+  );
+  if (!normalizedLast || !normalizedFirst) return null;
+
+  const normalizedMiddle = ensurePersonNamePattern(
+    rawPerson.middle_name,
+    PERSON_MIDDLE_NAME_PATTERN,
+  );
+
+  const sanitizeLooseField = (value) => {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
+    return value;
+  };
+
+  return {
+    birth_date: sanitizeLooseField(rawPerson.birth_date),
+    first_name: normalizedFirst,
+    last_name: normalizedLast,
+    middle_name: normalizedMiddle ?? null,
+    prefix_name: sanitizeLooseField(rawPerson.prefix_name),
+    suffix_name: sanitizeLooseField(rawPerson.suffix_name),
+    us_citizenship_status: sanitizeLooseField(
+      rawPerson.us_citizenship_status,
+    ),
+    veteran_status: sanitizeLooseField(rawPerson.veteran_status),
+    request_identifier: sanitizeLooseField(rawPerson.request_identifier),
+  };
 }
 
 function buildPersonDisplayName(person) {
@@ -4259,66 +4284,34 @@ async function main() {
         validatedOutput.first_name = finalFirst;
         validatedOutput.middle_name = finalMiddle ?? null;
 
-        const enforcedLastForOutput = record.person.last_name
-          ? record.person.last_name.trim()
-          : null;
-        const enforcedFirstForOutput = record.person.first_name
-          ? record.person.first_name.trim()
-          : null;
-        const enforcedMiddleForOutput =
-          record.person.middle_name &&
-          PERSON_MIDDLE_NAME_PATTERN.test(record.person.middle_name.trim())
-            ? record.person.middle_name.trim()
-            : null;
+        const personOut = preparePersonForWrite({
+          birth_date: validatedOutput.birth_date ?? null,
+          first_name: validatedOutput.first_name ?? null,
+          last_name: validatedOutput.last_name ?? null,
+          middle_name: validatedOutput.middle_name ?? null,
+          prefix_name: validatedOutput.prefix_name ?? null,
+          suffix_name: validatedOutput.suffix_name ?? null,
+          us_citizenship_status:
+            validatedOutput.us_citizenship_status ?? null,
+          veteran_status: validatedOutput.veteran_status ?? null,
+          request_identifier: validatedOutput.request_identifier ?? null,
+        });
 
-        if (
-          !enforcedLastForOutput ||
-          !PERSON_NAME_PATTERN.test(enforcedLastForOutput) ||
-          !enforcedFirstForOutput ||
-          !PERSON_NAME_PATTERN.test(enforcedFirstForOutput)
-        ) {
+        if (!personOut) {
           await promoteToCompany(validationFallback);
           continue;
         }
 
-        record.person.last_name = enforcedLastForOutput;
-        record.person.first_name = enforcedFirstForOutput;
-        record.person.middle_name = enforcedMiddleForOutput;
-        validatedOutput.last_name = enforcedLastForOutput;
-        validatedOutput.first_name = enforcedFirstForOutput;
-        validatedOutput.middle_name = enforcedMiddleForOutput;
+        record.person = {
+          ...record.person,
+          ...personOut,
+        };
+        validatedOutput.last_name = personOut.last_name;
+        validatedOutput.first_name = personOut.first_name;
+        validatedOutput.middle_name = personOut.middle_name;
 
         personIdx += 1;
         const fileName = `person_${personIdx}.json`;
-        const personOut = {
-          birth_date: validatedOutput.birth_date ?? null,
-          first_name: enforcedFirstForOutput,
-          last_name: enforcedLastForOutput,
-          middle_name: enforcedMiddleForOutput ?? null,
-          prefix_name: validatedOutput.prefix_name ?? null,
-          suffix_name: validatedOutput.suffix_name ?? null,
-          us_citizenship_status: validatedOutput.us_citizenship_status ?? null,
-          veteran_status: validatedOutput.veteran_status ?? null,
-          request_identifier: validatedOutput.request_identifier ?? null,
-        };
-
-        personOut.last_name = ensurePersonNamePattern(
-          personOut.last_name,
-          PERSON_NAME_PATTERN,
-        );
-        personOut.first_name = ensurePersonNamePattern(
-          personOut.first_name,
-          PERSON_NAME_PATTERN,
-        );
-        personOut.middle_name = ensurePersonNamePattern(
-          personOut.middle_name,
-          PERSON_MIDDLE_NAME_PATTERN,
-        );
-
-        if (!personOut.first_name || !personOut.last_name) {
-          await promoteToCompany(validationFallback);
-          continue;
-        }
 
         await fsp.writeFile(
           path.join("data", fileName),
