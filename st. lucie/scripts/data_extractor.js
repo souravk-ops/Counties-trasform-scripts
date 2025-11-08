@@ -1145,6 +1145,74 @@ function ensureExclusiveAddressMode(address) {
   return null;
 }
 
+function coerceAddressToSingleMode(address, fallbackUnnormalized = null) {
+  if (!address || typeof address !== "object") return null;
+
+  const clone = deepClone(address);
+  if (!clone || typeof clone !== "object") return null;
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+      ? clone.unnormalized_address
+      : null,
+  );
+
+  if (normalizedUnnormalized) {
+    clone.unnormalized_address = normalizedUnnormalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    return clone;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(clone, key)) return false;
+    const value = clone[key];
+    if (value == null) return false;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      clone[key] = trimmed;
+    }
+    return true;
+  });
+
+  if (hasStructured) {
+    if (Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")) {
+      delete clone.unnormalized_address;
+    }
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+      const value = clone[key];
+      if (value == null) {
+        delete clone[key];
+      } else if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed) clone[key] = trimmed;
+        else delete clone[key];
+      }
+    }
+    return clone;
+  }
+
+  const fallbackValue = normalizeUnnormalizedAddressValue(
+    fallbackUnnormalized,
+  );
+  if (fallbackValue) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    clone.unnormalized_address = fallbackValue;
+    return clone;
+  }
+
+  return null;
+}
+
 function projectAddressPayloadToSchema(
   address,
   {
@@ -3583,6 +3651,34 @@ function preparePersonForWrite(rawPerson) {
   };
 }
 
+function finalizePersonNamesForSchema(person) {
+  if (!person || typeof person !== "object") return null;
+
+  const next = { ...person };
+
+  const normalizeField = (value, pattern) => {
+    if (value == null) return null;
+    const normalized = normalizeNameToPattern(value, pattern);
+    if (!normalized) return null;
+    return pattern.test(normalized) ? normalized : null;
+  };
+
+  const safeLast = normalizeField(next.last_name, PERSON_NAME_PATTERN);
+  const safeFirst = normalizeField(next.first_name, PERSON_NAME_PATTERN);
+  if (!safeLast || !safeFirst) return null;
+
+  const safeMiddle =
+    next.middle_name != null
+      ? normalizeField(next.middle_name, PERSON_MIDDLE_NAME_PATTERN)
+      : null;
+
+  next.last_name = safeLast;
+  next.first_name = safeFirst;
+  next.middle_name = safeMiddle;
+
+  return next;
+}
+
 function enforcePersonSchema(person) {
   if (!person || typeof person !== "object") return null;
 
@@ -5248,12 +5344,24 @@ async function main() {
       typeof projectedAddress === "object" &&
       Object.keys(projectedAddress).length > 0
     ) {
-      addressForWrite = projectedAddress;
-      await fsp.writeFile(
-        path.join("data", addressFileName),
-        JSON.stringify(addressForWrite, null, 2),
+      const oneOfSafeAddress = coerceAddressToSingleMode(
+        projectedAddress,
+        fallbackUnnormalizedValue,
       );
-      addressFileRef = `./${addressFileName}`;
+      if (
+        oneOfSafeAddress &&
+        typeof oneOfSafeAddress === "object" &&
+        Object.keys(oneOfSafeAddress).length > 0
+      ) {
+        addressForWrite = oneOfSafeAddress;
+        await fsp.writeFile(
+          path.join("data", addressFileName),
+          JSON.stringify(addressForWrite, null, 2),
+        );
+        addressFileRef = `./${addressFileName}`;
+      } else {
+        addressForWrite = null;
+      }
     } else {
       addressForWrite = null;
     }
@@ -5988,12 +6096,24 @@ async function main() {
             typeof projectedMailingAddress === "object" &&
             Object.keys(projectedMailingAddress).length > 0
           ) {
-            await fsp.writeFile(
-              path.join("data", "mailing_address.json"),
-              JSON.stringify(projectedMailingAddress, null, 2),
+            const oneOfSafeMailing = coerceAddressToSingleMode(
+              projectedMailingAddress,
+              mailingAddressText,
             );
-            mailingAddressOut = projectedMailingAddress;
-            console.log("mailing_address.json created.");
+            if (
+              oneOfSafeMailing &&
+              typeof oneOfSafeMailing === "object" &&
+              Object.keys(oneOfSafeMailing).length > 0
+            ) {
+              await fsp.writeFile(
+                path.join("data", "mailing_address.json"),
+                JSON.stringify(oneOfSafeMailing, null, 2),
+              );
+              mailingAddressOut = oneOfSafeMailing;
+              console.log("mailing_address.json created.");
+            } else {
+              mailingAddressOut = null;
+            }
           } else {
             mailingAddressOut = null;
           }
@@ -6479,6 +6599,13 @@ async function main() {
         await promoteToCompany(validationFallback);
         continue;
       }
+
+      const finalizedPersonOut = finalizePersonNamesForSchema(personOut);
+      if (!finalizedPersonOut) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      personOut = finalizedPersonOut;
 
       personIdx += 1;
       const fileName = `person_${personIdx}.json`;
