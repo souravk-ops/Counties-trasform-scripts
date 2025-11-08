@@ -627,8 +627,13 @@ function reconcileAddressForSchema(address) {
   let hasUnnormalized = normalizedUnnormalized != null;
 
   if (hasStructured && hasUnnormalized) {
-    delete address.unnormalized_address;
-    hasUnnormalized = false;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(address, key)) {
+        delete address[key];
+      }
+    }
+    address.unnormalized_address = normalizedUnnormalized;
+    hasStructured = false;
   } else if (!hasStructured && hasUnnormalized) {
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(address, key)) {
@@ -690,11 +695,7 @@ function finalizeAddressForSchema(address, preferredMode = null) {
   }
 
   const normalizedPreferred =
-    preferredMode === "structured"
-      ? "structured"
-      : preferredMode === "unnormalized"
-        ? "unnormalized"
-        : null;
+    preferredMode === "structured" ? "structured" : "unnormalized";
 
   const cleanupStructuredFields = () => {
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
@@ -773,9 +774,9 @@ function finalizeAddressForSchema(address, preferredMode = null) {
   }
 
   if (hasStructured && hasUnnormalized) {
-    return normalizedPreferred === "unnormalized"
-      ? keepUnnormalized()
-      : keepStructured();
+    return normalizedPreferred === "structured"
+      ? keepStructured()
+      : keepUnnormalized();
   }
   if (hasStructured) {
     return keepStructured();
@@ -902,6 +903,18 @@ function sanitizeAddressPayloadForOneOf(payload) {
   const hasUnnormalized =
     typeof rawUnnormalized === "string" && rawUnnormalized.trim().length > 0;
 
+  if (hasStructured && hasUnnormalized) {
+    const normalized = normalizeUnnormalizedAddressValue(rawUnnormalized);
+    if (!normalized) return null;
+    payload.unnormalized_address = normalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        delete payload[key];
+      }
+    }
+    return payload;
+  }
+
   if (hasStructured) {
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
@@ -981,6 +994,10 @@ function coerceAddressPayloadToOneOf(payload) {
     typeof normalizedUnnormalized === "string" &&
     normalizedUnnormalized.length > 0;
 
+  if (hasStructured && hasUnnormalized) {
+    return { ...base, unnormalized_address: normalizedUnnormalized };
+  }
+
   if (hasStructured) {
     const structured = {};
     for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
@@ -1019,8 +1036,21 @@ function enforceAddressOneOfCompliance(payload) {
     typeof clone.unnormalized_address === "string" &&
     clone.unnormalized_address.trim().length > 0;
 
+  if (hasStructured && hasUnnormalized) {
+    const normalized = normalizeUnnormalizedAddressValue(
+      clone.unnormalized_address,
+    );
+    if (!normalized) return null;
+    clone.unnormalized_address = normalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    return clone;
+  }
+
   if (hasStructured) {
-    delete clone.unnormalized_address;
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
       const value = clone[key];
@@ -1037,6 +1067,7 @@ function enforceAddressOneOfCompliance(payload) {
         }
       }
     }
+    delete clone.unnormalized_address;
     return clone;
   }
 
@@ -1074,7 +1105,12 @@ function ensureExclusiveAddressMode(address) {
     normalizedUnnormalized.length > 0;
 
   if (hasStructured && hasUnnormalized) {
-    delete clone.unnormalized_address;
+    clone.unnormalized_address = normalizedUnnormalized;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
     return clone;
   }
 
@@ -1101,7 +1137,7 @@ function finalizeResolvedAddressPayload(resolution, preferredMode = null) {
   if (!rawPayload || typeof rawPayload !== "object") return null;
 
   const prefer =
-    preferredMode === "unnormalized" ? "unnormalized" : "structured";
+    preferredMode === "structured" ? "structured" : "unnormalized";
 
   const attemptSanitized = (candidate) => {
     if (!candidate || typeof candidate !== "object") return null;
@@ -1650,7 +1686,14 @@ function createAddressPayload({
   );
 
   if (hasStructured && hasUnnormalized) {
-    delete payload.unnormalized_address;
+    if (normalizedUnnormalized) {
+      payload.unnormalized_address = normalizedUnnormalized;
+    }
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        delete payload[key];
+      }
+    }
     return payload;
   }
 
@@ -1940,7 +1983,7 @@ function finalizeAddressOutputForSchema(address, fallbackUnnormalized = null) {
   return null;
 }
 
-function enforceAddressOneOfForWrite(address, preferMode = "structured") {
+function enforceAddressOneOfForWrite(address, preferMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
   const sanitized = deepClone(address);
@@ -2027,6 +2070,12 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
     return typeof value === "string" && value.trim().length > 0;
   });
 
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(sanitized);
+    sanitized.unnormalized_address = normalizedUnnormalized;
+    return sanitized;
+  }
+
   if (hasStructured) {
     delete sanitized.unnormalized_address;
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
@@ -2034,12 +2083,6 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
         delete sanitized[key];
       }
     }
-    return sanitized;
-  }
-
-  if (normalizedUnnormalized) {
-    stripStructuredAddressFields(sanitized);
-    sanitized.unnormalized_address = normalizedUnnormalized;
     return sanitized;
   }
 
@@ -2063,9 +2106,9 @@ function prepareAddressForWrite(payload, options = {}) {
   if (!payload || typeof payload !== "object") return null;
 
   const preferMode =
-    options && options.preferMode === "unnormalized"
-      ? "unnormalized"
-      : "structured";
+    options && options.preferMode === "structured"
+      ? "structured"
+      : "unnormalized";
   const fallbackUnnormalized =
     options && typeof options.fallbackUnnormalized === "string"
       ? options.fallbackUnnormalized
@@ -2105,6 +2148,15 @@ function finalizeAddressPayloadForWrite(payload) {
   working = ensureExclusiveAddressMode(sanitized);
   if (!working) return null;
 
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    working.unnormalized_address,
+  );
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(working);
+    working.unnormalized_address = normalizedUnnormalized;
+    return working;
+  }
+
   const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
     const value = working[key];
     return typeof value === "string" && value.trim().length > 0;
@@ -2112,15 +2164,6 @@ function finalizeAddressPayloadForWrite(payload) {
 
   if (hasStructured) {
     delete working.unnormalized_address;
-    return working;
-  }
-
-  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-    working.unnormalized_address,
-  );
-  if (normalizedUnnormalized) {
-    stripStructuredAddressFields(working);
-    working.unnormalized_address = normalizedUnnormalized;
     return working;
   }
 
@@ -4857,26 +4900,51 @@ async function main() {
         }
 
         const normalizedFirstOut = normalizePersonNameValue(
-          personOut.first_name,
-          PERSON_NAME_PATTERN,
-        );
-        const normalizedLastOut = normalizePersonNameValue(
-          personOut.last_name,
+        personOut.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      const normalizedLastOut = normalizePersonNameValue(
+        personOut.last_name,
           PERSON_NAME_PATTERN,
         );
         const normalizedMiddleOut = normalizePersonNameValue(
-          personOut.middle_name,
-          PERSON_MIDDLE_NAME_PATTERN,
-        );
+        personOut.middle_name,
+        PERSON_MIDDLE_NAME_PATTERN,
+      );
 
-        if (!normalizedFirstOut || !normalizedLastOut) {
-          await promoteToCompany(validationFallback);
-          continue;
-        }
+      if (!normalizedFirstOut || !normalizedLastOut) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
 
-        personOut.first_name = normalizedFirstOut;
-        personOut.last_name = normalizedLastOut;
-        personOut.middle_name = normalizedMiddleOut ?? null;
+      personOut.first_name = normalizedFirstOut;
+      personOut.last_name = normalizedLastOut;
+      personOut.middle_name = normalizedMiddleOut ?? null;
+
+      const safeLastOut = normalizeNameToPattern(
+        personOut.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      const safeFirstOut = normalizeNameToPattern(
+        personOut.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      const safeMiddleOut =
+        personOut.middle_name != null
+          ? normalizeNameToPattern(
+              personOut.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
+
+      if (!safeLastOut || !safeFirstOut) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+
+      personOut.last_name = safeLastOut;
+      personOut.first_name = safeFirstOut;
+      personOut.middle_name = safeMiddleOut ?? null;
 
         record.person = {
           ...record.person,
