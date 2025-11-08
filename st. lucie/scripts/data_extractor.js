@@ -1706,6 +1706,7 @@ function buildAddressRecord({
   unnormalizedValue = null,
   metadata = {},
   requestIdentifier = null,
+  preferMode = "unnormalized",
 }) {
   const payload = {};
 
@@ -1723,20 +1724,31 @@ function buildAddressRecord({
       ? pickStructuredAddress(structuredAddress)
       : null;
 
-  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-    unnormalizedValue,
-  );
-  if (normalizedUnnormalized) {
-    payload.unnormalized_address = normalizedUnnormalized;
-    return payload;
-  }
-
   const hasStructured =
     structuredCandidate &&
     STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
       const value = structuredCandidate[key];
       return typeof value === "string" && value.trim().length > 0;
     });
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    unnormalizedValue,
+  );
+
+  if (preferMode === "structured" && hasStructured) {
+    for (const [key, value] of Object.entries(structuredCandidate)) {
+      assignIfValue(payload, key, value);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
+      delete payload.unnormalized_address;
+    }
+    return payload;
+  }
+
+  if (normalizedUnnormalized) {
+    payload.unnormalized_address = normalizedUnnormalized;
+    return payload;
+  }
 
   if (hasStructured) {
     for (const [key, value] of Object.entries(structuredCandidate)) {
@@ -3913,12 +3925,7 @@ async function main() {
       ? pickStructuredAddress(structuredAddressSource)
       : null;
 
-  const preferredAddressMode =
-    normalizedUnnormalized && normalizedUnnormalized.length > 0
-      ? "unnormalized"
-      : structuredCandidate
-      ? "structured"
-      : "unnormalized";
+  const preferredAddressMode = structuredCandidate ? "structured" : "unnormalized";
 
   const requestIdentifierValue =
     baseRequestData && baseRequestData.request_identifier
@@ -3931,6 +3938,7 @@ async function main() {
       unnormalizedValue: unnormalizedAddressCandidate,
       metadata: cleanedAddressMetadata,
       requestIdentifier: requestIdentifierValue,
+      preferMode: preferredAddressMode,
     }) ||
     createAddressPayload({
       structuredSource: structuredCandidate,
@@ -3949,15 +3957,17 @@ async function main() {
       }) || ensureExclusiveAddressMode(addressRecordPayload);
 
     const candidateForFinalize = preparedAddress || addressRecordPayload;
+    const fallbackForUnnormalized =
+      preferredAddressMode === "structured" ? null : unnormalizedAddressCandidate;
 
     finalAddressOutput =
       finalizeAddressOutputForSchema(
         candidateForFinalize,
-        unnormalizedAddressCandidate,
+        fallbackForUnnormalized,
       ) ||
       buildSchemaCompliantAddress(
         candidateForFinalize,
-        unnormalizedAddressCandidate,
+        fallbackForUnnormalized,
       );
 
     if (!finalAddressOutput && preparedAddress) {
@@ -3972,7 +3982,7 @@ async function main() {
       if (finalizedResolution && finalizedResolution.payload) {
         finalAddressOutput = finalizeAddressOutputForSchema(
           finalizedResolution.payload,
-          unnormalizedAddressCandidate,
+          fallbackForUnnormalized,
         );
       }
     }
@@ -3989,7 +3999,7 @@ async function main() {
       if (finalizedResolution && finalizedResolution.payload) {
         finalAddressOutput = finalizeAddressOutputForSchema(
           finalizedResolution.payload,
-          unnormalizedAddressCandidate,
+          fallbackForUnnormalized,
         );
       }
     }
@@ -4007,9 +4017,13 @@ async function main() {
   }
 
   if (finalAddressOutput) {
+    const enforcedFallback =
+      preferredAddressMode === "structured"
+        ? null
+        : normalizedUnnormalized || unnormalizedAddressCandidate || null;
     finalAddressOutput = enforceAddressModePreference(
       finalAddressOutput,
-      normalizedUnnormalized || unnormalizedAddressCandidate || null,
+      enforcedFallback,
     );
   }
 
