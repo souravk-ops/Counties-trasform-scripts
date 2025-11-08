@@ -2334,6 +2334,129 @@ function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
   return null;
 }
 
+function finalizeAddressForSchemaOutput(address, preferredMode = "unnormalized") {
+  if (!address || typeof address !== "object") return null;
+
+  const attemptOrder =
+    preferredMode === "structured"
+      ? ["structured", "unnormalized"]
+      : ["unnormalized", "structured"];
+  const visited = new Set();
+
+  for (const mode of [...attemptOrder, "unnormalized", "structured"]) {
+    if (visited.has(mode)) continue;
+    visited.add(mode);
+
+    const sanitized = sanitizeAddressForSchema(address, mode);
+    if (!sanitized || typeof sanitized !== "object") continue;
+
+    const exclusive = ensureExclusiveAddressMode(sanitized) || sanitized;
+    if (!exclusive) continue;
+
+    if (
+      Object.prototype.hasOwnProperty.call(exclusive, "unnormalized_address")
+    ) {
+      const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+        exclusive.unnormalized_address,
+      );
+      if (!normalizedUnnormalized) continue;
+      exclusive.unnormalized_address = normalizedUnnormalized;
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(exclusive, key)) {
+          delete exclusive[key];
+        }
+      }
+    } else {
+      let hasRequiredStructured = true;
+      for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(exclusive, key)) {
+          hasRequiredStructured = false;
+          break;
+        }
+        const value = exclusive[key];
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (!trimmed) {
+            hasRequiredStructured = false;
+            break;
+          }
+          exclusive[key] = trimmed;
+        } else if (value == null) {
+          hasRequiredStructured = false;
+          break;
+        }
+      }
+      if (!hasRequiredStructured) continue;
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
+        const raw = exclusive[key];
+        if (raw == null) {
+          delete exclusive[key];
+          continue;
+        }
+        if (typeof raw === "string") {
+          const cleaned =
+            key === "city_name" || key === "state_code"
+              ? textClean(raw).toUpperCase()
+              : key === "postal_code" || key === "plus_four_postal_code"
+              ? raw.replace(/\s+/g, "")
+              : textClean(raw);
+          if (!cleaned) {
+            delete exclusive[key];
+            continue;
+          }
+          exclusive[key] = cleaned;
+        }
+      }
+    }
+
+    const normalizedMetadata = {};
+    if (
+      Object.prototype.hasOwnProperty.call(exclusive, "request_identifier") &&
+      exclusive.request_identifier != null
+    ) {
+      const value = exclusive.request_identifier;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed) normalizedMetadata.request_identifier = trimmed;
+      } else {
+        normalizedMetadata.request_identifier = value;
+      }
+    }
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
+      const value = exclusive[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (!cleaned) continue;
+        normalizedMetadata[key] = cleaned;
+      } else if (typeof value === "number") {
+        if (!Number.isFinite(value)) continue;
+        normalizedMetadata[key] = value;
+      } else {
+        normalizedMetadata[key] = value;
+      }
+    }
+
+    const result = { ...normalizedMetadata };
+    if (
+      Object.prototype.hasOwnProperty.call(exclusive, "unnormalized_address")
+    ) {
+      result.unnormalized_address = exclusive.unnormalized_address;
+    } else {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
+        result[key] = exclusive[key];
+      }
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+  }
+
+  return null;
+}
+
 function enforcePreferredAddressMode(address, preferredMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
@@ -4329,6 +4452,21 @@ async function main() {
     );
   }
 
+  if (finalAddressOutput) {
+    const preferredFinal =
+      finalizeAddressForSchemaOutput(
+        finalAddressOutput,
+        preferredAddressMode,
+      ) ||
+      finalizeAddressForSchemaOutput(
+        finalAddressOutput,
+        normalizedUnnormalized ? "unnormalized" : "structured",
+      ) ||
+      finalizeAddressForSchemaOutput(finalAddressOutput, "unnormalized") ||
+      finalizeAddressForSchemaOutput(finalAddressOutput, "structured");
+    finalAddressOutput = preferredFinal || null;
+  }
+
   let addressFileRef = null;
   if (
     finalAddressOutput &&
@@ -5439,40 +5577,65 @@ async function main() {
       }
       personOut = schemaSafePerson;
 
-        record.person = {
-          ...record.person,
-          ...personOut,
-        };
-        validatedOutput.last_name = personOut.last_name;
-        validatedOutput.first_name = personOut.first_name;
-        validatedOutput.middle_name = personOut.middle_name;
+      const finalLastName = normalizeNameToPattern(
+        personOut.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      const finalFirstName = normalizeNameToPattern(
+        personOut.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      const finalMiddleName =
+        personOut.middle_name != null
+          ? normalizeNameToPattern(
+              personOut.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
 
-        if (
-          !PERSON_NAME_PATTERN.test(personOut.last_name) ||
-          !PERSON_NAME_PATTERN.test(personOut.first_name)
-        ) {
-          await promoteToCompany(validationFallback);
-          continue;
-        }
-        if (
-          personOut.middle_name != null &&
-          !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
-        ) {
-          personOut.middle_name = null;
-        }
+      if (!finalLastName || !finalFirstName) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
 
-        personIdx += 1;
-        const fileName = `person_${personIdx}.json`;
+      personOut.last_name = finalLastName;
+      personOut.first_name = finalFirstName;
+      personOut.middle_name = finalMiddleName ?? null;
 
-        await fsp.writeFile(
-          path.join("data", fileName),
-          JSON.stringify(personOut, null, 2),
-        );
-        ownerToFileMap.set(record.id, {
-          fileName,
-          type: "person",
-          index: personIdx,
-        });
+      record.person = {
+        ...record.person,
+        ...personOut,
+      };
+      validatedOutput.last_name = personOut.last_name;
+      validatedOutput.first_name = personOut.first_name;
+      validatedOutput.middle_name = personOut.middle_name;
+
+      if (
+        !PERSON_NAME_PATTERN.test(personOut.last_name) ||
+        !PERSON_NAME_PATTERN.test(personOut.first_name)
+      ) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      if (
+        personOut.middle_name != null &&
+        !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+      ) {
+        personOut.middle_name = null;
+      }
+
+      personIdx += 1;
+      const fileName = `person_${personIdx}.json`;
+
+      await fsp.writeFile(
+        path.join("data", fileName),
+        JSON.stringify(personOut, null, 2),
+      );
+      ownerToFileMap.set(record.id, {
+        fileName,
+        type: "person",
+        index: personIdx,
+      });
       } else {
         companyIdx += 1;
         const companyOut = {
