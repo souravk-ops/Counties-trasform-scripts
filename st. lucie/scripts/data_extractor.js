@@ -5084,6 +5084,19 @@ async function main() {
       Object.keys(finalizedAddress).length > 0
     ) {
       addressForWrite = finalizedAddress;
+      if (
+        Object.prototype.hasOwnProperty.call(
+          addressForWrite,
+          "unnormalized_address",
+        )
+      ) {
+        // Ensure oneOf compliance by dropping any structured fields when unnormalized output wins.
+        for (const key of STRUCTURED_ADDRESS_FIELDS) {
+          if (Object.prototype.hasOwnProperty.call(addressForWrite, key)) {
+            delete addressForWrite[key];
+          }
+        }
+      }
       await fsp.writeFile(
         path.join("data", addressFileName),
         JSON.stringify(addressForWrite, null, 2),
@@ -5195,20 +5208,7 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address_1.json",
-        propertyRef,
-        addressFileRef,
-      );
-      await writeRelationshipFile(
-        "relationship_address_has_fact_sheet_1.json",
-        addressFileRef,
-        propertyRef,
-      );
-    }
-
-    // Address relationships are created once both property and address references are available.
+    // Downstream systems will build property/address relationships, so skip emitting them here.
 
     // Lot data
 
@@ -6290,6 +6290,16 @@ async function main() {
       personOut.last_name = finalNormalizedLastCheck;
       personOut.first_name = finalNormalizedFirstCheck;
       personOut.middle_name = finalNormalizedMiddleCheck ?? null;
+
+      const patternSafeLast = PERSON_NAME_PATTERN.test(personOut.last_name);
+      const patternSafeFirst = PERSON_NAME_PATTERN.test(personOut.first_name);
+      const patternSafeMiddle =
+        personOut.middle_name == null ||
+        PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name);
+      if (!patternSafeLast || !patternSafeFirst || !patternSafeMiddle) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
 
       personIdx += 1;
       const fileName = `person_${personIdx}.json`;
