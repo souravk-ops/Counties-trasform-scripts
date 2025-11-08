@@ -1991,6 +1991,38 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
   return null;
 }
 
+function prepareAddressForWrite(payload, options = {}) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const preferMode =
+    options && options.preferMode === "unnormalized"
+      ? "unnormalized"
+      : "structured";
+  const fallbackUnnormalized =
+    options && typeof options.fallbackUnnormalized === "string"
+      ? options.fallbackUnnormalized
+      : null;
+
+  const tryFinalize = (candidate) => {
+    if (!candidate || typeof candidate !== "object") return null;
+    const finalized =
+      finalizeAddressPayloadForWrite(candidate) ||
+      enforceAddressOneOfForWrite(candidate, preferMode);
+    return finalized || null;
+  };
+
+  const primary = tryFinalize(deepClone(payload));
+  if (primary) return primary;
+
+  const compliant = buildSchemaCompliantAddress(
+    deepClone(payload),
+    fallbackUnnormalized,
+  );
+  if (!compliant) return null;
+
+  return tryFinalize(compliant) || compliant;
+}
+
 function finalizeAddressPayloadForWrite(payload) {
   if (!payload || typeof payload !== "object") return null;
   let working = ensureExclusiveAddressMode(payload);
@@ -3541,6 +3573,7 @@ async function main() {
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
   await removeExisting(/^address\.json$/);
+  await removeExisting(/^mailing_address\.json$/);
   const propertyImprovementRecords = [];
 
 
@@ -3656,11 +3689,16 @@ async function main() {
 
   let addressFileRef = null;
   if (addressPayload) {
-    await fsp.writeFile(
-      path.join("data", addressFileName),
-      JSON.stringify(addressPayload, null, 2),
-    );
-    addressFileRef = `./${addressFileName}`;
+    const preparedAddress = prepareAddressForWrite(addressPayload, {
+      fallbackUnnormalized: unnormalizedAddressCandidate,
+    });
+    if (preparedAddress) {
+      await fsp.writeFile(
+        path.join("data", addressFileName),
+        JSON.stringify(preparedAddress, null, 2),
+      );
+      addressFileRef = `./${addressFileName}`;
+    }
   }
 
   // --- Parcel extraction ---
@@ -4267,12 +4305,23 @@ async function main() {
       });
 
       if (mailingAddressPayload) {
-        await fsp.writeFile(
-          path.join("data", "mailing_address.json"),
-          JSON.stringify(mailingAddressPayload, null, 2),
+        const preparedMailingAddress = prepareAddressForWrite(
+          mailingAddressPayload,
+          {
+            fallbackUnnormalized: mailingAddressText,
+            preferMode: "unnormalized",
+          },
         );
-        mailingAddressOut = mailingAddressPayload;
-        console.log("mailing_address.json created.");
+        if (preparedMailingAddress) {
+          await fsp.writeFile(
+            path.join("data", "mailing_address.json"),
+            JSON.stringify(preparedMailingAddress, null, 2),
+          );
+          mailingAddressOut = preparedMailingAddress;
+          console.log("mailing_address.json created.");
+        } else {
+          mailingAddressOut = null;
+        }
       } else {
         mailingAddressOut = null;
       }
