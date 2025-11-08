@@ -5796,12 +5796,55 @@ async function main() {
               typeof finalAddressForFile === "object" &&
               Object.keys(finalAddressForFile).length > 0
             ) {
-              addressForWrite = finalAddressForFile;
-              await fsp.writeFile(
-                path.join("data", addressFileName),
-                JSON.stringify(addressForWrite, null, 2),
-              );
-              addressFileRef = `./${addressFileName}`;
+              const preferModeForWrite =
+                preferredAddressMode === "structured" ? "structured" : "unnormalized";
+              const fallbackForOneOf =
+                normalizeUnnormalizedAddressValue(
+                  normalizedUnnormalized ||
+                    fallbackUnnormalizedValue ||
+                    unnormalizedAddressCandidate,
+                ) || null;
+
+              const coercedFinalAddress =
+                coerceAddressToSingleMode(
+                  finalAddressForFile,
+                  fallbackForOneOf,
+                ) || finalAddressForFile;
+
+              const sanitizedFinalAddress =
+                sanitizeAddressForSchema(coercedFinalAddress, preferModeForWrite) ||
+                enforceAddressOneOfForWrite(coercedFinalAddress, preferModeForWrite) ||
+                sanitizeAddressForSchema(
+                  coercedFinalAddress,
+                  preferModeForWrite === "structured" ? "unnormalized" : "structured",
+                ) ||
+                enforceAddressOneOfForWrite(
+                  coercedFinalAddress,
+                  preferModeForWrite === "structured" ? "unnormalized" : "structured",
+                );
+
+              const normalizedFinalAddress =
+                sanitizedFinalAddress
+                  ? coerceAddressToSingleMode(
+                      sanitizedFinalAddress,
+                      fallbackForOneOf,
+                    ) || sanitizedFinalAddress
+                  : null;
+
+              if (
+                normalizedFinalAddress &&
+                typeof normalizedFinalAddress === "object" &&
+                Object.keys(normalizedFinalAddress).length > 0
+              ) {
+                addressForWrite = normalizedFinalAddress;
+                await fsp.writeFile(
+                  path.join("data", addressFileName),
+                  JSON.stringify(addressForWrite, null, 2),
+                );
+                addressFileRef = `./${addressFileName}`;
+              } else {
+                addressForWrite = null;
+              }
             } else {
               addressForWrite = null;
             }
@@ -5921,11 +5964,6 @@ async function main() {
     );
 
     if (addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
       await writeRelationshipFile(
         "relationship_address_has_fact_sheet.json",
         addressFileRef,
