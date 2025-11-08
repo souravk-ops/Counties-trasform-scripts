@@ -40,6 +40,26 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     return { "/": trimmed };
   };
 
+  const normalizeExistingLink = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) return;
+    const current = payload[key];
+    let normalized = null;
+    if (typeof current === "string") {
+      normalized = buildResource(current);
+    } else if (current && typeof current === "object") {
+      if (typeof current["/"] === "string") {
+        normalized = buildResource(current["/"]);
+      } else if (typeof current.path === "string") {
+        normalized = buildResource(current.path);
+      }
+    }
+    if (normalized) payload[key] = normalized;
+    else delete payload[key];
+  };
+
+  normalizeExistingLink("from");
+  normalizeExistingLink("to");
+
   const shouldIncludeFrom = fromPath !== undefined && fromPath !== false;
   if (shouldIncludeFrom && payload.from == null) {
     const fromRef = buildResource(fromPath);
@@ -5405,6 +5425,14 @@ async function main() {
 
   if (addressHasCoreData) {
     const addressRef = `./${addressFileName}`;
+
+    if (propertyExists) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressRef,
+      );
+    }
 
     let factSheetFiles = [];
     try {
