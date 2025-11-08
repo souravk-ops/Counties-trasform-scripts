@@ -33,60 +33,48 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
   const payload =
     extras && typeof extras === "object" ? { ...extras } : {};
 
-  const buildResource = (value) => {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    return { "/": trimmed };
-  };
-
-  const normalizeLinkValue = (value) => {
+  const normalizeEndpoint = (value) => {
     if (value == null) return null;
-    if (typeof value === "string") return buildResource(value);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
     if (value && typeof value === "object") {
       if (typeof value["/"] === "string") {
-        return buildResource(value["/"]);
+        return normalizeEndpoint(value["/"]);
       }
       if (typeof value.path === "string") {
-        return buildResource(value.path);
+        return normalizeEndpoint(value.path);
       }
     }
     return null;
   };
 
-  const setLink = (key, explicitPath) => {
-    const normalizedFromExtras = normalizeLinkValue(payload[key]);
-    if (normalizedFromExtras) payload[key] = normalizedFromExtras;
-    else delete payload[key];
+  const fromValue = normalizeEndpoint(
+    Object.prototype.hasOwnProperty.call(payload, "from")
+      ? payload.from
+      : fromPath,
+  );
+  const toValue = normalizeEndpoint(
+    Object.prototype.hasOwnProperty.call(payload, "to") ? payload.to : toPath,
+  );
 
-    if (explicitPath !== undefined && explicitPath !== false) {
-      const normalizedExplicit = normalizeLinkValue(explicitPath);
-      if (normalizedExplicit) payload[key] = normalizedExplicit;
+  const hasFrom = fromValue != null;
+  const hasTo = toValue != null;
+
+  if (!hasFrom && !hasTo) {
+    const extraKeys = Object.keys(payload).filter(
+      (key) => key !== "from" && key !== "to",
+    );
+    if (extraKeys.length === 0) {
+      return null;
     }
-
-    if (
-      Object.prototype.hasOwnProperty.call(payload, key) &&
-      (!payload[key] ||
-        typeof payload[key] !== "object" ||
-        typeof payload[key]["/"] !== "string")
-    ) {
-      delete payload[key];
-    }
-  };
-
-  setLink("from", fromPath);
-  setLink("to", toPath);
-
-  const hasValidFrom =
-    payload.from && typeof payload.from === "object" && typeof payload.from["/"] === "string";
-  const hasValidTo =
-    payload.to && typeof payload.to === "object" && typeof payload.to["/"] === "string";
-
-  if (!hasValidFrom && !hasValidTo) {
-    return null;
   }
 
-  return Object.keys(payload).length ? payload : null;
+  payload.from = hasFrom ? fromValue : null;
+  payload.to = hasTo ? toValue : null;
+
+  return payload;
 }
 
 async function writeRelationshipFile(fileName, fromPath, toPath, extras = {}) {
@@ -5318,16 +5306,18 @@ async function main() {
     unnormalizedCandidates: unnormalizedCandidatesForAddress,
     metadataSources: [cleanedAddressMetadata, addressRecordPayload, finalAddressOutput],
     requestIdentifier: requestIdentifierValue,
-    preferStructured: !!structuredCandidate && !normalizedUnnormalized,
+    preferStructured: preferredAddressMode === "structured",
   });
 
   let addressFileRef = null;
   if (addressForWrite && typeof addressForWrite === "object") {
     const finalizedAddress = finalizeAddressPayloadForWrite(addressForWrite);
+    const fallbackForProjection =
+      preferredAddressMode === "structured" ? null : fallbackUnnormalizedValue;
     const projectedAddress = projectAddressPayloadToSchema(
       finalizedAddress || addressForWrite,
       {
-        fallbackUnnormalized: fallbackUnnormalizedValue,
+        fallbackUnnormalized: fallbackForProjection,
         structuredFallback: structuredCandidate,
         metadataSources: [
           cleanedAddressMetadata,
@@ -5993,6 +5983,8 @@ async function main() {
           preparedMailingAddress,
           mailingAddressText,
         );
+        let fallbackMailingUnnormalized = mailingAddressText;
+
         if (finalMailingAddress) {
           finalMailingAddress = enforceAddressModePreference(
             finalMailingAddress,
@@ -6069,13 +6061,25 @@ async function main() {
           if (mailingAddressText) {
             mailingUnnormalizedCandidates.push(mailingAddressText);
           }
+          const preferMailingStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+            (key) => {
+              const value =
+                mailingCandidate && Object.prototype.hasOwnProperty.call(mailingCandidate, key)
+                  ? mailingCandidate[key]
+                  : null;
+              return typeof value === "string" && value.trim().length > 0;
+            },
+          );
+
+          fallbackMailingUnnormalized = preferMailingStructured ? null : mailingAddressText;
+
           finalMailingAddress = buildPreferredSchemaAddressPayload({
             candidate: mailingCandidate,
             structuredSources: mailingStructuredSources,
             unnormalizedCandidates: mailingUnnormalizedCandidates,
             metadataSources: mailingAddressPayload,
             requestIdentifier: baseRequestData.request_identifier || null,
-            preferStructured: false,
+            preferStructured: preferMailingStructured,
           });
         }
         if (
@@ -6086,7 +6090,7 @@ async function main() {
           const projectedMailingAddress = projectAddressPayloadToSchema(
             finalMailingAddress,
             {
-              fallbackUnnormalized: mailingAddressText,
+              fallbackUnnormalized: fallbackMailingUnnormalized,
               metadataSources: mailingAddressPayload,
               requestIdentifier: baseRequestData.request_identifier || null,
             },
