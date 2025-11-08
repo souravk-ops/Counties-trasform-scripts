@@ -2241,6 +2241,99 @@ function enforceAddressOneOfForWrite(address, preferMode = "unnormalized") {
   return null;
 }
 
+function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
+  if (!address || typeof address !== "object") return null;
+
+  const normalized =
+    enforceAddressOneOfForWrite(address, preferMode) ||
+    ensureExclusiveAddressMode(address);
+  if (!normalized || typeof normalized !== "object") return null;
+
+  const result = {};
+
+  const assignRequestIdentifier = (value) => {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed || null;
+    }
+    return value;
+  };
+
+  const normalizedRequestId = assignRequestIdentifier(
+    normalized.request_identifier,
+  );
+  if (normalizedRequestId != null) {
+    result.request_identifier = normalizedRequestId;
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
+    const rawValue = normalized[key];
+    if (rawValue == null) continue;
+    if (typeof rawValue === "string") {
+      const cleaned = textClean(rawValue);
+      if (!cleaned) continue;
+      result[key] = cleaned;
+    } else if (typeof rawValue === "number") {
+      if (!Number.isFinite(rawValue)) continue;
+      result[key] = rawValue;
+    } else {
+      result[key] = rawValue;
+    }
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(normalized, "unnormalized_address")
+      ? normalized.unnormalized_address
+      : null,
+  );
+
+  const structuredValues = {};
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
+    const rawValue = normalized[key];
+    if (rawValue == null) continue;
+    if (typeof rawValue === "string") {
+      let cleaned = textClean(rawValue);
+      if (!cleaned) continue;
+      if (key === "city_name" || key === "state_code") {
+        cleaned = cleaned.toUpperCase();
+      } else if (key === "postal_code" || key === "plus_four_postal_code") {
+        cleaned = cleaned.replace(/\s+/g, "");
+      }
+      structuredValues[key] = cleaned;
+    } else {
+      structuredValues[key] = rawValue;
+    }
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = structuredValues[key];
+    if (typeof value === "string") return value.trim().length > 0;
+    return value != null;
+  });
+
+  if (normalizedUnnormalized) {
+    return {
+      ...result,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  }
+
+  if (hasStructured) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredValues, key)) continue;
+      const value = structuredValues[key];
+      if (value == null) continue;
+      result[key] = value;
+    }
+    return Object.keys(result).length > 0 ? result : null;
+  }
+
+  return null;
+}
+
 function prepareAddressForWrite(payload, options = {}) {
   if (!payload || typeof payload !== "object") return null;
 
@@ -2596,6 +2689,37 @@ function preparePersonForWrite(rawPerson) {
     veteran_status: sanitizeLooseField(rawPerson.veteran_status),
     request_identifier: sanitizeLooseField(rawPerson.request_identifier),
   };
+}
+
+function enforcePersonSchema(person) {
+  if (!person || typeof person !== "object") return null;
+
+  const coerceName = (value, pattern) => {
+    if (value == null) return null;
+    const normalized = normalizeNameToPattern(value, pattern);
+    if (!normalized) return null;
+    return pattern.test(normalized) ? normalized : null;
+  };
+
+  const next = { ...person };
+
+  const safeLast = coerceName(next.last_name, PERSON_NAME_PATTERN);
+  const safeFirst = coerceName(next.first_name, PERSON_NAME_PATTERN);
+
+  if (!safeLast || !safeFirst) return null;
+
+  next.last_name = safeLast;
+  next.first_name = safeFirst;
+
+  if (next.middle_name != null) {
+    const safeMiddle = coerceName(
+      next.middle_name,
+      PERSON_MIDDLE_NAME_PATTERN,
+    );
+    next.middle_name = safeMiddle ?? null;
+  }
+
+  return next;
 }
 
 function buildPersonDisplayName(person) {
@@ -4042,53 +4166,24 @@ async function main() {
   }
 
   if (finalAddressOutput) {
-    const sanitizedAddress =
-      enforceAddressOneOfForWrite(
-        deepClone(finalAddressOutput),
-        preferredAddressMode,
-      ) || ensureExclusiveAddressMode(finalAddressOutput);
-    if (
-      sanitizedAddress &&
-      typeof sanitizedAddress === "object" &&
-      Object.keys(sanitizedAddress).length > 0
-    ) {
-      finalAddressOutput = sanitizedAddress;
-    } else {
-      finalAddressOutput = null;
-    }
+    finalAddressOutput = sanitizeAddressForSchema(
+      finalAddressOutput,
+      preferredAddressMode,
+    );
   }
 
-  if (finalAddressOutput) {
-    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
-      const value = finalAddressOutput[key];
-      return typeof value === "string" && value.trim().length > 0;
-    });
-    const normalizedUnnormalizedValue = normalizeUnnormalizedAddressValue(
-      Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")
-        ? finalAddressOutput.unnormalized_address
-        : null,
-    );
-
-    if (normalizedUnnormalizedValue) {
-      stripStructuredAddressFields(finalAddressOutput);
-      finalAddressOutput.unnormalized_address = normalizedUnnormalizedValue;
-    } else if (hasStructured) {
-      removeUnnormalizedAddress(finalAddressOutput);
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, key)) {
-          const value = finalAddressOutput[key];
-          if (typeof value === "string") {
-            const trimmed = value.trim();
-            if (trimmed) finalAddressOutput[key] = trimmed;
-            else delete finalAddressOutput[key];
-          } else if (value == null) {
-            delete finalAddressOutput[key];
-          }
-        }
-      }
-    } else {
-      finalAddressOutput = null;
+  if (!finalAddressOutput && normalizedUnnormalized) {
+    const fallbackAddressCandidate = {
+      ...cleanedAddressMetadata,
+      unnormalized_address: normalizedUnnormalized,
+    };
+    if (requestIdentifierValue != null) {
+      fallbackAddressCandidate.request_identifier = requestIdentifierValue;
     }
+    finalAddressOutput = sanitizeAddressForSchema(
+      fallbackAddressCandidate,
+      "unnormalized",
+    );
   }
 
   let addressFileRef = null;
@@ -5193,6 +5288,13 @@ async function main() {
       personOut.last_name = safeLastOut;
       personOut.first_name = safeFirstOut;
       personOut.middle_name = safeMiddleOut ?? null;
+
+      const schemaSafePerson = enforcePersonSchema(personOut);
+      if (!schemaSafePerson) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      personOut = schemaSafePerson;
 
         record.person = {
           ...record.person,
