@@ -1547,16 +1547,16 @@ function buildAddressRecord({
     return candidate;
   };
 
-  if (normalizedUnnormalized) {
-    const unnormalizedCandidate = buildCandidate("unnormalized");
-    const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
-    if (resolvedUnnormalized) return resolvedUnnormalized;
-  }
-
   if (normalizedStructured) {
     const structuredCandidate = buildCandidate("structured");
     const resolvedStructured = finalizeCandidate(structuredCandidate);
     if (resolvedStructured) return resolvedStructured;
+  }
+
+  if (normalizedUnnormalized) {
+    const unnormalizedCandidate = buildCandidate("unnormalized");
+    const resolvedUnnormalized = finalizeCandidate(unnormalizedCandidate);
+    if (resolvedUnnormalized) return resolvedUnnormalized;
   }
 
   return null;
@@ -3258,11 +3258,42 @@ async function main() {
     : null;
 
   if (finalizedAddressPayload) {
-    addressHasCoreData = true;
-    await fsp.writeFile(
-      path.join("data", addressFileName),
-      JSON.stringify(finalizedAddressPayload, null, 2),
-    );
+    let hasStructuredAddress = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = finalizedAddressPayload[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    let hasUnnormalizedAddress =
+      typeof finalizedAddressPayload.unnormalized_address === "string" &&
+      finalizedAddressPayload.unnormalized_address.trim().length > 0;
+
+    if (hasStructuredAddress && hasUnnormalizedAddress) {
+      delete finalizedAddressPayload.unnormalized_address;
+      hasUnnormalizedAddress = false;
+    } else if (hasUnnormalizedAddress && !hasStructuredAddress) {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(finalizedAddressPayload, key)) {
+          delete finalizedAddressPayload[key];
+        }
+      }
+    }
+
+    hasStructuredAddress = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = finalizedAddressPayload[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    hasUnnormalizedAddress =
+      typeof finalizedAddressPayload.unnormalized_address === "string" &&
+      finalizedAddressPayload.unnormalized_address.trim().length > 0;
+
+    if (hasStructuredAddress || hasUnnormalizedAddress) {
+      addressHasCoreData = true;
+      await fsp.writeFile(
+        path.join("data", addressFileName),
+        JSON.stringify(finalizedAddressPayload, null, 2),
+      );
+    } else {
+      addressHasCoreData = false;
+    }
   } else {
     addressHasCoreData = false;
   }
