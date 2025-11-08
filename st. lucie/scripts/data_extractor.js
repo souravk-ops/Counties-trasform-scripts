@@ -1939,12 +1939,6 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
     return typeof value === "string" && value.trim().length > 0;
   });
 
-  if (normalizedUnnormalized) {
-    stripStructuredAddressFields(sanitized);
-    sanitized.unnormalized_address = normalizedUnnormalized;
-    return sanitized;
-  }
-
   if (hasStructured) {
     delete sanitized.unnormalized_address;
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
@@ -1952,6 +1946,12 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
         delete sanitized[key];
       }
     }
+    return sanitized;
+  }
+
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(sanitized);
+    sanitized.unnormalized_address = normalizedUnnormalized;
     return sanitized;
   }
 
@@ -1968,6 +1968,42 @@ function enforceAddressOneOfForWrite(address, preferMode = "structured") {
 
   stripStructuredAddressFields(sanitized);
   delete sanitized.unnormalized_address;
+  return null;
+}
+
+function finalizeAddressPayloadForWrite(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  let working = ensureExclusiveAddressMode(payload);
+  if (!working) return null;
+
+  const sanitized =
+    sanitizeAddressPayloadForOneOf({ ...working }) ||
+    enforceAddressOneOfCompliance(working) ||
+    coerceAddressPayloadToOneOf(working) ||
+    working;
+
+  working = ensureExclusiveAddressMode(sanitized);
+  if (!working) return null;
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = working[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  if (hasStructured) {
+    delete working.unnormalized_address;
+    return working;
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    working.unnormalized_address,
+  );
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(working);
+    working.unnormalized_address = normalizedUnnormalized;
+    return working;
+  }
+
   return null;
 }
 
@@ -3665,8 +3701,11 @@ async function main() {
         prepared,
         resolution && resolution.mode ? resolution.mode : preferredAddressMode,
       );
-      if (enforced) {
-        preparedAddressPayload = enforced;
+      const finalized = finalizeAddressPayloadForWrite(
+        enforced || prepared,
+      );
+      if (finalized) {
+        preparedAddressPayload = finalized;
       }
     }
   }
