@@ -3693,12 +3693,11 @@ async function main() {
     }
   }
 
-  const addressPayload = createAddressPayload({
-    structuredSource: structuredAddressSource,
+  const addressPayload = buildAddressRecord({
+    structuredAddress: structuredAddressSource,
     unnormalizedValue: unnormalizedAddressCandidate,
     metadata: cleanedAddressMetadata,
     requestIdentifier: baseRequestData.request_identifier || null,
-    preferStructured: Boolean(structuredAddressSource),
   });
 
   let addressFileRef = null;
@@ -4317,12 +4316,11 @@ async function main() {
 
     // --- Mailing Address File Creation ---
     if (mailingAddressText) {
-      const mailingAddressPayload = createAddressPayload({
-        structuredSource: null,
+      const mailingAddressPayload = buildAddressRecord({
+        structuredAddress: null,
         unnormalizedValue: mailingAddressText,
         metadata: {},
         requestIdentifier: baseRequestData.request_identifier || null,
-        preferStructured: false,
       });
 
       if (mailingAddressPayload) {
