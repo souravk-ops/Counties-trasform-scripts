@@ -40,36 +40,50 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     return { "/": trimmed };
   };
 
-  const normalizeExistingLink = (key) => {
-    if (!Object.prototype.hasOwnProperty.call(payload, key)) return;
-    const current = payload[key];
-    let normalized = null;
-    if (typeof current === "string") {
-      normalized = buildResource(current);
-    } else if (current && typeof current === "object") {
-      if (typeof current["/"] === "string") {
-        normalized = buildResource(current["/"]);
-      } else if (typeof current.path === "string") {
-        normalized = buildResource(current.path);
+  const normalizeLinkValue = (value) => {
+    if (value == null) return null;
+    if (typeof value === "string") return buildResource(value);
+    if (value && typeof value === "object") {
+      if (typeof value["/"] === "string") {
+        return buildResource(value["/"]);
+      }
+      if (typeof value.path === "string") {
+        return buildResource(value.path);
       }
     }
-    if (normalized) payload[key] = normalized;
-    else delete payload[key];
+    return null;
   };
 
-  normalizeExistingLink("from");
-  normalizeExistingLink("to");
+  const setLink = (key, explicitPath) => {
+    const normalizedFromExtras = normalizeLinkValue(payload[key]);
+    if (normalizedFromExtras) payload[key] = normalizedFromExtras;
+    else delete payload[key];
 
-  const shouldIncludeFrom = fromPath !== undefined && fromPath !== false;
-  if (shouldIncludeFrom && payload.from == null) {
-    const fromRef = buildResource(fromPath);
-    if (fromRef) payload.from = fromRef;
-  }
+    if (explicitPath !== undefined && explicitPath !== false) {
+      const normalizedExplicit = normalizeLinkValue(explicitPath);
+      if (normalizedExplicit) payload[key] = normalizedExplicit;
+    }
 
-  const shouldIncludeTo = toPath !== undefined && toPath !== false;
-  if (shouldIncludeTo && payload.to == null) {
-    const toRef = buildResource(toPath);
-    if (toRef) payload.to = toRef;
+    if (
+      Object.prototype.hasOwnProperty.call(payload, key) &&
+      (!payload[key] ||
+        typeof payload[key] !== "object" ||
+        typeof payload[key]["/"] !== "string")
+    ) {
+      delete payload[key];
+    }
+  };
+
+  setLink("from", fromPath);
+  setLink("to", toPath);
+
+  const hasValidFrom =
+    payload.from && typeof payload.from === "object" && typeof payload.from["/"] === "string";
+  const hasValidTo =
+    payload.to && typeof payload.to === "object" && typeof payload.to["/"] === "string";
+
+  if (!hasValidFrom && !hasValidTo) {
+    return null;
   }
 
   return Object.keys(payload).length ? payload : null;
@@ -4027,6 +4041,23 @@ async function main() {
     );
   }
 
+  if (finalAddressOutput) {
+    const sanitizedAddress =
+      enforceAddressOneOfForWrite(
+        deepClone(finalAddressOutput),
+        preferredAddressMode,
+      ) || ensureExclusiveAddressMode(finalAddressOutput);
+    if (
+      sanitizedAddress &&
+      typeof sanitizedAddress === "object" &&
+      Object.keys(sanitizedAddress).length > 0
+    ) {
+      finalAddressOutput = sanitizedAddress;
+    } else {
+      finalAddressOutput = null;
+    }
+  }
+
   let addressFileRef = null;
   if (
     finalAddressOutput &&
@@ -4673,6 +4704,22 @@ async function main() {
             finalMailingAddress,
             mailingAddressText,
           );
+        }
+        if (finalMailingAddress) {
+          const sanitizedMailing =
+            enforceAddressOneOfForWrite(
+              deepClone(finalMailingAddress),
+              "unnormalized",
+            ) || ensureExclusiveAddressMode(finalMailingAddress);
+          if (
+            sanitizedMailing &&
+            typeof sanitizedMailing === "object" &&
+            Object.keys(sanitizedMailing).length > 0
+          ) {
+            finalMailingAddress = sanitizedMailing;
+          } else {
+            finalMailingAddress = null;
+          }
         }
         if (finalMailingAddress) {
           await fsp.writeFile(
