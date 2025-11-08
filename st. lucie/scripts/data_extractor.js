@@ -3538,21 +3538,34 @@ async function main() {
     (unnormalizedAddressData && unnormalizedAddressData.normalized_address) ||
     null;
 
-  const structuredAddressCandidate =
+  const structuredAddressSource =
     normalizedAddressSourceRaw && typeof normalizedAddressSourceRaw === "object"
-      ? pickStructuredAddress(normalizedAddressSourceRaw)
+      ? normalizedAddressSourceRaw
       : null;
 
-  let fallbackAddress = null;
-  if (!structuredAddressCandidate && unnormalizedAddressData) {
-    fallbackAddress =
-      textClean(
-        unnormalizedAddressData.unnormalized_address ||
-          unnormalizedAddressData.full_address,
-      ) || null;
+  let unnormalizedAddressCandidate =
+    (unnormalizedAddressData &&
+      (unnormalizedAddressData.unnormalized_address ||
+        unnormalizedAddressData.full_address)) ||
+    null;
+
+  if (
+    !unnormalizedAddressCandidate &&
+    baseRequestData &&
+    typeof baseRequestData === "object"
+  ) {
+    const baseUnnormalized =
+      baseRequestData.unnormalized_address ||
+      baseRequestData.full_address ||
+      baseRequestData.mailing_address ||
+      null;
+    if (baseUnnormalized) {
+      unnormalizedAddressCandidate = baseUnnormalized;
+    }
   }
-  if (!structuredAddressCandidate && !fallbackAddress && siteAddress) {
-    fallbackAddress = textClean(siteAddress);
+
+  if (!unnormalizedAddressCandidate && siteAddress) {
+    unnormalizedAddressCandidate = siteAddress;
   }
 
   if (secTownRange) {
@@ -3582,36 +3595,63 @@ async function main() {
     }
   }
 
-  const structuredAddressForWrite = structuredAddressCandidate
-    ? pickStructuredAddress(structuredAddressCandidate)
-    : null;
-  const normalizedUnnormalizedFallback = normalizeUnnormalizedAddressValue(
-    fallbackAddress,
+  const normalizedUnnormalizedCandidate = normalizeUnnormalizedAddressValue(
+    unnormalizedAddressCandidate,
   );
 
-  let finalizedAddressPayload = null;
-  if (structuredAddressForWrite) {
-    finalizedAddressPayload = {
-      ...cleanedAddressMetadata,
-      ...structuredAddressForWrite,
-    };
-  } else if (normalizedUnnormalizedFallback) {
-    finalizedAddressPayload = {
-      ...cleanedAddressMetadata,
-      unnormalized_address: normalizedUnnormalizedFallback,
-    };
+  const addressArgsBase = {
+    metadata: cleanedAddressMetadata,
+    requestIdentifier: baseRequestData.request_identifier || null,
+  };
+
+  let addressRecordInput = null;
+  let preferredAddressMode = null;
+
+  if (normalizedUnnormalizedCandidate) {
+    addressRecordInput = buildAddressRecord({
+      structuredAddress: null,
+      unnormalizedValue: normalizedUnnormalizedCandidate,
+      ...addressArgsBase,
+    });
+    if (addressRecordInput) preferredAddressMode = "unnormalized";
   }
 
-  if (finalizedAddressPayload) {
-    assignIfValue(
-      finalizedAddressPayload,
-      "request_identifier",
-      baseRequestData.request_identifier,
+  if (!addressRecordInput && structuredAddressSource) {
+    addressRecordInput = buildAddressRecord({
+      structuredAddress: structuredAddressSource,
+      unnormalizedValue: null,
+      ...addressArgsBase,
+    });
+    if (addressRecordInput) preferredAddressMode = "structured";
+  }
+
+  if (
+    !addressRecordInput &&
+    structuredAddressSource &&
+    normalizedUnnormalizedCandidate
+  ) {
+    addressRecordInput = buildAddressRecord({
+      structuredAddress: structuredAddressSource,
+      unnormalizedValue: normalizedUnnormalizedCandidate,
+      ...addressArgsBase,
+    });
+    if (addressRecordInput) preferredAddressMode = "unnormalized";
+  }
+
+  let preparedAddressPayload = null;
+  if (addressRecordInput) {
+    const resolution = resolveAddressForOutput(
+      deepClone(addressRecordInput),
+      preferredAddressMode,
     );
+    preparedAddressPayload = prepareAddressPayloadForWrite(resolution);
+  }
+
+  if (preparedAddressPayload) {
     addressHasCoreData = true;
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(finalizedAddressPayload, null, 2),
+      JSON.stringify(preparedAddressPayload, null, 2),
     );
   } else {
     addressHasCoreData = false;
