@@ -2334,6 +2334,81 @@ function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
   return null;
 }
 
+function finalizeAddressPayloadForWrite(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const hasUnnormalized = hasUnnormalizedAddressValue(payload);
+  const preferMode = hasUnnormalized ? "unnormalized" : "structured";
+
+  const attempts = [
+    sanitizeAddressForSchema(payload, preferMode),
+    sanitizeAddressForSchema(payload, hasUnnormalized ? "structured" : "unnormalized"),
+    enforceAddressOneOfForWrite(payload, preferMode),
+    enforceAddressOneOfForWrite(payload, hasUnnormalized ? "structured" : "unnormalized"),
+    enforceAddressOneOfForWrite(payload, "unnormalized"),
+    enforceAddressOneOfForWrite(payload, "structured"),
+  ];
+
+  for (const attempt of attempts) {
+    if (!attempt || typeof attempt !== "object") continue;
+    const candidate = deepClone(attempt);
+    if (!candidate || typeof candidate !== "object") continue;
+
+    const candidateHasUnnormalized = hasUnnormalizedAddressValue(candidate);
+    if (candidateHasUnnormalized) {
+      stripStructuredAddressFields(candidate);
+      candidate.unnormalized_address = normalizeUnnormalizedAddressValue(
+        candidate.unnormalized_address,
+      );
+      if (!candidate.unnormalized_address) continue;
+      const sanitized =
+        sanitizeAddressForSchema(candidate, "unnormalized") ||
+        enforceAddressOneOfForWrite(candidate, "unnormalized");
+      if (
+        sanitized &&
+        typeof sanitized === "object" &&
+        Object.keys(sanitized).length > 0
+      ) {
+        stripStructuredAddressFields(sanitized);
+        sanitized.unnormalized_address = normalizeUnnormalizedAddressValue(
+          sanitized.unnormalized_address,
+        );
+        if (!sanitized.unnormalized_address) continue;
+        return sanitized;
+      }
+      continue;
+    }
+
+    const hasStructuredCandidate = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) => {
+        const value = candidate[key];
+        return typeof value === "string" && value.trim().length > 0;
+      },
+    );
+    if (!hasStructuredCandidate) continue;
+
+    removeUnnormalizedAddress(candidate);
+    const sanitized =
+      sanitizeAddressForSchema(candidate, "structured") ||
+      enforceAddressOneOfForWrite(candidate, "structured");
+    if (
+      sanitized &&
+      typeof sanitized === "object" &&
+      Object.keys(sanitized).length > 0
+    ) {
+      removeUnnormalizedAddress(sanitized);
+      const hasRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+        const value = sanitized[key];
+        return typeof value === "string" && value.trim().length > 0;
+      });
+      if (!hasRequired) continue;
+      return sanitized;
+    }
+  }
+
+  return null;
+}
+
 function finalizeAddressForSchemaOutput(address, preferredMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
@@ -5001,16 +5076,22 @@ async function main() {
   });
 
   let addressFileRef = null;
-  if (
-    addressForWrite &&
-    typeof addressForWrite === "object" &&
-    Object.keys(addressForWrite).length > 0
-  ) {
-    await fsp.writeFile(
-      path.join("data", addressFileName),
-      JSON.stringify(addressForWrite, null, 2),
-    );
-    addressFileRef = `./${addressFileName}`;
+  if (addressForWrite && typeof addressForWrite === "object") {
+    const finalizedAddress = finalizeAddressPayloadForWrite(addressForWrite);
+    if (
+      finalizedAddress &&
+      typeof finalizedAddress === "object" &&
+      Object.keys(finalizedAddress).length > 0
+    ) {
+      addressForWrite = finalizedAddress;
+      await fsp.writeFile(
+        path.join("data", addressFileName),
+        JSON.stringify(addressForWrite, null, 2),
+      );
+      addressFileRef = `./${addressFileName}`;
+    } else {
+      addressForWrite = null;
+    }
   }
 
   // --- Parcel extraction ---
@@ -6185,19 +6266,30 @@ async function main() {
       validatedOutput.first_name = personOut.first_name;
       validatedOutput.middle_name = personOut.middle_name;
 
-      if (
-        !PERSON_NAME_PATTERN.test(personOut.last_name) ||
-        !PERSON_NAME_PATTERN.test(personOut.first_name)
-      ) {
+      const finalNormalizedLastCheck = normalizeNameToPattern(
+        personOut.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      const finalNormalizedFirstCheck = normalizeNameToPattern(
+        personOut.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      const finalNormalizedMiddleCheck =
+        personOut.middle_name != null
+          ? normalizeNameToPattern(
+              personOut.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
+
+      if (!finalNormalizedLastCheck || !finalNormalizedFirstCheck) {
         await promoteToCompany(validationFallback);
         continue;
       }
-      if (
-        personOut.middle_name != null &&
-        !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
-      ) {
-        personOut.middle_name = null;
-      }
+
+      personOut.last_name = finalNormalizedLastCheck;
+      personOut.first_name = finalNormalizedFirstCheck;
+      personOut.middle_name = finalNormalizedMiddleCheck ?? null;
 
       personIdx += 1;
       const fileName = `person_${personIdx}.json`;
