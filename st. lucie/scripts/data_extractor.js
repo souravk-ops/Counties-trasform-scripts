@@ -1131,6 +1131,119 @@ function ensureExclusiveAddressMode(address) {
   return null;
 }
 
+function enforceAddressModePreference(address, fallbackUnnormalized = null) {
+  if (!address || typeof address !== "object") return null;
+
+  const clone = { ...address };
+
+  const structuredSnapshot = {};
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(clone, key)) {
+      structuredSnapshot[key] = clone[key];
+    }
+  }
+
+  const rawUnnormalized = Object.prototype.hasOwnProperty.call(
+    clone,
+    "unnormalized_address",
+  )
+    ? clone.unnormalized_address
+    : null;
+
+  let normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    rawUnnormalized,
+  );
+  if (!normalizedUnnormalized && typeof fallbackUnnormalized === "string") {
+    normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      fallbackUnnormalized,
+    );
+  }
+
+  if (normalizedUnnormalized) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    clone.unnormalized_address = normalizedUnnormalized;
+    return clone;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(structuredSnapshot, key)) {
+      return false;
+    }
+    const value = structuredSnapshot[key];
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return value != null;
+  });
+
+  if (hasStructured) {
+    if (
+      Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+    ) {
+      delete clone.unnormalized_address;
+    }
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredSnapshot, key)) {
+        if (Object.prototype.hasOwnProperty.call(clone, key)) {
+          delete clone[key];
+        }
+        continue;
+      }
+      const rawValue = structuredSnapshot[key];
+      if (rawValue == null) {
+        if (Object.prototype.hasOwnProperty.call(clone, key)) {
+          delete clone[key];
+        }
+        continue;
+      }
+      if (typeof rawValue === "string") {
+        const trimmed = rawValue.trim();
+        if (!trimmed) {
+          if (Object.prototype.hasOwnProperty.call(clone, key)) {
+            delete clone[key];
+          }
+        } else {
+          clone[key] = trimmed;
+        }
+      } else {
+        clone[key] = rawValue;
+      }
+    }
+    return clone;
+  }
+
+  const fallbackFromStructured = buildFallbackUnnormalizedAddress(
+    structuredSnapshot,
+  );
+  const normalizedFallback = normalizeUnnormalizedAddressValue(
+    fallbackFromStructured,
+  );
+  if (normalizedFallback) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    clone.unnormalized_address = normalizedFallback;
+    return clone;
+  }
+
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(clone, key)) {
+      delete clone[key];
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")) {
+    delete clone.unnormalized_address;
+  }
+
+  return Object.keys(clone).length > 0 ? clone : null;
+}
+
 function finalizeResolvedAddressPayload(resolution, preferredMode = null) {
   if (!resolution || typeof resolution !== "object") return null;
   const rawPayload = resolution.payload;
@@ -3894,7 +4007,10 @@ async function main() {
   }
 
   if (finalAddressOutput) {
-    finalAddressOutput = ensureExclusiveAddressMode(finalAddressOutput);
+    finalAddressOutput = enforceAddressModePreference(
+      finalAddressOutput,
+      normalizedUnnormalized || unnormalizedAddressCandidate || null,
+    );
   }
 
   let addressFileRef = null;
@@ -4534,10 +4650,16 @@ async function main() {
             preferMode: "unnormalized",
           },
         );
-        const finalMailingAddress = finalizeAddressOutputForSchema(
+        let finalMailingAddress = finalizeAddressOutputForSchema(
           preparedMailingAddress,
           mailingAddressText,
         );
+        if (finalMailingAddress) {
+          finalMailingAddress = enforceAddressModePreference(
+            finalMailingAddress,
+            mailingAddressText,
+          );
+        }
         if (finalMailingAddress) {
           await fsp.writeFile(
             path.join("data", "mailing_address.json"),
