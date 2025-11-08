@@ -1794,6 +1794,144 @@ function buildSchemaCompliantAddress(payload, fallbackUnnormalized = null) {
   return null;
 }
 
+function enforceAddressOneOfForWrite(address, preferMode = "structured") {
+  if (!address || typeof address !== "object") return null;
+
+  const sanitized = deepClone(address);
+  if (!sanitized || typeof sanitized !== "object") return null;
+
+  const normalizeCommonValue = (value) => {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      return cleaned || null;
+    }
+    return value;
+  };
+
+  if (Object.prototype.hasOwnProperty.call(sanitized, "request_identifier")) {
+    const normalizedRequestId = normalizeCommonValue(
+      sanitized.request_identifier,
+    );
+    if (normalizedRequestId == null) {
+      delete sanitized.request_identifier;
+    } else {
+      sanitized.request_identifier = normalizedRequestId;
+    }
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
+    const normalizedMeta = normalizeCommonValue(sanitized[key]);
+    if (normalizedMeta == null) {
+      delete sanitized[key];
+    } else {
+      sanitized[key] = normalizedMeta;
+    }
+  }
+
+  const normalizeStructuredValue = (key, value) => {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      let cleaned = textClean(value);
+      if (!cleaned) return null;
+      if (key === "city_name" || key === "state_code") {
+        cleaned = cleaned.toUpperCase();
+      }
+      if (key === "postal_code" || key === "plus_four_postal_code") {
+        cleaned = cleaned.replace(/\s+/g, "");
+      }
+      return cleaned;
+    }
+    return value;
+  };
+
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
+    const normalized = normalizeStructuredValue(key, sanitized[key]);
+    if (normalized == null) {
+      delete sanitized[key];
+    } else {
+      sanitized[key] = normalized;
+    }
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(sanitized, "unnormalized_address")
+      ? sanitized.unnormalized_address
+      : null,
+  );
+  if (normalizedUnnormalized) {
+    sanitized.unnormalized_address = normalizedUnnormalized;
+  } else if (
+    Object.prototype.hasOwnProperty.call(sanitized, "unnormalized_address")
+  ) {
+    delete sanitized.unnormalized_address;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = sanitized[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const hasUnnormalized =
+    typeof sanitized.unnormalized_address === "string" &&
+    sanitized.unnormalized_address.trim().length > 0;
+
+  const pruneStructuredFields = () => {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+        delete sanitized[key];
+      }
+    }
+  };
+
+  if (hasStructured && hasUnnormalized) {
+    if (preferMode === "unnormalized") {
+      pruneStructuredFields();
+      sanitized.unnormalized_address = normalizeUnnormalizedAddressValue(
+        sanitized.unnormalized_address,
+      );
+    } else {
+      delete sanitized.unnormalized_address;
+    }
+  } else if (hasStructured) {
+    delete sanitized.unnormalized_address;
+  } else if (hasUnnormalized) {
+    pruneStructuredFields();
+    sanitized.unnormalized_address = normalizeUnnormalizedAddressValue(
+      sanitized.unnormalized_address,
+    );
+  } else {
+    const hasAnyStructuredField = STRUCTURED_ADDRESS_FIELDS.some((key) =>
+      Object.prototype.hasOwnProperty.call(sanitized, key),
+    );
+    if (hasAnyStructuredField) {
+      pruneStructuredFields();
+    }
+    if (normalizedUnnormalized) {
+      sanitized.unnormalized_address = normalizedUnnormalized;
+    } else {
+      return null;
+    }
+  }
+
+  const hasRemainingStructured = STRUCTURED_ADDRESS_FIELDS.some((key) =>
+    Object.prototype.hasOwnProperty.call(sanitized, key),
+  );
+
+  const hasRemainingUnnormalized = Object.prototype.hasOwnProperty.call(
+    sanitized,
+    "unnormalized_address",
+  );
+
+  if (!hasRemainingStructured && !hasRemainingUnnormalized) {
+    return null;
+  }
+
+  return sanitized;
+}
+
 function toTitleCaseName(part) {
   if (!part) return null;
   const normalized = part.trim().toLowerCase();
@@ -3433,11 +3571,18 @@ async function main() {
     ? buildSchemaCompliantAddress(addressPayloadCandidate, fallbackAddress)
     : null;
 
-  if (schemaReadyAddress) {
+  const sanitizedAddressForWrite = schemaReadyAddress
+    ? enforceAddressOneOfForWrite(
+        schemaReadyAddress,
+        structuredAddressCandidate ? "structured" : "unnormalized",
+      )
+    : null;
+
+  if (sanitizedAddressForWrite) {
     addressHasCoreData = true;
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(schemaReadyAddress, null, 2),
+      JSON.stringify(sanitizedAddressForWrite, null, 2),
     );
   } else {
     addressHasCoreData = false;
@@ -4063,12 +4208,15 @@ async function main() {
         const finalizedMailingAddress = exclusiveMailingAddress
           ? prepareAddressPayloadForWrite(exclusiveMailingAddress)
           : null;
-        if (finalizedMailingAddress) {
+        const sanitizedMailingAddress = finalizedMailingAddress
+          ? enforceAddressOneOfForWrite(finalizedMailingAddress, "unnormalized")
+          : null;
+        if (sanitizedMailingAddress) {
           await fsp.writeFile(
             path.join("data", "mailing_address.json"),
-            JSON.stringify(finalizedMailingAddress, null, 2),
+            JSON.stringify(sanitizedMailingAddress, null, 2),
           );
-          mailingAddressOut = finalizedMailingAddress;
+          mailingAddressOut = sanitizedMailingAddress;
           console.log("mailing_address.json created.");
         } else {
           mailingAddressOut = null;
