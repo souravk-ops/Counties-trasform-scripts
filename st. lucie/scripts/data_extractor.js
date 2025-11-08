@@ -675,11 +675,7 @@ function finalizeAddressForSchema(address, preferredMode = null) {
     };
   };
 
-  if (
-    normalizedPreferred === "structured" &&
-    hasStructured &&
-    !hasUnnormalized
-  ) {
+  if (normalizedPreferred === "structured" && hasStructured) {
     return keepStructured();
   }
   if (normalizedPreferred === "unnormalized" && hasUnnormalized) {
@@ -687,7 +683,9 @@ function finalizeAddressForSchema(address, preferredMode = null) {
   }
 
   if (hasStructured && hasUnnormalized) {
-    return keepUnnormalized();
+    return normalizedPreferred === "unnormalized"
+      ? keepUnnormalized()
+      : keepStructured();
   }
   if (hasStructured) {
     return keepStructured();
@@ -1002,6 +1000,79 @@ function ensureExclusiveAddressMode(address) {
       }
     }
     return clone;
+  }
+
+  return null;
+}
+
+function finalizeResolvedAddressPayload(resolution, preferredMode = null) {
+  if (!resolution || typeof resolution !== "object") return null;
+  const rawPayload = resolution.payload;
+  if (!rawPayload || typeof rawPayload !== "object") return null;
+
+  const prefer =
+    preferredMode === "unnormalized" ? "unnormalized" : "structured";
+
+  const attemptSanitized = (candidate) => {
+    if (!candidate || typeof candidate !== "object") return null;
+    const enforced =
+      enforceAddressOneOfCompliance(candidate) ||
+      sanitizeAddressPayloadForOneOf(candidate) ||
+      coerceAddressPayloadToOneOf(candidate) ||
+      ensureExclusiveAddressMode(candidate);
+    return enforced && typeof enforced === "object" ? enforced : null;
+  };
+
+  const sanitized =
+    attemptSanitized(rawPayload) || attemptSanitized(ensureExclusiveAddressMode(rawPayload));
+  if (!sanitized) return null;
+
+  const clone = deepClone(sanitized);
+  if (!clone) return null;
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    clone.unnormalized_address,
+  );
+  const hasUnnormalized =
+    typeof normalizedUnnormalized === "string" &&
+    normalizedUnnormalized.length > 0;
+
+  if (hasStructured && hasUnnormalized) {
+    if (prefer === "unnormalized") {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(clone, key)) {
+          delete clone[key];
+        }
+      }
+      clone.unnormalized_address = normalizedUnnormalized;
+      return { payload: clone, mode: "unnormalized" };
+    }
+    delete clone.unnormalized_address;
+    return { payload: clone, mode: "structured" };
+  }
+
+  if (hasStructured) {
+    if (
+      Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+    ) {
+      delete clone.unnormalized_address;
+    }
+    return { payload: clone, mode: "structured" };
+  }
+
+  if (hasUnnormalized) {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+        delete clone[key];
+      }
+    }
+    clone.unnormalized_address = normalizedUnnormalized;
+    return { payload: clone, mode: "unnormalized" };
   }
 
   return null;
@@ -3175,8 +3246,15 @@ async function main() {
     ? resolveAddressForOutput(preparedAddressOutput, preferredAddressMode)
     : null;
 
-  const finalizedAddressPayload = resolvedAddressOutput
-    ? prepareAddressPayloadForWrite(resolvedAddressOutput)
+  const exclusiveAddressResolution = resolvedAddressOutput
+    ? finalizeResolvedAddressPayload(
+        resolvedAddressOutput,
+        preferredAddressMode,
+      )
+    : null;
+
+  const finalizedAddressPayload = exclusiveAddressResolution
+    ? prepareAddressPayloadForWrite(exclusiveAddressResolution)
     : null;
 
   if (finalizedAddressPayload) {
@@ -3800,8 +3878,14 @@ async function main() {
           preparedMailingAddress,
           "unnormalized",
         );
-        const finalizedMailingAddress = resolvedMailingAddress
-          ? prepareAddressPayloadForWrite(resolvedMailingAddress)
+        const exclusiveMailingAddress = resolvedMailingAddress
+          ? finalizeResolvedAddressPayload(
+              resolvedMailingAddress,
+              "unnormalized",
+            )
+          : null;
+        const finalizedMailingAddress = exclusiveMailingAddress
+          ? prepareAddressPayloadForWrite(exclusiveMailingAddress)
           : null;
         if (finalizedMailingAddress) {
           await fsp.writeFile(
@@ -4506,8 +4590,6 @@ async function main() {
             request_identifier: baseRequestData.request_identifier || null,
             file_format: getFileFormatFromUrl(sale._book_page_url),
             name: path.basename(sale._book_page_url) || null,
-            original_url: null,
-            ipfs_url: null,
             document_type: "ConveyanceDeed",
           };
           await fsp.writeFile(
@@ -5012,8 +5094,6 @@ async function main() {
           request_identifier: baseRequestData.request_identifier || null,
           file_format: getFileFormatFromUrl(u),
           name: path.basename(u || "") || null,
-          original_url: null,
-          ipfs_url: null,
           document_type: null,
         };
       // Map document_type to schema-compliant values
