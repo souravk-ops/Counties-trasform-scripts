@@ -3935,7 +3935,20 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    // Address relationships are generated downstream; avoid emitting duplicates here.
+    if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address_1.json",
+        propertyRef,
+        addressFileRef,
+      );
+      await writeRelationshipFile(
+        "relationship_address_has_fact_sheet_1.json",
+        addressFileRef,
+        propertyRef,
+      );
+    }
+
+    // Address relationships are created once both property and address references are available.
 
     // Lot data
 
