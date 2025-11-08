@@ -3748,34 +3748,90 @@ async function main() {
     }
   }
 
-  const addressPayload = buildAddressRecord({
-    structuredAddress: structuredAddressSource,
-    unnormalizedValue: unnormalizedAddressCandidate,
-    metadata: cleanedAddressMetadata,
-    requestIdentifier: baseRequestData.request_identifier || null,
-  });
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    unnormalizedAddressCandidate,
+  );
+
+  const structuredCandidate =
+    structuredAddressSource && typeof structuredAddressSource === "object"
+      ? pickStructuredAddress(structuredAddressSource)
+      : null;
+
+  const baseAddressOut = {};
+  assignIfValue(
+    baseAddressOut,
+    "request_identifier",
+    baseRequestData && baseRequestData.request_identifier
+      ? baseRequestData.request_identifier
+      : null,
+  );
+  if (cleanedAddressMetadata && typeof cleanedAddressMetadata === "object") {
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (
+        Object.prototype.hasOwnProperty.call(cleanedAddressMetadata, key)
+      ) {
+        assignIfValue(baseAddressOut, key, cleanedAddressMetadata[key]);
+      }
+    }
+  }
+
+  let selectedAddress = null;
+  if (normalizedUnnormalized) {
+    selectedAddress = {
+      ...baseAddressOut,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  } else if (
+    structuredCandidate &&
+    STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) =>
+        typeof structuredCandidate[key] === "string" &&
+        structuredCandidate[key].trim().length > 0,
+    )
+  ) {
+    selectedAddress = { ...baseAddressOut };
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(structuredCandidate, key)) {
+        assignIfValue(selectedAddress, key, structuredCandidate[key]);
+      }
+    }
+    if (!selectedAddress.country_code) {
+      selectedAddress.country_code = "US";
+    }
+  }
+
+  const addressOutput = {};
+  if (selectedAddress) {
+    for (const [key, value] of Object.entries(selectedAddress)) {
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (!cleaned) continue;
+        addressOutput[key] = cleaned;
+      } else if (typeof value === "number") {
+        if (Number.isFinite(value)) {
+          addressOutput[key] = value;
+        }
+      } else {
+        addressOutput[key] = value;
+      }
+    }
+    if (addressOutput.unnormalized_address) {
+      for (const field of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(addressOutput, field)) {
+          delete addressOutput[field];
+        }
+      }
+    }
+  }
 
   let addressFileRef = null;
-  if (addressPayload) {
-    const preferMode =
-      normalizeUnnormalizedAddressValue(unnormalizedAddressCandidate) != null
-        ? "unnormalized"
-        : "structured";
-    const preparedAddress = prepareAddressForWrite(addressPayload, {
-      fallbackUnnormalized: unnormalizedAddressCandidate,
-      preferMode,
-    });
-    const finalAddress = finalizeAddressOutputForSchema(
-      preparedAddress,
-      unnormalizedAddressCandidate,
+  if (selectedAddress && Object.keys(addressOutput).length > 0) {
+    await fsp.writeFile(
+      path.join("data", addressFileName),
+      JSON.stringify(addressOutput, null, 2),
     );
-    if (finalAddress) {
-      await fsp.writeFile(
-        path.join("data", addressFileName),
-        JSON.stringify(finalAddress, null, 2),
-      );
-      addressFileRef = `./${addressFileName}`;
-    }
+    addressFileRef = `./${addressFileName}`;
   }
 
   // --- Parcel extraction ---
@@ -4736,7 +4792,7 @@ async function main() {
         validatedOutput.first_name = finalFirst;
         validatedOutput.middle_name = finalMiddle ?? null;
 
-        const personOut = preparePersonForWrite({
+        let personOut = preparePersonForWrite({
           birth_date: validatedOutput.birth_date ?? null,
           first_name: validatedOutput.first_name ?? null,
           last_name: validatedOutput.last_name ?? null,
@@ -4753,6 +4809,28 @@ async function main() {
           await promoteToCompany(validationFallback);
           continue;
         }
+
+        const normalizedFirstOut = normalizePersonNameValue(
+          personOut.first_name,
+          PERSON_NAME_PATTERN,
+        );
+        const normalizedLastOut = normalizePersonNameValue(
+          personOut.last_name,
+          PERSON_NAME_PATTERN,
+        );
+        const normalizedMiddleOut = normalizePersonNameValue(
+          personOut.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+
+        if (!normalizedFirstOut || !normalizedLastOut) {
+          await promoteToCompany(validationFallback);
+          continue;
+        }
+
+        personOut.first_name = normalizedFirstOut;
+        personOut.last_name = normalizedLastOut;
+        personOut.middle_name = normalizedMiddleOut ?? null;
 
         record.person = {
           ...record.person,
