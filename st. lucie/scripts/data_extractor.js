@@ -2572,6 +2572,148 @@ function normalizeAddressPayloadForSchema(
   return tryNormalize(fallbackBase);
 }
 
+function buildPreferredSchemaAddressPayload({
+  candidate = null,
+  structuredSources = [],
+  unnormalizedCandidates = [],
+  metadataSources = [],
+  requestIdentifier = null,
+  preferStructured = false,
+} = {}) {
+  const collectedMetadata = {};
+  let resolvedRequestIdentifier = null;
+
+  const setRequestIdentifier = (value) => {
+    if (value == null) return;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      if (resolvedRequestIdentifier == null) {
+        resolvedRequestIdentifier = trimmed;
+      }
+      return;
+    }
+    if (resolvedRequestIdentifier == null) {
+      resolvedRequestIdentifier = value;
+    }
+  };
+
+  const addMetadataFromSource = (source) => {
+    if (!source || typeof source !== "object") return;
+    if (
+      Object.prototype.hasOwnProperty.call(source, "request_identifier") &&
+      source.request_identifier != null
+    ) {
+      setRequestIdentifier(source.request_identifier);
+    }
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+      if (Object.prototype.hasOwnProperty.call(collectedMetadata, key)) continue;
+      const value = source[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (!cleaned) continue;
+        collectedMetadata[key] = cleaned;
+      } else if (typeof value === "number") {
+        if (!Number.isFinite(value)) continue;
+        collectedMetadata[key] = value;
+      } else {
+        collectedMetadata[key] = value;
+      }
+    }
+  };
+
+  if (candidate && typeof candidate === "object") {
+    addMetadataFromSource(candidate);
+  }
+  if (Array.isArray(metadataSources)) {
+    for (const source of metadataSources) {
+      addMetadataFromSource(source);
+    }
+  } else if (metadataSources && typeof metadataSources === "object") {
+    addMetadataFromSource(metadataSources);
+  }
+
+  if (requestIdentifier != null) {
+    setRequestIdentifier(requestIdentifier);
+  }
+
+  const structuredSourceList = [];
+  if (candidate && typeof candidate === "object") {
+    structuredSourceList.push(candidate);
+  }
+  if (Array.isArray(structuredSources)) {
+    for (const source of structuredSources) {
+      if (source && typeof source === "object") {
+        structuredSourceList.push(source);
+      }
+    }
+  } else if (structuredSources && typeof structuredSources === "object") {
+    structuredSourceList.push(structuredSources);
+  }
+
+  let structuredPayload = null;
+  for (const source of structuredSourceList) {
+    const normalized = pickStructuredAddress(source);
+    if (normalized) {
+      structuredPayload = normalized;
+      break;
+    }
+  }
+
+  const unnormalizedValueCandidates = [];
+  if (
+    candidate &&
+    typeof candidate === "object" &&
+    Object.prototype.hasOwnProperty.call(candidate, "unnormalized_address")
+  ) {
+    unnormalizedValueCandidates.push(candidate.unnormalized_address);
+  }
+  if (Array.isArray(unnormalizedCandidates)) {
+    for (const value of unnormalizedCandidates) {
+      if (value != null) {
+        unnormalizedValueCandidates.push(value);
+      }
+    }
+  } else if (unnormalizedCandidates != null) {
+    unnormalizedValueCandidates.push(unnormalizedCandidates);
+  }
+
+  let normalizedUnnormalized = null;
+  for (const value of unnormalizedValueCandidates) {
+    const normalized = normalizeUnnormalizedAddressValue(value);
+    if (normalized) {
+      normalizedUnnormalized = normalized;
+      break;
+    }
+  }
+
+  const base = { ...collectedMetadata };
+  if (resolvedRequestIdentifier != null) {
+    if (typeof resolvedRequestIdentifier === "string") {
+      const trimmed = resolvedRequestIdentifier.trim();
+      if (trimmed) base.request_identifier = trimmed;
+    } else {
+      base.request_identifier = resolvedRequestIdentifier;
+    }
+  }
+
+  if (preferStructured && structuredPayload) {
+    return { ...base, ...structuredPayload };
+  }
+
+  if (normalizedUnnormalized) {
+    return { ...base, unnormalized_address: normalizedUnnormalized };
+  }
+
+  if (structuredPayload) {
+    return { ...base, ...structuredPayload };
+  }
+
+  return null;
+}
+
 function normalizeAddressMetadataFromSources(sources) {
   const normalized = {};
   const list = Array.isArray(sources) ? sources : [sources];
@@ -4801,6 +4943,63 @@ async function main() {
     }
   }
 
+  const addressCandidateForOutput = addressForWrite;
+  const structuredSourcesForAddress = [
+    addressCandidateForOutput,
+    finalAddressOutput,
+    addressRecordPayload,
+    structuredCandidate,
+  ].filter((source) => source && typeof source === "object");
+
+  const unnormalizedCandidatesForAddress = [];
+  if (
+    addressCandidateForOutput &&
+    typeof addressCandidateForOutput === "object" &&
+    Object.prototype.hasOwnProperty.call(
+      addressCandidateForOutput,
+      "unnormalized_address",
+    )
+  ) {
+    unnormalizedCandidatesForAddress.push(
+      addressCandidateForOutput.unnormalized_address,
+    );
+  }
+  if (
+    finalAddressOutput &&
+    typeof finalAddressOutput === "object" &&
+    Object.prototype.hasOwnProperty.call(
+      finalAddressOutput,
+      "unnormalized_address",
+    )
+  ) {
+    unnormalizedCandidatesForAddress.push(
+      finalAddressOutput.unnormalized_address,
+    );
+  }
+  if (fallbackUnnormalizedValue) {
+    unnormalizedCandidatesForAddress.push(fallbackUnnormalizedValue);
+  }
+  if (normalizedUnnormalized && normalizedUnnormalized !== fallbackUnnormalizedValue) {
+    unnormalizedCandidatesForAddress.push(normalizedUnnormalized);
+  }
+  if (
+    unnormalizedAddressCandidate &&
+    (!normalizedUnnormalized ||
+      normalizeUnnormalizedAddressValue(unnormalizedAddressCandidate) !==
+        normalizedUnnormalized)
+  ) {
+    unnormalizedCandidatesForAddress.push(unnormalizedAddressCandidate);
+  }
+
+  addressForWrite = buildPreferredSchemaAddressPayload({
+    candidate: addressCandidateForOutput,
+    structuredSources: structuredSourcesForAddress,
+    unnormalizedCandidates: unnormalizedCandidatesForAddress,
+    metadataSources: [cleanedAddressMetadata, addressRecordPayload, finalAddressOutput],
+    requestIdentifier: requestIdentifierValue,
+    preferStructured: !!structuredCandidate && !normalizedUnnormalized,
+  });
+
   let addressFileRef = null;
   if (
     addressForWrite &&
@@ -5497,6 +5696,41 @@ async function main() {
           }
         }
         if (finalMailingAddress) {
+          const mailingCandidate = finalMailingAddress;
+          const mailingStructuredSources = [
+            mailingCandidate,
+            mailingAddressPayload,
+          ].filter((source) => source && typeof source === "object");
+          const mailingUnnormalizedCandidates = [];
+          if (
+            mailingCandidate &&
+            typeof mailingCandidate === "object" &&
+            Object.prototype.hasOwnProperty.call(
+              mailingCandidate,
+              "unnormalized_address",
+            )
+          ) {
+            mailingUnnormalizedCandidates.push(
+              mailingCandidate.unnormalized_address,
+            );
+          }
+          if (mailingAddressText) {
+            mailingUnnormalizedCandidates.push(mailingAddressText);
+          }
+          finalMailingAddress = buildPreferredSchemaAddressPayload({
+            candidate: mailingCandidate,
+            structuredSources: mailingStructuredSources,
+            unnormalizedCandidates: mailingUnnormalizedCandidates,
+            metadataSources: mailingAddressPayload,
+            requestIdentifier: baseRequestData.request_identifier || null,
+            preferStructured: false,
+          });
+        }
+        if (
+          finalMailingAddress &&
+          typeof finalMailingAddress === "object" &&
+          Object.keys(finalMailingAddress).length > 0
+        ) {
           await fsp.writeFile(
             path.join("data", "mailing_address.json"),
             JSON.stringify(finalMailingAddress, null, 2),
