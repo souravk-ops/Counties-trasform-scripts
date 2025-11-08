@@ -2590,6 +2590,37 @@ function enforceAddressOneOfForWrite(address, preferMode = "unnormalized") {
     return typeof value === "string" && value.trim().length > 0;
   });
 
+  const preferStructured =
+    typeof preferMode === "string" && preferMode.toLowerCase() === "structured";
+
+  if (preferStructured && hasStructured) {
+    delete sanitized.unnormalized_address;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredSnapshot, key)) {
+        delete sanitized[key];
+        continue;
+      }
+      const value = structuredSnapshot[key];
+      if (value == null) {
+        delete sanitized[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          delete sanitized[key];
+        } else if (key === "city_name" || key === "state_code") {
+          sanitized[key] = trimmed.toUpperCase();
+        } else if (key === "postal_code" || key === "plus_four_postal_code") {
+          sanitized[key] = trimmed.replace(/\s+/g, "");
+        } else {
+          sanitized[key] = trimmed;
+        }
+      }
+    }
+    return sanitized;
+  }
+
   if (normalizedUnnormalized) {
     stripStructuredAddressFields(sanitized);
     sanitized.unnormalized_address = normalizedUnnormalized;
@@ -5645,12 +5676,24 @@ async function main() {
           typeof finalAddressPayload === "object" &&
           Object.keys(finalAddressPayload).length > 0
         ) {
-          addressForWrite = finalAddressPayload;
-          await fsp.writeFile(
-            path.join("data", addressFileName),
-            JSON.stringify(addressForWrite, null, 2),
+          const schemaSafeAddress = enforceAddressOneOfForWrite(
+            finalAddressPayload,
+            preferredAddressMode === "structured" ? "structured" : "unnormalized",
           );
-          addressFileRef = `./${addressFileName}`;
+          if (
+            schemaSafeAddress &&
+            typeof schemaSafeAddress === "object" &&
+            Object.keys(schemaSafeAddress).length > 0
+          ) {
+            addressForWrite = schemaSafeAddress;
+            await fsp.writeFile(
+              path.join("data", addressFileName),
+              JSON.stringify(addressForWrite, null, 2),
+            );
+            addressFileRef = `./${addressFileName}`;
+          } else {
+            addressForWrite = null;
+          }
         } else {
           addressForWrite = null;
         }
@@ -7065,6 +7108,31 @@ async function main() {
       personOut.last_name = finalLastForWrite;
       personOut.first_name = finalFirstForWrite;
       personOut.middle_name = finalMiddleForWrite ?? null;
+
+      const failSafeLast = enforceNamePattern(
+        personOut.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      const failSafeFirst = enforceNamePattern(
+        personOut.first_name,
+        PERSON_NAME_PATTERN,
+      );
+      const failSafeMiddle =
+        personOut.middle_name != null
+          ? enforceNamePattern(
+              personOut.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
+
+      if (!failSafeLast || !failSafeFirst) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+
+      personOut.last_name = failSafeLast;
+      personOut.first_name = failSafeFirst;
+      personOut.middle_name = failSafeMiddle ?? null;
 
       personIdx += 1;
       const fileName = `person_${personIdx}.json`;
