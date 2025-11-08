@@ -2334,6 +2334,139 @@ function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
   return null;
 }
 
+function enforcePreferredAddressMode(address, preferredMode = "unnormalized") {
+  if (!address || typeof address !== "object") return null;
+
+  const preferStructured = preferredMode === "structured";
+  const output = {};
+
+  if (Object.prototype.hasOwnProperty.call(address, "request_identifier")) {
+    const requestId = address.request_identifier;
+    if (requestId != null) {
+      if (typeof requestId === "string") {
+        const trimmed = requestId.trim();
+        if (trimmed) output.request_identifier = trimmed;
+      } else {
+        output.request_identifier = requestId;
+      }
+    }
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const raw = address[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const cleaned = textClean(raw);
+      if (!cleaned) continue;
+      output[key] = cleaned;
+    } else if (typeof raw === "number") {
+      if (!Number.isFinite(raw)) continue;
+      output[key] = raw;
+    } else {
+      output[key] = raw;
+    }
+  }
+
+  const structuredValues = {};
+  let hasStructured = true;
+  for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) {
+      hasStructured = false;
+      break;
+    }
+    const raw = address[key];
+    if (raw == null) {
+      hasStructured = false;
+      break;
+    }
+    let text =
+      typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
+    if (!text) {
+      hasStructured = false;
+      break;
+    }
+    if (key === "city_name" || key === "state_code") {
+      text = textClean(text).toUpperCase();
+    } else if (key === "postal_code" || key === "plus_four_postal_code") {
+      text = text.replace(/\s+/g, "");
+    } else {
+      text = textClean(text);
+    }
+    if (!text) {
+      hasStructured = false;
+      break;
+    }
+    structuredValues[key] = text;
+  }
+
+  if (hasStructured) {
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+      const raw = address[key];
+      if (raw == null) continue;
+      let text =
+        typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
+      if (!text) continue;
+      if (key === "city_name" || key === "state_code") {
+        text = textClean(text).toUpperCase();
+      } else if (key === "postal_code" || key === "plus_four_postal_code") {
+        text = text.replace(/\s+/g, "");
+      } else {
+        text = textClean(text);
+      }
+      if (!text) continue;
+      structuredValues[key] = text;
+    }
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+      ? address.unnormalized_address
+      : null,
+  );
+
+  let mode = null;
+  if (hasStructured && normalizedUnnormalized) {
+    mode = preferStructured ? "structured" : "unnormalized";
+  } else if (hasStructured) {
+    mode = "structured";
+  } else if (normalizedUnnormalized) {
+    mode = "unnormalized";
+  }
+
+  if (!mode) {
+    return null;
+  }
+
+  if (mode === "structured") {
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredValues, key)) continue;
+      const value = structuredValues[key];
+      if (value == null) continue;
+      output[key] = value;
+    }
+  } else {
+    output.unnormalized_address = normalizedUnnormalized;
+  }
+
+  const hasAddressData =
+    mode === "structured"
+      ? STRUCTURED_ADDRESS_FIELDS.some((key) =>
+          Object.prototype.hasOwnProperty.call(output, key),
+        )
+      : Object.prototype.hasOwnProperty.call(
+          output,
+          "unnormalized_address",
+        );
+
+  if (!hasAddressData) {
+    return null;
+  }
+
+  return output;
+}
+
 function prepareAddressForWrite(payload, options = {}) {
   if (!payload || typeof payload !== "object") return null;
 
@@ -4151,7 +4284,10 @@ async function main() {
     if (requestIdentifierValue) {
       fallbackAddress.request_identifier = requestIdentifierValue;
     }
-    finalAddressOutput = ensureExclusiveAddressMode(fallbackAddress);
+    finalAddressOutput = enforcePreferredAddressMode(
+      ensureExclusiveAddressMode(fallbackAddress) || fallbackAddress,
+      "unnormalized",
+    );
   }
 
   if (finalAddressOutput) {
@@ -4159,20 +4295,24 @@ async function main() {
       preferredAddressMode === "structured"
         ? null
         : normalizedUnnormalized || unnormalizedAddressCandidate || null;
-    finalAddressOutput = enforceAddressModePreference(
+    const preferenced = enforceAddressModePreference(
       finalAddressOutput,
       enforcedFallback,
     );
-  }
-
-  if (finalAddressOutput) {
-    finalAddressOutput = sanitizeAddressForSchema(
-      finalAddressOutput,
+    const sanitizedCandidate = sanitizeAddressForSchema(
+      preferenced || finalAddressOutput,
+      preferredAddressMode,
+    );
+    finalAddressOutput = enforcePreferredAddressMode(
+      sanitizedCandidate || preferenced,
       preferredAddressMode,
     );
   }
 
-  if (!finalAddressOutput && normalizedUnnormalized) {
+  if (
+    (!finalAddressOutput || Object.keys(finalAddressOutput).length === 0) &&
+    normalizedUnnormalized
+  ) {
     const fallbackAddressCandidate = {
       ...cleanedAddressMetadata,
       unnormalized_address: normalizedUnnormalized,
@@ -4180,8 +4320,11 @@ async function main() {
     if (requestIdentifierValue != null) {
       fallbackAddressCandidate.request_identifier = requestIdentifierValue;
     }
-    finalAddressOutput = sanitizeAddressForSchema(
-      fallbackAddressCandidate,
+    finalAddressOutput = enforcePreferredAddressMode(
+      sanitizeAddressForSchema(
+        fallbackAddressCandidate,
+        "unnormalized",
+      ) || fallbackAddressCandidate,
       "unnormalized",
     );
   }
