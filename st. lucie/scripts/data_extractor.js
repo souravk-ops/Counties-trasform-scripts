@@ -1495,7 +1495,7 @@ function buildAddressRecord({
       if (sanitized) {
         const exclusive = ensureExclusiveAddressMode(sanitized);
         if (exclusive) return exclusive;
-        return sanitized;
+        return null;
       }
 
       const enforced = enforceAddressOneOfCompliance(payload);
@@ -1506,11 +1506,11 @@ function buildAddressRecord({
         if (sanitizedEnforced) {
           const exclusive = ensureExclusiveAddressMode(sanitizedEnforced);
           if (exclusive) return exclusive;
-          return sanitizedEnforced;
+          return null;
         }
         const exclusive = ensureExclusiveAddressMode(enforced);
         if (exclusive) return exclusive;
-        return enforced;
+        return null;
       }
 
       const coerced = coerceAddressPayloadToOneOf(payload);
@@ -1521,11 +1521,11 @@ function buildAddressRecord({
         if (sanitizedCoerced) {
           const exclusive = ensureExclusiveAddressMode(sanitizedCoerced);
           if (exclusive) return exclusive;
-          return sanitizedCoerced;
+          return null;
         }
         const exclusive = ensureExclusiveAddressMode(coerced);
         if (exclusive) return exclusive;
-        return coerced;
+        return null;
       }
 
       return null;
