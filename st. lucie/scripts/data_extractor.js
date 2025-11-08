@@ -2457,6 +2457,121 @@ function finalizeAddressForSchemaOutput(address, preferredMode = "unnormalized")
   return null;
 }
 
+function normalizeAddressPayloadForSchema(
+  address,
+  preferMode = "unnormalized",
+  fallbackUnnormalized = null,
+) {
+  if (!address || typeof address !== "object") return null;
+
+  const candidates = [];
+  candidates.push(deepClone(address));
+
+  const compliantFromBuilder = buildSchemaCompliantAddress(
+    address,
+    fallbackUnnormalized,
+  );
+  if (compliantFromBuilder) {
+    candidates.push(compliantFromBuilder);
+  }
+
+  const finalizedCandidate = finalizeAddressOutputForSchema(
+    address,
+    fallbackUnnormalized,
+  );
+  if (finalizedCandidate) {
+    candidates.push(finalizedCandidate);
+  }
+
+  const tryNormalize = (candidate) => {
+    if (!candidate || typeof candidate !== "object") return null;
+    const pipeline = [
+      (payload) => enforceAddressOneOfForWrite(payload, preferMode),
+      (payload) => enforceAddressOneOfCompliance(payload),
+      (payload) => coerceAddressPayloadToOneOf(payload),
+      (payload) => ensureExclusiveAddressMode(payload),
+    ];
+
+    for (const step of pipeline) {
+      const snapshot = deepClone(candidate);
+      const normalized = step(snapshot);
+      if (!normalized || typeof normalized !== "object") continue;
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          normalized,
+          "unnormalized_address",
+        )
+      ) {
+        const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+          normalized.unnormalized_address,
+        );
+        if (!normalizedUnnormalized) continue;
+        stripStructuredAddressFields(normalized);
+        normalized.unnormalized_address = normalizedUnnormalized;
+      } else {
+        let hasStructured = true;
+        for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+          if (!Object.prototype.hasOwnProperty.call(normalized, key)) {
+            hasStructured = false;
+            break;
+          }
+          const value = normalized[key];
+          if (typeof value !== "string" || !value.trim()) {
+            hasStructured = false;
+            break;
+          }
+        }
+        if (!hasStructured) continue;
+      }
+
+      return normalized;
+    }
+    return null;
+  };
+
+  for (const candidate of candidates) {
+    const normalized = tryNormalize(candidate);
+    if (normalized) return normalized;
+  }
+
+  const normalizedFallback = normalizeUnnormalizedAddressValue(
+    fallbackUnnormalized,
+  );
+  if (!normalizedFallback) return null;
+
+  const fallbackBase = {};
+  if (
+    Object.prototype.hasOwnProperty.call(address, "request_identifier") &&
+    address.request_identifier != null
+  ) {
+    if (typeof address.request_identifier === "string") {
+      const trimmed = address.request_identifier.trim();
+      if (trimmed) fallbackBase.request_identifier = trimmed;
+    } else {
+      fallbackBase.request_identifier = address.request_identifier;
+    }
+  }
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const rawValue = address[key];
+    if (rawValue == null) continue;
+    if (typeof rawValue === "string") {
+      const cleaned = textClean(rawValue);
+      if (!cleaned) continue;
+      fallbackBase[key] = cleaned;
+    } else if (typeof rawValue === "number") {
+      if (!Number.isFinite(rawValue)) continue;
+      fallbackBase[key] = rawValue;
+    } else {
+      fallbackBase[key] = rawValue;
+    }
+  }
+  fallbackBase.unnormalized_address = normalizedFallback;
+
+  return tryNormalize(fallbackBase);
+}
+
 function normalizeAddressMetadataFromSources(sources) {
   const normalized = {};
   const list = Array.isArray(sources) ? sources : [sources];
@@ -4652,6 +4767,38 @@ async function main() {
       fallbackUnnormalized: fallbackUnnormalizedValue,
       requestIdentifier: requestIdentifierValue,
     });
+  }
+
+  if (
+    addressForWrite &&
+    typeof addressForWrite === "object" &&
+    Object.keys(addressForWrite).length > 0
+  ) {
+    const normalizedAddress = normalizeAddressPayloadForSchema(
+      addressForWrite,
+      preferredAddressMode,
+      fallbackUnnormalizedValue,
+    );
+
+    if (normalizedAddress) {
+      addressForWrite = normalizedAddress;
+    } else if (fallbackUnnormalizedValue) {
+      const fallbackAddress = {
+        ...cleanedAddressMetadata,
+        unnormalized_address: fallbackUnnormalizedValue,
+      };
+      if (requestIdentifierValue != null) {
+        fallbackAddress.request_identifier = requestIdentifierValue;
+      }
+      addressForWrite =
+        normalizeAddressPayloadForSchema(
+          fallbackAddress,
+          "unnormalized",
+          fallbackUnnormalizedValue,
+        ) || null;
+    } else {
+      addressForWrite = null;
+    }
   }
 
   let addressFileRef = null;
