@@ -2457,6 +2457,160 @@ function finalizeAddressForSchemaOutput(address, preferredMode = "unnormalized")
   return null;
 }
 
+function normalizeAddressMetadataFromSources(sources) {
+  const normalized = {};
+  const list = Array.isArray(sources) ? sources : [sources];
+  for (const source of list) {
+    if (!source || typeof source !== "object") continue;
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+      if (
+        Object.prototype.hasOwnProperty.call(normalized, key) &&
+        normalized[key] != null
+      ) {
+        continue;
+      }
+      const raw = source[key];
+      if (raw == null) continue;
+      if (typeof raw === "number") {
+        if (Number.isFinite(raw)) normalized[key] = raw;
+        continue;
+      }
+      if (typeof raw === "string") {
+        let cleaned = textClean(raw);
+        if (!cleaned) continue;
+        if (key === "latitude" || key === "longitude") {
+          const numeric = Number(cleaned);
+          if (Number.isFinite(numeric)) {
+            normalized[key] = numeric;
+            continue;
+          }
+        }
+        normalized[key] = cleaned;
+        continue;
+      }
+      normalized[key] = raw;
+    }
+  }
+  return normalized;
+}
+
+function buildAddressRecordForSchema({
+  addressCandidate = null,
+  structuredFallback = null,
+  metadataSources = [],
+  fallbackUnnormalized = null,
+  requestIdentifier = null,
+} = {}) {
+  const metadata = normalizeAddressMetadataFromSources(metadataSources);
+
+  const requestIdSources = [];
+  if (addressCandidate && typeof addressCandidate === "object") {
+    requestIdSources.push(addressCandidate);
+  }
+  if (structuredFallback && typeof structuredFallback === "object") {
+    requestIdSources.push(structuredFallback);
+  }
+  requestIdSources.push({ request_identifier: requestIdentifier });
+
+  let normalizedRequestId = null;
+  for (const source of requestIdSources) {
+    if (!source || typeof source !== "object") continue;
+    if (!Object.prototype.hasOwnProperty.call(source, "request_identifier")) {
+      continue;
+    }
+    const raw = source.request_identifier;
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      normalizedRequestId = trimmed;
+      break;
+    }
+    normalizedRequestId = raw;
+    break;
+  }
+
+  const structuredSources = [];
+  if (addressCandidate && typeof addressCandidate === "object") {
+    structuredSources.push(addressCandidate);
+  }
+  if (structuredFallback && typeof structuredFallback === "object") {
+    structuredSources.push(structuredFallback);
+  }
+
+  let structuredCandidate = null;
+  for (const candidate of structuredSources) {
+    const picked = pickStructuredAddress(candidate);
+    if (picked) {
+      structuredCandidate = picked;
+      break;
+    }
+  }
+
+  let normalizedUnnormalized = null;
+  const unnormalizedSources = [];
+  if (
+    addressCandidate &&
+    typeof addressCandidate === "object" &&
+    Object.prototype.hasOwnProperty.call(addressCandidate, "unnormalized_address")
+  ) {
+    unnormalizedSources.push(addressCandidate.unnormalized_address);
+  }
+  if (structuredFallback && typeof structuredFallback === "object") {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        structuredFallback,
+        "unnormalized_address",
+      )
+    ) {
+      unnormalizedSources.push(structuredFallback.unnormalized_address);
+    }
+  }
+  if (fallbackUnnormalized != null) {
+    unnormalizedSources.push(fallbackUnnormalized);
+  }
+  for (const value of unnormalizedSources) {
+    const normalized = normalizeUnnormalizedAddressValue(value);
+    if (normalized) {
+      normalizedUnnormalized = normalized;
+      break;
+    }
+  }
+
+  const base = {};
+  if (normalizedRequestId != null) {
+    base.request_identifier = normalizedRequestId;
+  }
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value != null) {
+      base[key] = value;
+    }
+  }
+
+  if (structuredCandidate) {
+    const hasAllRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = structuredCandidate[key];
+      if (typeof value === "string") {
+        return value.trim().length > 0;
+      }
+      return value != null;
+    });
+    if (hasAllRequired) {
+      return { ...base, ...structuredCandidate };
+    }
+  }
+
+  if (normalizedUnnormalized) {
+    return {
+      ...base,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  }
+
+  return null;
+}
+
 function enforcePreferredAddressMode(address, preferredMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
@@ -4467,15 +4621,48 @@ async function main() {
     finalAddressOutput = preferredFinal || null;
   }
 
+  const fallbackUnnormalizedValue =
+    normalizedUnnormalized || unnormalizedAddressCandidate || null;
+
+  let addressForWrite =
+    finalAddressOutput && typeof finalAddressOutput === "object"
+      ? buildAddressRecordForSchema({
+          addressCandidate: finalAddressOutput,
+          structuredFallback: structuredCandidate,
+          metadataSources: [cleanedAddressMetadata, finalAddressOutput],
+          fallbackUnnormalized: fallbackUnnormalizedValue,
+          requestIdentifier: requestIdentifierValue,
+        })
+      : null;
+
+  if (!addressForWrite && structuredCandidate) {
+    addressForWrite = buildAddressRecordForSchema({
+      addressCandidate: structuredCandidate,
+      structuredFallback: structuredCandidate,
+      metadataSources: [cleanedAddressMetadata, structuredCandidate],
+      fallbackUnnormalized: fallbackUnnormalizedValue,
+      requestIdentifier: requestIdentifierValue,
+    });
+  }
+
+  if (!addressForWrite && fallbackUnnormalizedValue) {
+    addressForWrite = buildAddressRecordForSchema({
+      addressCandidate: { unnormalized_address: fallbackUnnormalizedValue },
+      metadataSources: [cleanedAddressMetadata],
+      fallbackUnnormalized: fallbackUnnormalizedValue,
+      requestIdentifier: requestIdentifierValue,
+    });
+  }
+
   let addressFileRef = null;
   if (
-    finalAddressOutput &&
-    typeof finalAddressOutput === "object" &&
-    Object.keys(finalAddressOutput).length > 0
+    addressForWrite &&
+    typeof addressForWrite === "object" &&
+    Object.keys(addressForWrite).length > 0
   ) {
     await fsp.writeFile(
       path.join("data", addressFileName),
-      JSON.stringify(finalAddressOutput, null, 2),
+      JSON.stringify(addressForWrite, null, 2),
     );
     addressFileRef = `./${addressFileName}`;
   }
@@ -5601,6 +5788,13 @@ async function main() {
       personOut.last_name = finalLastName;
       personOut.first_name = finalFirstName;
       personOut.middle_name = finalMiddleName ?? null;
+
+      const schemaValidatedFinal = enforcePersonSchema(personOut);
+      if (!schemaValidatedFinal) {
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      personOut = schemaValidatedFinal;
 
       record.person = {
         ...record.person,
