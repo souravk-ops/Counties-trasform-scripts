@@ -3475,7 +3475,6 @@ async function main() {
   const propertySeedData = await readJson(propertySeedPath).catch(() => null); // Read property_seed.json
 
   const propertyRef = "./property.json";
-  let propertyExists = false;
   const addressFileName = "address.json";
 
   // Base data for address output, derived from property_seed or unnormalized_address
@@ -3499,8 +3498,6 @@ async function main() {
   let township = null;
   let range = null;
   let section = null;
-  let addressHasCoreData = false;
-
   if (!isMulti) {
     $("article#property-identification table.container tr").each((i, tr) => {
       const th = textClean($(tr).find("th").text());
@@ -3644,17 +3641,23 @@ async function main() {
       deepClone(addressRecordInput),
       preferredAddressMode,
     );
-    preparedAddressPayload = prepareAddressPayloadForWrite(resolution);
+    const prepared = prepareAddressPayloadForWrite(resolution);
+    if (prepared) {
+      const enforced = enforceAddressOneOfForWrite(
+        prepared,
+        resolution && resolution.mode ? resolution.mode : preferredAddressMode,
+      );
+      if (enforced) {
+        preparedAddressPayload = enforced;
+      }
+    }
   }
 
   if (preparedAddressPayload) {
-    addressHasCoreData = true;
     await fsp.writeFile(
       path.join("data", addressFileName),
       JSON.stringify(preparedAddressPayload, null, 2),
     );
-  } else {
-    addressHasCoreData = false;
   }
 
   // --- Parcel extraction ---
@@ -3757,7 +3760,6 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
-    propertyExists = true;
 
     // Lot data
 
@@ -5486,34 +5488,6 @@ async function main() {
     }
   }
 
-  if (addressHasCoreData) {
-    const addressRef = `./${addressFileName}`;
-
-    if (propertyExists) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressRef,
-      );
-    }
-
-    let factSheetFiles = [];
-    try {
-      const dataFiles = await fsp.readdir("data");
-      factSheetFiles = dataFiles.filter((file) =>
-        /^fact_sheet.*\.json$/i.test(file),
-      );
-    } catch {
-      factSheetFiles = [];
-    }
-
-    for (let i = 0; i < factSheetFiles.length; i++) {
-      const factSheetFile = factSheetFiles[i];
-      const suffix = factSheetFiles.length === 1 ? "" : `_${i + 1}`;
-      const relName = `relationship_address_has_fact_sheet${suffix}.json`;
-      await writeRelationshipFile(relName, addressRef, `./${factSheetFile}`);
-    }
-  }
 }
 
 main().catch(async (err) => {
