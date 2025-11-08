@@ -5360,7 +5360,18 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    // Downstream systems will build property/address relationships, so skip emitting them here.
+    if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
+      await writeRelationshipFile(
+        "relationship_address_has_fact_sheet.json",
+        addressFileRef,
+        propertyRef,
+      );
+    }
 
     // Lot data
 
