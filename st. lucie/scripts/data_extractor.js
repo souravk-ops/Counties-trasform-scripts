@@ -1145,6 +1145,156 @@ function ensureExclusiveAddressMode(address) {
   return null;
 }
 
+function projectAddressPayloadToSchema(
+  address,
+  {
+    fallbackUnnormalized = null,
+    structuredFallback = null,
+    metadataSources = [],
+    requestIdentifier = null,
+  } = {},
+) {
+  const aggregatedSources = [];
+  if (address && typeof address === "object") aggregatedSources.push(address);
+  if (
+    structuredFallback &&
+    typeof structuredFallback === "object" &&
+    structuredFallback !== address
+  ) {
+    aggregatedSources.push(structuredFallback);
+  }
+  if (metadataSources) {
+    const list = Array.isArray(metadataSources)
+      ? metadataSources
+      : [metadataSources];
+    for (const source of list) {
+      if (
+        source &&
+        typeof source === "object" &&
+        !aggregatedSources.includes(source)
+      ) {
+        aggregatedSources.push(source);
+      }
+    }
+  }
+
+  const metadata = {};
+  let resolvedRequestIdentifier =
+    requestIdentifier != null ? requestIdentifier : null;
+
+  const assignRequestIdentifier = (value) => {
+    if (value == null || resolvedRequestIdentifier != null) return;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) resolvedRequestIdentifier = trimmed;
+    } else {
+      resolvedRequestIdentifier = value;
+    }
+  };
+
+  const assignMetadata = (key, value) => {
+    if (value == null) return;
+    if (Object.prototype.hasOwnProperty.call(metadata, key)) return;
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (!cleaned) return;
+      metadata[key] = cleaned;
+      return;
+    }
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) metadata[key] = value;
+      return;
+    }
+    metadata[key] = value;
+  };
+
+  for (const source of aggregatedSources) {
+    if (!source || typeof source !== "object") continue;
+
+    if (
+      Object.prototype.hasOwnProperty.call(source, "request_identifier") &&
+      resolvedRequestIdentifier == null
+    ) {
+      assignRequestIdentifier(source.request_identifier);
+    }
+
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+      assignMetadata(key, source[key]);
+    }
+  }
+
+  const unnormalizedCandidates = [];
+  if (
+    address &&
+    typeof address === "object" &&
+    Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+  ) {
+    unnormalizedCandidates.push(address.unnormalized_address);
+  }
+  if (fallbackUnnormalized != null) {
+    unnormalizedCandidates.push(fallbackUnnormalized);
+  }
+
+  let normalizedUnnormalized = null;
+  for (const candidate of unnormalizedCandidates) {
+    const normalized = normalizeUnnormalizedAddressValue(candidate);
+    if (normalized) {
+      normalizedUnnormalized = normalized;
+      break;
+    }
+  }
+
+  const structuredCandidates = [];
+  if (address && typeof address === "object") {
+    structuredCandidates.push(address);
+  }
+  if (
+    structuredFallback &&
+    typeof structuredFallback === "object" &&
+    structuredFallback !== address
+  ) {
+    structuredCandidates.push(structuredFallback);
+  }
+
+  let structured = null;
+  for (const candidate of structuredCandidates) {
+    const normalized = pickStructuredAddress(candidate);
+    if (normalized) {
+      structured = normalized;
+      break;
+    }
+  }
+
+  const base = { ...metadata };
+  if (resolvedRequestIdentifier != null) {
+    if (typeof resolvedRequestIdentifier === "string") {
+      const trimmed = resolvedRequestIdentifier.trim();
+      if (trimmed) base.request_identifier = trimmed;
+    } else {
+      base.request_identifier = resolvedRequestIdentifier;
+    }
+  }
+
+  if (normalizedUnnormalized) {
+    const payload = {
+      ...base,
+      unnormalized_address: normalizedUnnormalized,
+    };
+    return ensureExclusiveAddressMode(payload) || payload;
+  }
+
+  if (structured) {
+    const payload = {
+      ...base,
+      ...structured,
+    };
+    return ensureExclusiveAddressMode(payload) || payload;
+  }
+
+  return null;
+}
+
 function enforceAddressModePreference(address, fallbackUnnormalized = null) {
   if (!address || typeof address !== "object") return null;
 
@@ -5078,25 +5228,27 @@ async function main() {
   let addressFileRef = null;
   if (addressForWrite && typeof addressForWrite === "object") {
     const finalizedAddress = finalizeAddressPayloadForWrite(addressForWrite);
-    if (
-      finalizedAddress &&
-      typeof finalizedAddress === "object" &&
-      Object.keys(finalizedAddress).length > 0
-    ) {
-      addressForWrite = finalizedAddress;
-      if (
-        Object.prototype.hasOwnProperty.call(
+    const projectedAddress = projectAddressPayloadToSchema(
+      finalizedAddress || addressForWrite,
+      {
+        fallbackUnnormalized: fallbackUnnormalizedValue,
+        structuredFallback: structuredCandidate,
+        metadataSources: [
+          cleanedAddressMetadata,
+          addressRecordPayload,
+          finalAddressOutput,
           addressForWrite,
-          "unnormalized_address",
-        )
-      ) {
-        // Ensure oneOf compliance by dropping any structured fields when unnormalized output wins.
-        for (const key of STRUCTURED_ADDRESS_FIELDS) {
-          if (Object.prototype.hasOwnProperty.call(addressForWrite, key)) {
-            delete addressForWrite[key];
-          }
-        }
-      }
+        ],
+        requestIdentifier: requestIdentifierValue,
+      },
+    );
+
+    if (
+      projectedAddress &&
+      typeof projectedAddress === "object" &&
+      Object.keys(projectedAddress).length > 0
+    ) {
+      addressForWrite = projectedAddress;
       await fsp.writeFile(
         path.join("data", addressFileName),
         JSON.stringify(addressForWrite, null, 2),
@@ -5812,12 +5964,28 @@ async function main() {
           typeof finalMailingAddress === "object" &&
           Object.keys(finalMailingAddress).length > 0
         ) {
-          await fsp.writeFile(
-            path.join("data", "mailing_address.json"),
-            JSON.stringify(finalMailingAddress, null, 2),
+          const projectedMailingAddress = projectAddressPayloadToSchema(
+            finalMailingAddress,
+            {
+              fallbackUnnormalized: mailingAddressText,
+              metadataSources: mailingAddressPayload,
+              requestIdentifier: baseRequestData.request_identifier || null,
+            },
           );
-          mailingAddressOut = finalMailingAddress;
-          console.log("mailing_address.json created.");
+          if (
+            projectedMailingAddress &&
+            typeof projectedMailingAddress === "object" &&
+            Object.keys(projectedMailingAddress).length > 0
+          ) {
+            await fsp.writeFile(
+              path.join("data", "mailing_address.json"),
+              JSON.stringify(projectedMailingAddress, null, 2),
+            );
+            mailingAddressOut = projectedMailingAddress;
+            console.log("mailing_address.json created.");
+          } else {
+            mailingAddressOut = null;
+          }
         } else {
           mailingAddressOut = null;
         }
