@@ -39,7 +39,7 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     const normalizeStringPath = (input) => {
       if (typeof input !== "string") return null;
       const trimmed = input.trim();
-      return trimmed ? { "/": trimmed } : null;
+      return trimmed || null;
     };
 
     if (typeof value === "string") {
@@ -1203,6 +1203,107 @@ function coerceAddressToSingleMode(address, fallbackUnnormalized = null) {
     }
     clone.unnormalized_address = fallbackValue;
     return clone;
+  }
+
+  return null;
+}
+
+function enforceSingleAddressModeForWrite(
+  payload,
+  preferStructured = false,
+) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const working = deepClone(payload);
+  if (!working || typeof working !== "object") return null;
+
+  const normalizeStructuredField = (key, raw) => {
+    if (raw == null) return null;
+    let value =
+      typeof raw === "string"
+        ? raw.trim()
+        : String(raw ?? "").trim();
+    if (!value) return null;
+    if (key === "city_name" || key === "state_code") {
+      return value.toUpperCase();
+    }
+    if (key === "postal_code" || key === "plus_four_postal_code") {
+      return value.replace(/\s+/g, "");
+    }
+    return value;
+  };
+
+  const structuredValues = {};
+  let hasStructured = true;
+  for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(working, key)) {
+      hasStructured = false;
+      break;
+    }
+    const normalized = normalizeStructuredField(key, working[key]);
+    if (!normalized) {
+      hasStructured = false;
+      break;
+    }
+    structuredValues[key] = normalized;
+  }
+
+  if (hasStructured) {
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(working, key)) continue;
+      const normalized = normalizeStructuredField(key, working[key]);
+      if (normalized) {
+        structuredValues[key] = normalized;
+      } else {
+        delete structuredValues[key];
+      }
+    }
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(working, "unnormalized_address")
+      ? working.unnormalized_address
+      : null,
+  );
+  const hasUnnormalized =
+    typeof normalizedUnnormalized === "string" &&
+    normalizedUnnormalized.length > 0;
+
+  let result = { ...working };
+
+  if (hasStructured && hasUnnormalized) {
+    if (preferStructured) {
+      delete result.unnormalized_address;
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(structuredValues, key)) {
+          result[key] = structuredValues[key];
+        } else if (Object.prototype.hasOwnProperty.call(result, key)) {
+          delete result[key];
+        }
+      }
+      return result;
+    }
+    stripStructuredAddressFields(result);
+    result.unnormalized_address = normalizedUnnormalized;
+    return result;
+  }
+
+  if (hasStructured) {
+    delete result.unnormalized_address;
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(structuredValues, key)) {
+        result[key] = structuredValues[key];
+      } else if (Object.prototype.hasOwnProperty.call(result, key)) {
+        delete result[key];
+      }
+    }
+    return result;
+  }
+
+  if (hasUnnormalized) {
+    stripStructuredAddressFields(result);
+    result.unnormalized_address = normalizedUnnormalized;
+    return result;
   }
 
   return null;
@@ -5448,14 +5549,27 @@ async function main() {
                 normalizedAddressForWrite = null;
               }
             }
-          }
         }
+      }
 
-        if (
-          normalizedAddressForWrite &&
-          typeof normalizedAddressForWrite === "object" &&
-          Object.keys(normalizedAddressForWrite).length > 0
-        ) {
+      if (
+        normalizedAddressForWrite &&
+        typeof normalizedAddressForWrite === "object"
+      ) {
+        const exclusiveNormalized = enforceSingleAddressModeForWrite(
+          normalizedAddressForWrite,
+          preferredAddressMode === "structured",
+        );
+        if (exclusiveNormalized) {
+          normalizedAddressForWrite = exclusiveNormalized;
+        }
+      }
+
+      if (
+        normalizedAddressForWrite &&
+        typeof normalizedAddressForWrite === "object" &&
+        Object.keys(normalizedAddressForWrite).length > 0
+      ) {
           addressForWrite = normalizedAddressForWrite;
           await fsp.writeFile(
             path.join("data", addressFileName),
@@ -6320,14 +6434,33 @@ async function main() {
                       normalizedMailingForWrite = null;
                     }
                   }
-                }
               }
+            }
 
-              if (
-                normalizedMailingForWrite &&
-                typeof normalizedMailingForWrite === "object" &&
-                Object.keys(normalizedMailingForWrite).length > 0
-              ) {
+            if (
+              normalizedMailingForWrite &&
+              typeof normalizedMailingForWrite === "object"
+            ) {
+              const preferMailingStructuredForWrite =
+                STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+                  const value = normalizedMailingForWrite[key];
+                  if (typeof value !== "string") return false;
+                  return value.trim().length > 0;
+                });
+              const exclusiveMailingForWrite = enforceSingleAddressModeForWrite(
+                normalizedMailingForWrite,
+                preferMailingStructuredForWrite,
+              );
+              if (exclusiveMailingForWrite) {
+                normalizedMailingForWrite = exclusiveMailingForWrite;
+              }
+            }
+
+            if (
+              normalizedMailingForWrite &&
+              typeof normalizedMailingForWrite === "object" &&
+              Object.keys(normalizedMailingForWrite).length > 0
+            ) {
                 await fsp.writeFile(
                   path.join("data", "mailing_address.json"),
                   JSON.stringify(normalizedMailingForWrite, null, 2),
