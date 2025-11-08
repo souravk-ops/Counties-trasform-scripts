@@ -35,16 +35,23 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
 
   const normalizeEndpoint = (value) => {
     if (value == null) return null;
+
+    const normalizeStringPath = (input) => {
+      if (typeof input !== "string") return null;
+      const trimmed = input.trim();
+      return trimmed ? { "/": trimmed } : null;
+    };
+
     if (typeof value === "string") {
-      const trimmed = value.trim();
-      return trimmed ? trimmed : null;
+      return normalizeStringPath(value);
     }
+
     if (value && typeof value === "object") {
       if (typeof value["/"] === "string") {
-        return normalizeEndpoint(value["/"]);
+        return normalizeStringPath(value["/"]);
       }
       if (typeof value.path === "string") {
-        return normalizeEndpoint(value.path);
+        return normalizeStringPath(value.path);
       }
     }
     return null;
