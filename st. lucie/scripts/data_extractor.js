@@ -4359,6 +4359,128 @@ async function harmonizeAddressFileForSchema(
   return exclusive;
 }
 
+async function finalizeAddressFileForOneOf(
+  fileName,
+  preferMode = "unnormalized",
+) {
+  if (!fileName || typeof fileName !== "string") return null;
+  const filePath = path.join("data", fileName);
+
+  let raw;
+  try {
+    raw = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const preferStructured = typeof preferMode === "string" &&
+    preferMode.toLowerCase() === "structured";
+
+  const exclusiveCandidate =
+    ensureExclusiveAddressMode(parsed, preferMode) ||
+    coerceAddressToSingleMode(parsed);
+
+  if (!exclusiveCandidate || typeof exclusiveCandidate !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const flattened =
+    buildAddressOneOfPayload(exclusiveCandidate) ||
+    buildAddressOneOfPayload(parsed);
+  if (!flattened || typeof flattened !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const exclusive =
+    ensureExclusiveAddressMode(flattened, preferMode) ||
+    coerceAddressToSingleMode(flattened);
+  if (!exclusive || typeof exclusive !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const metadata = collectAddressMetadata([exclusive, flattened]);
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    exclusive.unnormalized_address,
+  );
+  const structuredCandidate = sanitizeStructuredAddressCandidate(exclusive);
+  const hasStructured = Boolean(
+    structuredCandidate &&
+      STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+        const value = structuredCandidate[key];
+        return typeof value === "string" && value.trim().length > 0;
+      }),
+  );
+
+  let finalPayload = { ...metadata };
+  const requestIdentifier = resolveAddressRequestIdentifier(
+    exclusive.request_identifier,
+    flattened.request_identifier,
+  );
+  if (requestIdentifier) {
+    finalPayload.request_identifier = requestIdentifier;
+  }
+
+  if (normalizedUnnormalized && (!preferStructured || !hasStructured)) {
+    finalPayload.unnormalized_address = normalizedUnnormalized;
+    stripStructuredAddressFields(finalPayload);
+  } else if (hasStructured) {
+    delete finalPayload.unnormalized_address;
+    for (const [key, value] of Object.entries(structuredCandidate)) {
+      finalPayload[key] = value;
+    }
+  } else {
+    const fallback = buildFallbackUnnormalizedAddress(exclusive);
+    const normalizedFallback = normalizeUnnormalizedAddressValue(fallback);
+    if (!normalizedFallback) {
+      await fsp.unlink(filePath).catch(() => {});
+      return null;
+    }
+    finalPayload.unnormalized_address = normalizedFallback;
+    stripStructuredAddressFields(finalPayload);
+  }
+
+  const finalHasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = finalPayload[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+  const finalHasUnnormalized =
+    typeof finalPayload.unnormalized_address === "string" &&
+    finalPayload.unnormalized_address.trim().length > 0;
+
+  if (!finalHasStructured && !finalHasUnnormalized) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (finalHasUnnormalized) {
+    stripStructuredAddressFields(finalPayload);
+  } else {
+    delete finalPayload.unnormalized_address;
+  }
+
+  await fsp.writeFile(
+    filePath,
+    JSON.stringify(finalPayload, null, 2),
+  );
+  return finalPayload;
+}
+
 async function normalizePersonFileForSchema(fileName) {
   if (!fileName || typeof fileName !== "string") return null;
 
@@ -7711,7 +7833,18 @@ async function main() {
             ],
           })) || null;
         if (harmonizedAddress && typeof harmonizedAddress === "object") {
-          addressFileRef = `./${addressFileName}`;
+          const finalizedAddress =
+            (await finalizeAddressFileForOneOf(
+              addressFileName,
+              preferModeForOneOf,
+            )) || harmonizedAddress;
+          if (finalizedAddress && typeof finalizedAddress === "object") {
+            finalAddressPayload = finalizedAddress;
+            addressFileRef = `./${addressFileName}`;
+          } else {
+            await fsp.unlink(addressFilePath).catch(() => {});
+            addressFileRef = null;
+          }
         } else {
           await fsp.unlink(addressFilePath).catch(() => {});
           addressFileRef = null;
@@ -8825,6 +8958,22 @@ async function main() {
           path.join("data", "mailing_address.json"),
           JSON.stringify(sanitizedMailing, null, 2),
         );
+        const mailingPreferMode =
+          sanitizedMailing &&
+          typeof sanitizedMailing.unnormalized_address === "string" &&
+          sanitizedMailing.unnormalized_address.trim().length > 0
+            ? "unnormalized"
+            : "structured";
+        const finalizedMailing =
+          (await finalizeAddressFileForOneOf(
+            "mailing_address.json",
+            mailingPreferMode,
+          )) || null;
+        if (finalizedMailing) {
+          mailingAddressOut = finalizedMailing;
+        } else {
+          mailingAddressOut = null;
+        }
       } else {
         mailingAddressOut = null;
         await fsp.unlink(path.join("data", "mailing_address.json")).catch(
