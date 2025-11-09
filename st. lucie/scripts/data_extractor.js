@@ -5029,6 +5029,115 @@ function finalizeAddressPayloadForWrite(payload) {
   return null;
 }
 
+function buildFinalAddressOutput(payload, options = {}) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+    options && typeof options.fallbackUnnormalized === "string"
+      ? options.fallbackUnnormalized
+      : null,
+  );
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+      ? payload.unnormalized_address
+      : null,
+  );
+  const effectiveUnnormalized =
+    normalizedUnnormalized || fallbackUnnormalized || null;
+  const preferStructured =
+    options && typeof options.preferStructured === "boolean"
+      ? options.preferStructured
+      : false;
+
+  const metadata = {};
+  if (Object.prototype.hasOwnProperty.call(payload, "request_identifier")) {
+    const raw = payload.request_identifier;
+    if (raw != null) {
+      if (typeof raw === "string") {
+        const cleaned = textClean(raw);
+        if (cleaned) metadata.request_identifier = cleaned;
+      } else {
+        metadata.request_identifier = raw;
+      }
+    }
+  }
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (cleaned) metadata[key] = cleaned;
+    } else {
+      metadata[key] = value;
+    }
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = payload[key];
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return value != null;
+  });
+
+  if (effectiveUnnormalized && (!preferStructured || !hasStructured)) {
+    return {
+      ...metadata,
+      unnormalized_address: effectiveUnnormalized,
+    };
+  }
+
+  if (hasStructured) {
+    const structured = {};
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const raw = payload[key];
+      if (raw == null) continue;
+      if (typeof raw === "string") {
+        let cleaned = textClean(raw);
+        if (!cleaned) continue;
+        if (key === "city_name" || key === "state_code") {
+          cleaned = cleaned.toUpperCase();
+        } else if (key === "postal_code" || key === "plus_four_postal_code") {
+          cleaned = cleaned.replace(/\s+/g, "");
+        }
+        structured[key] = cleaned;
+      } else {
+        structured[key] = raw;
+      }
+    }
+
+    for (const requiredKey of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+      const value = structured[requiredKey];
+      if (typeof value !== "string" || !value.trim()) {
+        if (effectiveUnnormalized) {
+          return {
+            ...metadata,
+            unnormalized_address: effectiveUnnormalized,
+          };
+        }
+        return null;
+      }
+      structured[requiredKey] = value.trim();
+    }
+
+    return {
+      ...metadata,
+      ...structured,
+    };
+  }
+
+  if (effectiveUnnormalized) {
+    return {
+      ...metadata,
+      unnormalized_address: effectiveUnnormalized,
+    };
+  }
+
+  return null;
+}
+
 function toTitleCaseName(part) {
   if (!part) return null;
   const normalized = part.trim().toLowerCase();
@@ -6900,10 +7009,26 @@ async function main() {
     if (harmonizedAddress) {
       const finalizedAddressPayload =
         finalizeAddressPayloadForWrite(harmonizedAddress);
+      let finalAddressForOutput = null;
       if (finalizedAddressPayload) {
+        finalAddressForOutput = buildFinalAddressOutput(
+          finalizedAddressPayload,
+          {
+            fallbackUnnormalized: normalizedUnnormalized,
+            preferStructured: normalizedUnnormalized == null,
+          },
+        );
+      }
+      if (!finalAddressForOutput) {
+        finalAddressForOutput = buildFinalAddressOutput(harmonizedAddress, {
+          fallbackUnnormalized: normalizedUnnormalized,
+          preferStructured: normalizedUnnormalized == null,
+        });
+      }
+      if (finalAddressForOutput) {
         await fsp.writeFile(
           addressFilePath,
-          JSON.stringify(finalizedAddressPayload, null, 2),
+          JSON.stringify(finalAddressForOutput, null, 2),
         );
         addressFileRef = `./${addressFileName}`;
       } else {
@@ -7018,11 +7143,6 @@ async function main() {
     );
 
     if (addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
       await writeRelationshipFile(
         "relationship_address_has_fact_sheet.json",
         addressFileRef,
