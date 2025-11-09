@@ -2366,17 +2366,6 @@ function buildBasicAddressRecord({
     }
   }
 
-  const structuredList = Array.isArray(structuredSources)
-    ? structuredSources
-    : [structuredSources];
-
-  for (const source of structuredList) {
-    const sanitized = sanitizeStructuredAddressCandidate(source);
-    if (sanitized) {
-      return { ...base, ...sanitized };
-    }
-  }
-
   const unnormalizedList = Array.isArray(unnormalizedCandidates)
     ? unnormalizedCandidates
     : [unnormalizedCandidates];
@@ -2388,6 +2377,17 @@ function buildBasicAddressRecord({
         ...base,
         unnormalized_address: normalized,
       };
+    }
+  }
+
+  const structuredList = Array.isArray(structuredSources)
+    ? structuredSources
+    : [structuredSources];
+
+  for (const source of structuredList) {
+    const sanitized = sanitizeStructuredAddressCandidate(source);
+    if (sanitized) {
+      return { ...base, ...sanitized };
     }
   }
 
@@ -7032,13 +7032,41 @@ async function main() {
   });
 
   const addressPath = path.join("data", addressFileName);
-  const exclusiveSimplifiedAddress =
-    simplifiedAddress && typeof simplifiedAddress === "object"
-      ? coerceAddressToSingleMode(
-          simplifiedAddress,
-          fallbackUnnormalizedValue,
-        ) || simplifiedAddress
-      : null;
+  let exclusiveSimplifiedAddress = null;
+  if (simplifiedAddress && typeof simplifiedAddress === "object") {
+    const coerced =
+      coerceAddressToSingleMode(
+        simplifiedAddress,
+        fallbackUnnormalizedValue,
+      ) || simplifiedAddress;
+    const exclusiveCandidate = ensureExclusiveAddressMode(coerced) || coerced;
+    if (exclusiveCandidate && typeof exclusiveCandidate === "object") {
+      const normalizedExclusiveUnnormalized =
+        normalizeUnnormalizedAddressValue(
+          Object.prototype.hasOwnProperty.call(
+            exclusiveCandidate,
+            "unnormalized_address",
+          )
+            ? exclusiveCandidate.unnormalized_address
+            : null,
+        );
+      const candidateClone = deepClone(exclusiveCandidate);
+      if (
+        normalizedExclusiveUnnormalized &&
+        candidateClone &&
+        typeof candidateClone === "object"
+      ) {
+        candidateClone.unnormalized_address = normalizedExclusiveUnnormalized;
+        stripStructuredAddressFields(candidateClone);
+      }
+      exclusiveSimplifiedAddress =
+        candidateClone && typeof candidateClone === "object"
+          ? Object.keys(candidateClone).length > 0
+            ? candidateClone
+            : null
+          : null;
+    }
+  }
 
   if (exclusiveSimplifiedAddress) {
     await fsp.writeFile(
@@ -7052,7 +7080,23 @@ async function main() {
   }
 
   if (addressFileRef) {
-    const preferStructuredMode = Boolean(structuredCandidate);
+    const normalizedFallbackPreference = normalizeUnnormalizedAddressValue(
+      fallbackUnnormalizedValue,
+    );
+    const hasUnnormalizedPreference =
+      Boolean(normalizedFallbackPreference) ||
+      (addressForWrite &&
+        typeof addressForWrite === "object" &&
+        normalizeUnnormalizedAddressValue(
+          Object.prototype.hasOwnProperty.call(
+            addressForWrite,
+            "unnormalized_address",
+          )
+            ? addressForWrite.unnormalized_address
+            : null,
+        ));
+    const preferStructuredMode =
+      Boolean(structuredCandidate) && !hasUnnormalizedPreference;
     const enforcedAddress = await enforceAddressFileOneOf(
       addressFileName,
       preferStructuredMode ? "structured" : "unnormalized",
@@ -7082,7 +7126,38 @@ async function main() {
           await fsp.unlink(addressPath).catch(() => {});
           addressFileRef = null;
         } else {
-          addressForWrite = harmonizedAddress;
+          let harmonizedCandidate =
+            ensureExclusiveAddressMode(harmonizedAddress) || harmonizedAddress;
+          if (
+            harmonizedCandidate &&
+            typeof harmonizedCandidate === "object"
+          ) {
+            const normalizedHarmonizedUnnormalized =
+              normalizeUnnormalizedAddressValue(
+                Object.prototype.hasOwnProperty.call(
+                  harmonizedCandidate,
+                  "unnormalized_address",
+                )
+                  ? harmonizedCandidate.unnormalized_address
+                  : null,
+              );
+            if (normalizedHarmonizedUnnormalized) {
+              const harmonizedClone = deepClone(harmonizedCandidate);
+              if (
+                harmonizedClone &&
+                typeof harmonizedClone === "object"
+              ) {
+                harmonizedClone.unnormalized_address =
+                  normalizedHarmonizedUnnormalized;
+                stripStructuredAddressFields(harmonizedClone);
+                harmonizedCandidate = harmonizedClone;
+              }
+            }
+          }
+          addressForWrite =
+            harmonizedCandidate && typeof harmonizedCandidate === "object"
+              ? harmonizedCandidate
+              : null;
         }
       }
     }
