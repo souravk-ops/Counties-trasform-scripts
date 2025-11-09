@@ -7565,6 +7565,7 @@ async function main() {
   await removeExisting(/^property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_property_improvement_.*\.json$/);
   await removeExisting(/^relationship_property_has_address.*\.json$/);
+  await removeExisting(/^relationship_property_has_person.*\.json$/);
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
   await removeExisting(/^address\.json$/);
@@ -7926,27 +7927,12 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (addressFileRef) {
-      const propertyPointer =
-        typeof propertyRef === "string" && propertyRef.trim()
-          ? { "/": propertyRef.trim() }
-          : null;
-      const addressPointer =
-        typeof addressFileRef === "string" && addressFileRef.trim()
-          ? { "/": addressFileRef.trim() }
-          : null;
-      if (
-        propertyPointer &&
-        propertyPointer["/"] &&
-        addressPointer &&
-        addressPointer["/"]
-      ) {
-        await writeRelationshipFile(
-          "relationship_address_has_fact_sheet.json",
-          addressPointer,
-          propertyPointer,
-        );
-      }
+    if (propertyOut && addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
     }
 
     // Lot data
@@ -9708,7 +9694,7 @@ async function main() {
     for (const [recordId, roles] of ownerPropertyRoles.entries()) {
       const meta = ownerToFileMap.get(recordId);
       if (!meta || !roles || roles.size === 0) continue;
-      // Only create property_has_company relationships, not property_has_person
+      // Create property relationships for companies and current person owners
       if (meta.type === "company") {
         for (const role of roles) {
           propertyRelCounters[meta.type] += 1;
@@ -9772,11 +9758,12 @@ async function main() {
           (role) => typeof role === "string" && role.toLowerCase() === "current",
         );
         if (hasCurrentRole) {
-          const relFileName = `relationship_person_${meta.index}_has_fact_sheet.json`;
+          propertyRelCounters.person += 1;
+          const relFileName = `relationship_property_has_person_${propertyRelCounters.person}_current.json`;
           await writeRelationshipFile(
             relFileName,
-            `./${meta.fileName}`,
             propertyRef,
+            `./${meta.fileName}`,
           );
         }
       }
