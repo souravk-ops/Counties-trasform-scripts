@@ -3504,6 +3504,114 @@ async function normalizeAddressFileForSchema(
   return output;
 }
 
+async function enforceFinalAddressSchema(
+  fileName,
+  { preferStructured = false, fallbackUnnormalized = null } = {},
+) {
+  if (!fileName || typeof fileName !== "string") return null;
+  const filePath = path.join("data", fileName);
+
+  let rawPayload;
+  try {
+    rawPayload = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawPayload);
+  } catch {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const metadata = collectAddressMetadata([parsed]);
+
+  let requestIdentifier = null;
+  if (Object.prototype.hasOwnProperty.call(parsed, "request_identifier")) {
+    const rawId = parsed.request_identifier;
+    if (typeof rawId === "string") {
+      const trimmed = rawId.trim();
+      if (trimmed) requestIdentifier = trimmed;
+    } else if (rawId != null) {
+      requestIdentifier = rawId;
+    }
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(parsed, "unnormalized_address")
+      ? parsed.unnormalized_address
+      : fallbackUnnormalized,
+  );
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(parsed);
+  const hasStructured =
+    structuredCandidate &&
+    STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      if (!Object.prototype.hasOwnProperty.call(structuredCandidate, key)) {
+        return false;
+      }
+      const value = structuredCandidate[key];
+      if (typeof value === "string") {
+        return value.trim().length > 0;
+      }
+      return value != null;
+    });
+
+  let output = { ...metadata };
+  if (
+    normalizedUnnormalized &&
+    (!preferStructured || !hasStructured)
+  ) {
+    output.unnormalized_address = normalizedUnnormalized;
+  } else if (hasStructured) {
+    const cleanedStructured = {};
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(structuredCandidate, key)) {
+        continue;
+      }
+      const rawValue = structuredCandidate[key];
+      if (rawValue == null) {
+        continue;
+      }
+      if (typeof rawValue === "string") {
+        let trimmed = rawValue.trim();
+        if (!trimmed) continue;
+        if (key === "city_name" || key === "state_code") {
+          trimmed = trimmed.toUpperCase();
+        } else if (
+          key === "postal_code" ||
+          key === "plus_four_postal_code"
+        ) {
+          trimmed = trimmed.replace(/\s+/g, "");
+        }
+        cleanedStructured[key] = trimmed;
+      } else {
+        cleanedStructured[key] = rawValue;
+      }
+    }
+    output = { ...output, ...cleanedStructured };
+  } else if (normalizedUnnormalized) {
+    output.unnormalized_address = normalizedUnnormalized;
+  } else {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (requestIdentifier != null) {
+    output.request_identifier = requestIdentifier;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(output, null, 2));
+  return output;
+}
+
 async function normalizePersonFileForSchema(fileName) {
   if (!fileName || typeof fileName !== "string") return null;
 
@@ -6445,7 +6553,21 @@ async function main() {
         );
 
         if (harmonizedAddress) {
-          addressFileRef = `./${addressFileName}`;
+          const finalizedAddress = await enforceFinalAddressSchema(
+            addressFileName,
+            {
+              preferStructured: preferStructuredAddress,
+              fallbackUnnormalized:
+                normalizedUnnormalized ||
+                unnormalizedAddressCandidate ||
+                null,
+            },
+          );
+          if (finalizedAddress) {
+            addressFileRef = `./${addressFileName}`;
+          } else {
+            await fsp.unlink(addressFilePath).catch(() => {});
+          }
         } else {
           await fsp.unlink(addressFilePath).catch(() => {});
         }
@@ -7389,8 +7511,24 @@ async function main() {
                           },
                         );
                       if (harmonizedMailing) {
-                        mailingAddressOut = harmonizedMailing;
-                        console.log("mailing_address.json created.");
+                        const finalizedMailing =
+                          await enforceFinalAddressSchema(
+                            "mailing_address.json",
+                            {
+                              preferStructured:
+                                preferMailingStructuredForWrite,
+                              fallbackUnnormalized: mailingAddressText,
+                            },
+                          );
+                        if (finalizedMailing) {
+                          mailingAddressOut = finalizedMailing;
+                          console.log("mailing_address.json created.");
+                        } else {
+                          await fsp
+                            .unlink(path.join("data", "mailing_address.json"))
+                            .catch(() => {});
+                          mailingAddressOut = null;
+                        }
                       } else {
                         await fsp
                           .unlink(path.join("data", "mailing_address.json"))
