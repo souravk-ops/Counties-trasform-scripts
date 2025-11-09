@@ -5138,6 +5138,66 @@ function buildFinalAddressOutput(payload, options = {}) {
   return null;
 }
 
+function enforceAddressOutputForSchema(
+  payload,
+  {
+    fallbackUnnormalized = null,
+    metadataSources = [],
+    requestIdentifier = null,
+  } = {},
+) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const normalizedFallback = normalizeUnnormalizedAddressValue(
+    fallbackUnnormalized,
+  );
+
+  const upstreamMetadataSources = Array.isArray(metadataSources)
+    ? metadataSources.filter(
+        (candidate) => candidate && typeof candidate === "object",
+      )
+    : [];
+
+  const metadata = collectAddressMetadata([
+    payload,
+    ...upstreamMetadataSources,
+  ]);
+
+  const resolvedRequestIdentifier = resolveAddressRequestIdentifier(
+    requestIdentifier,
+    payload,
+    upstreamMetadataSources,
+  );
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
+  if (structuredCandidate) {
+    const structuredOutput = {
+      ...metadata,
+      ...structuredCandidate,
+    };
+    if (resolvedRequestIdentifier) {
+      structuredOutput.request_identifier = resolvedRequestIdentifier;
+    }
+    return structuredOutput;
+  }
+
+  const normalizedUnnormalized =
+    normalizeUnnormalizedAddressValue(payload.unnormalized_address) ||
+    normalizedFallback;
+  if (normalizedUnnormalized) {
+    const unnormalizedOutput = {
+      ...metadata,
+      unnormalized_address: normalizedUnnormalized,
+    };
+    if (resolvedRequestIdentifier) {
+      unnormalizedOutput.request_identifier = resolvedRequestIdentifier;
+    }
+    return unnormalizedOutput;
+  }
+
+  return null;
+}
+
 function toTitleCaseName(part) {
   if (!part) return null;
   const normalized = part.trim().toLowerCase();
@@ -7009,22 +7069,43 @@ async function main() {
     if (harmonizedAddress) {
       const finalizedAddressPayload =
         finalizeAddressPayloadForWrite(harmonizedAddress);
-      let finalAddressForOutput = null;
+      const addressCandidates = [];
       if (finalizedAddressPayload) {
-        finalAddressForOutput = buildFinalAddressOutput(
-          finalizedAddressPayload,
+        addressCandidates.push(finalizedAddressPayload);
+      }
+      addressCandidates.push(harmonizedAddress);
+
+      let finalAddressForOutput = null;
+      for (const candidate of addressCandidates) {
+        if (!candidate || typeof candidate !== "object") continue;
+        const normalizedCandidate = enforceAddressOutputForSchema(candidate, {
+          fallbackUnnormalized: normalizedUnnormalized,
+          metadataSources: addressMetadataSourcesForOutput,
+          requestIdentifier: requestIdentifierValue,
+        });
+        if (normalizedCandidate) {
+          finalAddressForOutput = normalizedCandidate;
+          break;
+        }
+      }
+
+      if (!finalAddressForOutput && normalizedUnnormalized) {
+        const fallbackCandidate = {
+          ...addressMetadataForOutput,
+          unnormalized_address: normalizedUnnormalized,
+        };
+        if (requestIdentifierValue) {
+          fallbackCandidate.request_identifier = requestIdentifierValue;
+        }
+        finalAddressForOutput = enforceAddressOutputForSchema(
+          fallbackCandidate,
           {
-            fallbackUnnormalized: normalizedUnnormalized,
-            preferStructured: normalizedUnnormalized == null,
+            metadataSources: addressMetadataSourcesForOutput,
+            requestIdentifier: requestIdentifierValue,
           },
         );
       }
-      if (!finalAddressForOutput) {
-        finalAddressForOutput = buildFinalAddressOutput(harmonizedAddress, {
-          fallbackUnnormalized: normalizedUnnormalized,
-          preferStructured: normalizedUnnormalized == null,
-        });
-      }
+
       if (finalAddressForOutput) {
         await fsp.writeFile(
           addressFilePath,
