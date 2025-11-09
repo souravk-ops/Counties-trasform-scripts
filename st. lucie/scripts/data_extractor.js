@@ -7697,11 +7697,20 @@ async function main() {
         const preferModeForOneOf = prefersUnnormalized
           ? "unnormalized"
           : "structured";
-        const enforcedAddress = await enforceAddressFileOneOf(
-          addressFileName,
-          preferModeForOneOf,
-        );
-        if (enforcedAddress && typeof enforcedAddress === "object") {
+        const harmonizedAddress =
+          (await harmonizeAddressFileForSchema(addressFileName, {
+            preferStructured: preferModeForOneOf === "structured",
+            fallbackUnnormalized: prefersUnnormalized
+              ? sanitizedAddress.unnormalized_address ?? null
+              : null,
+            metadataSources: [sanitizedAddress, finalAddressPayload],
+            requestIdentifiers: [
+              sanitizedAddress.request_identifier,
+              finalAddressPayload?.request_identifier ?? null,
+              requestIdentifierValue ?? null,
+            ],
+          })) || null;
+        if (harmonizedAddress && typeof harmonizedAddress === "object") {
           addressFileRef = `./${addressFileName}`;
         } else {
           await fsp.unlink(addressFilePath).catch(() => {});
@@ -7836,6 +7845,11 @@ async function main() {
           "relationship_address_has_fact_sheet.json",
           addressPointer,
           propertyPointer,
+        );
+        await writeRelationshipFile(
+          "relationship_property_has_address.json",
+          propertyPointer,
+          addressPointer,
         );
       }
     }
