@@ -3660,6 +3660,102 @@ async function enforceAddressOneOfStrict(fileName) {
   return output;
 }
 
+async function enforceAddressSchemaOneOf(
+  fileName,
+  {
+    fallbackUnnormalized = null,
+    metadataSources = [],
+    requestIdentifiers = [],
+  } = {},
+) {
+  if (!fileName || typeof fileName !== "string") return null;
+
+  const filePath = path.join("data", fileName);
+  let rawPayload;
+  try {
+    rawPayload = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawPayload);
+  } catch {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const metadataSourceList = [parsed];
+  if (Array.isArray(metadataSources)) {
+    metadataSourceList.push(...metadataSources);
+  } else if (metadataSources) {
+    metadataSourceList.push(metadataSources);
+  }
+  const metadata = collectAddressMetadata(metadataSourceList);
+
+  const requestIdentifier = resolveAddressRequestIdentifier(
+    parsed,
+    parsed?.request_identifier,
+    parsed?.requestIdentifier,
+    requestIdentifiers,
+  );
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(parsed, "unnormalized_address")
+      ? parsed.unnormalized_address
+      : fallbackUnnormalized,
+  );
+  const structuredCandidate = sanitizeStructuredAddressCandidate(parsed);
+
+  let finalPayload = null;
+  if (normalizedUnnormalized) {
+    finalPayload = {
+      ...metadata,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  } else if (structuredCandidate) {
+    finalPayload = {
+      ...metadata,
+      ...structuredCandidate,
+    };
+  } else {
+    const fallbackStructured = buildFallbackUnnormalizedAddress(parsed);
+    const fallbackValue = normalizeUnnormalizedAddressValue(
+      fallbackUnnormalized ?? fallbackStructured,
+    );
+    if (fallbackValue) {
+      finalPayload = {
+        ...metadata,
+        unnormalized_address: fallbackValue,
+      };
+    }
+  }
+
+  if (!finalPayload) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (requestIdentifier) {
+    finalPayload.request_identifier = requestIdentifier;
+  }
+
+  const exclusivePayload =
+    ensureExclusiveAddressMode(finalPayload) || finalPayload;
+
+  await fsp.writeFile(
+    filePath,
+    JSON.stringify(exclusivePayload, null, 2),
+  );
+  return exclusivePayload;
+}
+
 async function normalizePersonFileForSchema(fileName) {
   if (!fileName || typeof fileName !== "string") return null;
 
@@ -6630,9 +6726,20 @@ async function main() {
                 addressFilePath,
                 JSON.stringify(exclusiveFinalAddress, null, 2),
               );
-              const strictAddress =
-                await enforceAddressOneOfStrict(addressFileName);
-              if (strictAddress) {
+              const schemaSafeAddress = await enforceAddressSchemaOneOf(
+                addressFileName,
+                {
+                  fallbackUnnormalized: addressFallbackUnnormalized,
+                  metadataSources: addressMetadataSourcesForOutput,
+                  requestIdentifiers: [
+                    requestIdentifierValue,
+                    propertySeedData?.request_identifier,
+                    baseRequestData?.request_identifier,
+                    unnormalizedAddressData?.request_identifier,
+                  ],
+                },
+              );
+              if (schemaSafeAddress) {
                 addressFileRef = `./${addressFileName}`;
               } else {
                 await fsp.unlink(addressFilePath).catch(() => {});
@@ -7615,12 +7722,21 @@ async function main() {
                               path.join("data", "mailing_address.json"),
                               JSON.stringify(exclusiveFinalMailing, null, 2),
                             );
-                            const strictMailing =
-                              await enforceAddressOneOfStrict(
+                            const schemaSafeMailing =
+                              await enforceAddressSchemaOneOf(
                                 "mailing_address.json",
+                                {
+                                  fallbackUnnormalized:
+                                    mailingFallbackUnnormalized,
+                                  metadataSources: [finalMailingForFile],
+                                  requestIdentifiers: [
+                                    finalMailingForFile.request_identifier,
+                                    requestIdentifierValue,
+                                  ],
+                                },
                               );
-                            if (strictMailing) {
-                              mailingAddressOut = strictMailing;
+                            if (schemaSafeMailing) {
+                              mailingAddressOut = schemaSafeMailing;
                               console.log("mailing_address.json created.");
                             } else {
                               await fsp
@@ -8250,6 +8366,51 @@ async function main() {
         continue;
       }
       personOut = normalizedPersonForFile;
+      const finalPatternizedPerson = enforcePersonNamePatterns(personOut);
+      if (!finalPatternizedPerson) {
+        await fsp.unlink(path.join("data", fileName)).catch(() => {});
+        personIdx -= 1;
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      const middleForSchema =
+        finalPatternizedPerson.middle_name != null
+          ? normalizeNameToPattern(
+              finalPatternizedPerson.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
+      const finalSchemaPerson = {
+        ...finalPatternizedPerson,
+        last_name: normalizeNameToPattern(
+          finalPatternizedPerson.last_name,
+          PERSON_NAME_PATTERN,
+        ),
+        first_name: normalizeNameToPattern(
+          finalPatternizedPerson.first_name,
+          PERSON_NAME_PATTERN,
+        ),
+        middle_name:
+          middleForSchema && PERSON_MIDDLE_NAME_PATTERN.test(middleForSchema)
+            ? middleForSchema
+            : null,
+      };
+      if (
+        !finalSchemaPerson.last_name ||
+        !PERSON_NAME_PATTERN.test(finalSchemaPerson.last_name) ||
+        !finalSchemaPerson.first_name ||
+        !PERSON_NAME_PATTERN.test(finalSchemaPerson.first_name)
+      ) {
+        await fsp.unlink(path.join("data", fileName)).catch(() => {});
+        personIdx -= 1;
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      await fsp.writeFile(
+        path.join("data", fileName),
+        JSON.stringify(finalSchemaPerson, null, 2),
+      );
+      personOut = finalSchemaPerson;
       ownerToFileMap.set(record.id, {
         fileName,
         type: "person",
