@@ -3092,6 +3092,67 @@ function enforceAddressOneOfForWrite(address, preferMode = "unnormalized") {
   return null;
 }
 
+async function enforceAddressFileOneOf(
+  fileName,
+  preferMode = "unnormalized",
+) {
+  if (!fileName || typeof fileName !== "string") return null;
+  const normalizedMode =
+    typeof preferMode === "string" &&
+    preferMode.toLowerCase() === "structured"
+      ? "structured"
+      : "unnormalized";
+
+  const filePath = path.join("data", fileName);
+  let raw;
+  try {
+    raw = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  const sanitized =
+    enforceAddressOneOfForWrite(parsed, normalizedMode) ||
+    enforceAddressOneOfForWrite(
+      parsed,
+      normalizedMode === "structured" ? "unnormalized" : "structured",
+    ) ||
+    ensureExclusiveAddressMode(parsed);
+
+  if (!sanitized || typeof sanitized !== "object") {
+    return null;
+  }
+
+  const fallbackUnnormalized =
+    normalizedMode === "structured"
+      ? null
+      : normalizeUnnormalizedAddressValue(sanitized.unnormalized_address);
+
+  const normalizedPayload =
+    coerceAddressToSingleMode(sanitized, fallbackUnnormalized) || sanitized;
+
+  const finalPayload =
+    sanitizeAddressForSchema(normalizedPayload, normalizedMode) ||
+    enforceAddressOneOfForWrite(normalizedPayload, normalizedMode);
+
+  if (!finalPayload || typeof finalPayload !== "object") {
+    return null;
+  }
+
+  await fsp.writeFile(
+    filePath,
+    JSON.stringify(finalPayload, null, 2),
+  );
+  return finalPayload;
+}
+
 function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
@@ -6561,6 +6622,17 @@ async function main() {
     addressFileRef = null;
   }
 
+  if (addressFileRef) {
+    const enforcedAddress = await enforceAddressFileOneOf(
+      addressFileName,
+      structuredCandidate ? "structured" : "unnormalized",
+    );
+    if (!enforcedAddress) {
+      await fsp.unlink(addressPath).catch(() => {});
+      addressFileRef = null;
+    }
+  }
+
   // --- Parcel extraction ---
   // parcelIdentifierDashed is already extracted from HTML
   const parcelOut = {
@@ -7411,11 +7483,13 @@ async function main() {
               }
             }
 
+            let preferMailingStructuredForWrite = false;
+
             if (
               normalizedMailingForWrite &&
               typeof normalizedMailingForWrite === "object"
             ) {
-              const preferMailingStructuredForWrite =
+              preferMailingStructuredForWrite =
                 STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
                   const value = normalizedMailingForWrite[key];
                   if (typeof value !== "string") return false;
@@ -7470,8 +7544,19 @@ async function main() {
                     path.join("data", "mailing_address.json"),
                     JSON.stringify(exclusiveMailingAddress, null, 2),
                   );
-                  mailingAddressOut = exclusiveMailingAddress;
-                  console.log("mailing_address.json created.");
+                  const enforcedMailing = await enforceAddressFileOneOf(
+                    "mailing_address.json",
+                    preferMailingStructuredForWrite ? "structured" : "unnormalized",
+                  );
+                  if (enforcedMailing) {
+                    mailingAddressOut = enforcedMailing;
+                    console.log("mailing_address.json created.");
+                  } else {
+                    await fsp
+                      .unlink(path.join("data", "mailing_address.json"))
+                      .catch(() => {});
+                    mailingAddressOut = null;
+                  }
                 } else {
                   await fsp
                     .unlink(path.join("data", "mailing_address.json"))
