@@ -6773,129 +6773,47 @@ async function main() {
   const primaryUnnormalizedCandidate = selectUnnormalizedAddressCandidate(
     unnormalizedAddressCandidates,
   );
-  const hasStructuredCandidate = Boolean(primaryStructuredCandidate);
-  const hasUnnormalizedCandidate = Boolean(primaryUnnormalizedCandidate);
-  const preferStructuredAddress =
-    hasStructuredCandidate && !hasUnnormalizedCandidate;
 
-  const addressOutput = buildSchemaCompliantAddressOutput({
-    structuredSources: structuredAddressSources,
-    unnormalizedCandidates: unnormalizedAddressCandidates,
-    metadataSources: addressMetadataSourcesForOutput,
-    requestIdentifier: requestIdentifierValue,
-    preferStructured: preferStructuredAddress,
-  });
+  const addressMetadataForOutput = collectAddressMetadata(
+    addressMetadataSourcesForOutput,
+  );
 
-  const addressFallbackUnnormalized =
-    primaryUnnormalizedCandidate ??
-    (normalizedUnnormalized || unnormalizedAddressCandidate || null);
+  let addressPayload = null;
+  if (primaryUnnormalizedCandidate) {
+    const normalizedPrimaryUnnormalized = normalizeUnnormalizedAddressValue(
+      primaryUnnormalizedCandidate,
+    );
+    if (normalizedPrimaryUnnormalized) {
+      addressPayload = {
+        ...addressMetadataForOutput,
+        unnormalized_address: normalizedPrimaryUnnormalized,
+      };
+    }
+  } else if (primaryStructuredCandidate) {
+    const sanitizedStructured =
+      sanitizeStructuredAddressCandidate(primaryStructuredCandidate);
+    if (sanitizedStructured) {
+      addressPayload = {
+        ...addressMetadataForOutput,
+        ...sanitizedStructured,
+      };
+    }
+  }
+
+  if (addressPayload && requestIdentifierValue) {
+    addressPayload.request_identifier = requestIdentifierValue;
+  }
 
   let addressFileRef = null;
   const addressFilePath = path.join("data", addressFileName);
-  if (addressOutput) {
-    const exclusiveAddressSource =
-      preferStructuredAddress || !addressFallbackUnnormalized
-        ? addressOutput
-        : coerceAddressToSingleMode(
-            addressOutput,
-            addressFallbackUnnormalized,
-          ) || addressOutput;
-    const exclusiveAddressPayload =
-      ensureExclusiveAddressMode(exclusiveAddressSource) ||
-      exclusiveAddressSource;
-
+  if (addressPayload) {
+    const exclusivePayload =
+      ensureExclusiveAddressMode(addressPayload) || addressPayload;
     await fsp.writeFile(
       addressFilePath,
-      JSON.stringify(exclusiveAddressPayload, null, 2),
+      JSON.stringify(exclusivePayload, null, 2),
     );
-
-    const enforcedAddress = await enforceAddressFileOneOf(
-      addressFileName,
-      preferStructuredAddress ? "structured" : "unnormalized",
-    );
-
-    if (enforcedAddress) {
-      const normalizedAddress = await enforceAddressOutputMode(
-        addressFileName,
-        preferStructuredAddress,
-        addressFallbackUnnormalized,
-      );
-
-      if (normalizedAddress) {
-        await enforceAddressPreferredDataMode(addressFileName);
-        const harmonizedAddress = await normalizeAddressFileForSchema(
-          addressFileName,
-          {
-            preferStructured: preferStructuredAddress,
-            fallbackUnnormalized: addressFallbackUnnormalized,
-          },
-        );
-
-        if (harmonizedAddress) {
-          const finalizedAddress = await enforceFinalAddressSchema(
-            addressFileName,
-            {
-              preferStructured: preferStructuredAddress,
-              fallbackUnnormalized: addressFallbackUnnormalized,
-            },
-          );
-          if (finalizedAddress) {
-            const exclusiveFinalAddress =
-              ensureExclusiveAddressMode(finalizedAddress);
-            if (exclusiveFinalAddress) {
-              await fsp.writeFile(
-                addressFilePath,
-                JSON.stringify(exclusiveFinalAddress, null, 2),
-              );
-              const schemaSafeAddress = await enforceAddressSchemaOneOf(
-                addressFileName,
-                {
-                  fallbackUnnormalized: addressFallbackUnnormalized,
-                  metadataSources: addressMetadataSourcesForOutput,
-                  requestIdentifiers: [
-                    requestIdentifierValue,
-                    propertySeedData?.request_identifier,
-                    baseRequestData?.request_identifier,
-                    unnormalizedAddressData?.request_identifier,
-                  ],
-                },
-              );
-                if (schemaSafeAddress) {
-                  const strictAddress = await enforceAddressOneOfStrict(
-                    addressFileName,
-                  );
-                  if (strictAddress) {
-                    const sanitizedAddress =
-                      await sanitizeAddressFileForSchema(
-                        addressFileName,
-                        preferStructuredAddress,
-                      );
-                    if (sanitizedAddress) {
-                      addressFileRef = `./${addressFileName}`;
-                    } else {
-                      await fsp.unlink(addressFilePath).catch(() => {});
-                    }
-                  } else {
-                    await fsp.unlink(addressFilePath).catch(() => {});
-                  }
-                } else {
-                  await fsp.unlink(addressFilePath).catch(() => {});
-              }
-            } else {
-              await fsp.unlink(addressFilePath).catch(() => {});
-            }
-          } else {
-            await fsp.unlink(addressFilePath).catch(() => {});
-          }
-        } else {
-          await fsp.unlink(addressFilePath).catch(() => {});
-        }
-      } else {
-        await fsp.unlink(addressFilePath).catch(() => {});
-      }
-    } else {
-      await fsp.unlink(addressFilePath).catch(() => {});
-    }
+    addressFileRef = `./${addressFileName}`;
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
@@ -8549,6 +8467,17 @@ async function main() {
       const sanitizedFinalPerson =
         sanitizePersonForSchemaOutput(finalSchemaPerson);
       if (!sanitizedFinalPerson) {
+        await fsp.unlink(path.join("data", fileName)).catch(() => {});
+        personIdx -= 1;
+        await promoteToCompany(validationFallback);
+        continue;
+      }
+      if (
+        !PERSON_NAME_PATTERN.test(sanitizedFinalPerson.last_name) ||
+        !PERSON_NAME_PATTERN.test(sanitizedFinalPerson.first_name) ||
+        (sanitizedFinalPerson.middle_name != null &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(sanitizedFinalPerson.middle_name))
+      ) {
         await fsp.unlink(path.join("data", fileName)).catch(() => {});
         personIdx -= 1;
         await promoteToCompany(validationFallback);
