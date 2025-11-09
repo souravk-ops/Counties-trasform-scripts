@@ -7107,11 +7107,39 @@ async function main() {
       }
 
       if (finalAddressForOutput) {
-        await fsp.writeFile(
-          addressFilePath,
-          JSON.stringify(finalAddressForOutput, null, 2),
-        );
-        addressFileRef = `./${addressFileName}`;
+        const exclusiveCandidate =
+          ensureExclusiveAddressMode(finalAddressForOutput) ||
+          finalAddressForOutput;
+        const normalizedFinalAddress =
+          enforceAddressOneOfForWrite(
+            exclusiveCandidate,
+            preferStructuredAddress ? "structured" : "unnormalized",
+          ) ||
+          finalizeAddressPayloadForWrite(exclusiveCandidate) ||
+          ensureExclusiveAddressMode(exclusiveCandidate);
+
+        if (normalizedFinalAddress && typeof normalizedFinalAddress === "object") {
+          if (requestIdentifierValue) {
+            normalizedFinalAddress.request_identifier = requestIdentifierValue;
+          } else if (
+            Object.prototype.hasOwnProperty.call(
+              normalizedFinalAddress,
+              "request_identifier",
+            ) &&
+            normalizedFinalAddress.request_identifier == null
+          ) {
+            delete normalizedFinalAddress.request_identifier;
+          }
+
+          await fsp.writeFile(
+            addressFilePath,
+            JSON.stringify(normalizedFinalAddress, null, 2),
+          );
+          addressFileRef = `./${addressFileName}`;
+        } else {
+          await fsp.unlink(addressFilePath).catch(() => {});
+          addressFileRef = null;
+        }
       } else {
         await fsp.unlink(addressFilePath).catch(() => {});
         addressFileRef = null;
@@ -7224,6 +7252,11 @@ async function main() {
     );
 
     if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
       await writeRelationshipFile(
         "relationship_address_has_fact_sheet.json",
         addressFileRef,
