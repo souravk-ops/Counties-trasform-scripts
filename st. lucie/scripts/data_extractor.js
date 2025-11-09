@@ -2135,6 +2135,153 @@ function normalizeStreetSuffix(value) {
   return candidate && STREET_SUFFIX_ALLOWED.has(candidate) ? candidate : null;
 }
 
+function sanitizeStructuredAddressCandidate(candidate) {
+  if (!candidate || typeof candidate !== "object") return null;
+
+  const sanitized = {};
+
+  for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) {
+      return null;
+    }
+    let value = candidate[key];
+    if (value == null) return null;
+    if (typeof value !== "string") value = String(value);
+    let trimmed = value.trim();
+    if (!trimmed) return null;
+
+    switch (key) {
+      case "city_name":
+        trimmed = normalizeCityName(trimmed);
+        if (!trimmed) return null;
+        break;
+      case "state_code":
+        trimmed = trimmed.slice(0, 2).toUpperCase();
+        if (trimmed.length !== 2) return null;
+        break;
+      case "postal_code": {
+        const postal = sanitizePostalCode(trimmed);
+        if (!postal) return null;
+        trimmed = postal;
+        break;
+      }
+      default:
+        trimmed = textClean(trimmed);
+        if (!trimmed) return null;
+    }
+
+    sanitized[key] = trimmed;
+  }
+
+  for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
+    let value = candidate[key];
+    if (value == null) continue;
+    if (typeof value !== "string") value = String(value);
+    let trimmed = value.trim();
+    if (!trimmed) continue;
+
+    switch (key) {
+      case "city_name":
+        trimmed = normalizeCityName(trimmed);
+        break;
+      case "state_code":
+        trimmed = trimmed.slice(0, 2).toUpperCase();
+        break;
+      case "postal_code":
+        trimmed = sanitizePostalCode(trimmed) || "";
+        break;
+      case "plus_four_postal_code":
+        trimmed = sanitizePlusFour(trimmed) || "";
+        break;
+      case "street_pre_directional_text":
+      case "street_post_directional_text":
+        trimmed = normalizeStreetDirectional(trimmed) || "";
+        break;
+      case "street_suffix_type":
+        trimmed = normalizeStreetSuffix(trimmed) || "";
+        break;
+      default:
+        trimmed = textClean(trimmed);
+    }
+
+    if (!trimmed) continue;
+    sanitized[key] = trimmed;
+  }
+
+  if (!sanitized.country_code) {
+    sanitized.country_code = "US";
+  }
+
+  return sanitized;
+}
+
+function buildBasicAddressRecord({
+  structuredSources = [],
+  unnormalizedCandidates = [],
+  metadata = [],
+  requestIdentifier = null,
+} = {}) {
+  const base = {};
+
+  if (requestIdentifier != null) {
+    if (typeof requestIdentifier === "string") {
+      const trimmed = requestIdentifier.trim();
+      if (trimmed) base.request_identifier = trimmed;
+    } else {
+      base.request_identifier = requestIdentifier;
+    }
+  }
+
+  const metadataSources = Array.isArray(metadata) ? metadata : [metadata];
+  for (const source of metadataSources) {
+    if (!source || typeof source !== "object") continue;
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (base[key] != null) continue;
+      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+      const value = source[key];
+      if (value == null) continue;
+      if (typeof value === "number") {
+        if (Number.isFinite(value)) base[key] = value;
+        continue;
+      }
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (cleaned) base[key] = cleaned;
+        continue;
+      }
+      base[key] = value;
+    }
+  }
+
+  const structuredList = Array.isArray(structuredSources)
+    ? structuredSources
+    : [structuredSources];
+
+  for (const source of structuredList) {
+    const sanitized = sanitizeStructuredAddressCandidate(source);
+    if (sanitized) {
+      return { ...base, ...sanitized };
+    }
+  }
+
+  const unnormalizedList = Array.isArray(unnormalizedCandidates)
+    ? unnormalizedCandidates
+    : [unnormalizedCandidates];
+
+  for (const candidate of unnormalizedList) {
+    const normalized = normalizeUnnormalizedAddressValue(candidate);
+    if (normalized) {
+      return {
+        ...base,
+        unnormalized_address: normalized,
+      };
+    }
+  }
+
+  return null;
+}
+
 function pickStructuredAddress(candidate) {
   if (!candidate || typeof candidate !== "object") return null;
   const streetNumber = textClean(candidate.street_number);
@@ -6387,47 +6534,18 @@ async function main() {
     unnormalizedAddressData,
   ];
 
-  const schemaSafeAddress = buildSchemaCompliantAddressOutput({
+  const simplifiedAddress = buildBasicAddressRecord({
     structuredSources: combinedStructuredSources,
     unnormalizedCandidates: combinedUnnormalizedCandidates,
-    metadataSources: addressMetadataSources,
+    metadata: addressMetadataSources,
     requestIdentifier: requestIdentifierValue,
-    preferStructured: preferredAddressMode === "structured",
   });
 
   const addressPath = path.join("data", addressFileName);
-  const enforceSchemaAddress = (candidate) =>
-    candidate
-      ? enforceAddressOneOfCompliance(candidate) ||
-        ensureExclusiveAddressMode(candidate) ||
-        coerceAddressToSingleMode(candidate, fallbackUnnormalizedValue)
-      : null;
-
-  let addressPayloadForWrite = enforceSchemaAddress(schemaSafeAddress);
-
-  if (!addressPayloadForWrite) {
-    const fallbackUnnormalizedCandidate = normalizeUnnormalizedAddressValue(
-      normalizedUnnormalized ||
-        fallbackUnnormalizedValue ||
-        unnormalizedAddressCandidate ||
-        null,
-    );
-    if (fallbackUnnormalizedCandidate) {
-      const fallbackAddressPayload = {
-        ...cleanedAddressMetadata,
-        unnormalized_address: fallbackUnnormalizedCandidate,
-      };
-      if (requestIdentifierValue) {
-        fallbackAddressPayload.request_identifier = requestIdentifierValue;
-      }
-      addressPayloadForWrite = enforceSchemaAddress(fallbackAddressPayload);
-    }
-  }
-
-  if (addressPayloadForWrite) {
+  if (simplifiedAddress) {
     await fsp.writeFile(
       addressPath,
-      JSON.stringify(addressPayloadForWrite, null, 2),
+      JSON.stringify(simplifiedAddress, null, 2),
     );
     addressFileRef = `./${addressFileName}`;
   } else {
@@ -6537,6 +6655,11 @@ async function main() {
     );
 
     if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
       await writeRelationshipFile(
         "relationship_address_has_fact_sheet.json",
         addressFileRef,
