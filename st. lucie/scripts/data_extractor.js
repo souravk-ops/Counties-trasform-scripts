@@ -7871,12 +7871,45 @@ async function main() {
     }
   }
 
-  if (finalizedAddressRecord) {
-    await fsp.writeFile(
-      addressFilePath,
-      JSON.stringify(finalizedAddressRecord, null, 2),
+  const finalizedAddressOutput = finalizedAddressRecord
+    ? finalizeAddressPayloadForWrite(finalizedAddressRecord)
+    : null;
+
+  if (finalizedAddressOutput) {
+    const hasUnnormalizedAddress = hasUnnormalizedAddressValue(
+      finalizedAddressOutput,
     );
-    addressFileRef = `./${addressFileName}`;
+    if (hasUnnormalizedAddress) {
+      stripStructuredAddressFields(finalizedAddressOutput);
+      finalizedAddressOutput.unnormalized_address =
+        normalizeUnnormalizedAddressValue(
+          finalizedAddressOutput.unnormalized_address,
+        );
+    } else {
+      removeUnnormalizedAddress(finalizedAddressOutput);
+    }
+
+    const hasStructuredAddress = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(finalizedAddressOutput, key) &&
+        typeof finalizedAddressOutput[key] === "string" &&
+        finalizedAddressOutput[key].trim().length > 0,
+    );
+
+    const normalizedOutput =
+      hasUnnormalizedAddress || hasStructuredAddress
+        ? finalizedAddressOutput
+        : null;
+
+    if (normalizedOutput) {
+      await fsp.writeFile(
+        addressFilePath,
+        JSON.stringify(normalizedOutput, null, 2),
+      );
+      addressFileRef = `./${addressFileName}`;
+    } else {
+      await fsp.unlink(addressFilePath).catch(() => {});
+    }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
@@ -9780,6 +9813,54 @@ async function main() {
           );
         }
       } else if (meta.type === "person") {
+        const personPath = path.join("data", meta.fileName);
+        let personPayload = null;
+        try {
+          const rawPerson = await fsp.readFile(personPath, "utf8");
+          personPayload = JSON.parse(rawPerson);
+        } catch {
+          personPayload = null;
+        }
+
+        if (!personPayload || typeof personPayload !== "object") {
+          continue;
+        }
+
+        const fallbackPerson = ensurePersonNameFallback(personPayload);
+        const sanitizedPerson =
+          sanitizePersonForSchemaOutput(fallbackPerson) || fallbackPerson;
+        const finalPerson = ensurePersonNameFallback(sanitizedPerson);
+
+        if (
+          finalPerson.middle_name != null &&
+          !PERSON_MIDDLE_NAME_PATTERN.test(finalPerson.middle_name)
+        ) {
+          finalPerson.middle_name = null;
+        }
+
+        if (
+          !PERSON_NAME_PATTERN.test(finalPerson.first_name || "") ||
+          !PERSON_NAME_PATTERN.test(finalPerson.last_name || "")
+        ) {
+          const fallbackName =
+            normalizeNameToPattern("Unknown", PERSON_NAME_PATTERN) ||
+            "Unknown";
+          finalPerson.first_name = fallbackName;
+          finalPerson.last_name = fallbackName;
+        }
+
+        await fsp.writeFile(
+          personPath,
+          JSON.stringify(finalPerson, null, 2),
+        );
+
+        if (
+          !PERSON_NAME_PATTERN.test(finalPerson.first_name || "") ||
+          !PERSON_NAME_PATTERN.test(finalPerson.last_name || "")
+        ) {
+          continue;
+        }
+
         const hasCurrentRole = Array.from(roles).some(
           (role) => typeof role === "string" && role.toLowerCase() === "current",
         );
