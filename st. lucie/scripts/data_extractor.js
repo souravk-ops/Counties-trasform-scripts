@@ -7817,10 +7817,55 @@ async function main() {
       })
     : null;
 
+  let finalAddressOutput = null;
   if (normalizedAddressOutput) {
+    const preferMode = preferStructuredForOutput ? "structured" : "unnormalized";
+    const preparedAddress =
+      prepareAddressForWrite(
+        deepClone(normalizedAddressOutput),
+        {
+          preferMode,
+          fallbackUnnormalized: fallbackUnnormalizedForOutput,
+        },
+      ) || null;
+
+    const primaryCandidate =
+      preparedAddress ??
+      ensureExclusiveAddressMode(
+        deepClone(normalizedAddressOutput),
+        preferMode,
+      ) ??
+      sanitizeAddressPayloadForOneOf(
+        deepClone(normalizedAddressOutput),
+      ) ??
+      deepClone(normalizedAddressOutput);
+
+    if (primaryCandidate && typeof primaryCandidate === "object") {
+      const exclusiveCandidate =
+        ensureExclusiveAddressMode(
+          deepClone(primaryCandidate),
+          preferMode,
+        ) ?? primaryCandidate;
+
+      const sanitizedCandidate =
+        sanitizeAddressPayloadForOneOf(
+          deepClone(exclusiveCandidate),
+        ) ?? exclusiveCandidate;
+
+      const exclusiveSanitized =
+        ensureExclusiveAddressMode(
+          deepClone(sanitizedCandidate),
+          preferMode,
+        ) ?? sanitizedCandidate;
+
+      finalAddressOutput = exclusiveSanitized;
+    }
+  }
+
+  if (finalAddressOutput) {
     await fsp.writeFile(
       addressFilePath,
-      JSON.stringify(normalizedAddressOutput, null, 2),
+      JSON.stringify(finalAddressOutput, null, 2),
     );
     addressFileRef = `./${addressFileName}`;
   } else {
