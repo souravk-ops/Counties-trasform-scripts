@@ -6499,7 +6499,7 @@ async function main() {
   const hasStructuredCandidate = Boolean(primaryStructuredCandidate);
   const hasUnnormalizedCandidate = Boolean(primaryUnnormalizedCandidate);
   const preferStructuredAddress =
-    hasStructuredCandidate || !hasUnnormalizedCandidate;
+    hasStructuredCandidate && !hasUnnormalizedCandidate;
 
   const addressOutput = buildSchemaCompliantAddressOutput({
     structuredSources: structuredAddressSources,
@@ -6689,18 +6689,7 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
-      await writeRelationshipFile(
-        "relationship_address_has_fact_sheet.json",
-        addressFileRef,
-        propertyRef,
-      );
-    }
+    // Relationship files linking property and address are generated downstream by the pipeline.
 
     // Lot data
     const lotOut = {
