@@ -184,7 +184,6 @@ function defaultPerson(propertyId) {
     us_citizenship_status: null,
     veteran_status: null,
     request_identifier: propertyId,
-    source_http_request: null, // Assuming no specific HTTP request for person data
   };
 }
 
