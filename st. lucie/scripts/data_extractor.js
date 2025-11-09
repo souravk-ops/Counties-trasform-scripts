@@ -6740,7 +6740,14 @@ async function main() {
                 },
               );
               if (schemaSafeAddress) {
-                addressFileRef = `./${addressFileName}`;
+                const strictAddress = await enforceAddressOneOfStrict(
+                  addressFileName,
+                );
+                if (strictAddress) {
+                  addressFileRef = `./${addressFileName}`;
+                } else {
+                  await fsp.unlink(addressFilePath).catch(() => {});
+                }
               } else {
                 await fsp.unlink(addressFilePath).catch(() => {});
               }
