@@ -494,6 +494,92 @@ function normalizeUnnormalizedAddressValue(value) {
   return fallback && fallback.length > 0 ? fallback : null;
 }
 
+function coerceRequestIdentifier(value) {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  return value;
+}
+
+function buildSimpleAddressRecord(source, fallbackRequestIdentifier = null) {
+  if (!source || typeof source !== "object") return null;
+
+  const output = {};
+  const requestIdentifierCandidate = Object.prototype.hasOwnProperty.call(
+    source,
+    "request_identifier",
+  )
+    ? source.request_identifier
+    : null;
+  const requestIdentifier =
+    coerceRequestIdentifier(requestIdentifierCandidate) ??
+    coerceRequestIdentifier(fallbackRequestIdentifier);
+  if (requestIdentifier != null) {
+    output.request_identifier = requestIdentifier;
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = source[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      output[key] = trimmed;
+    } else {
+      output[key] = value;
+    }
+  }
+
+  const unnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(source, "unnormalized_address")
+      ? source.unnormalized_address
+      : null,
+  );
+  if (unnormalized) {
+    return {
+      ...output,
+      unnormalized_address: unnormalized,
+    };
+  }
+
+  const structured = {};
+
+  for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+      return null;
+    }
+    const raw = source[key];
+    if (typeof raw !== "string") {
+      return null;
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return null;
+    }
+    structured[key] = trimmed;
+  }
+
+  for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const raw = source[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      structured[key] = trimmed;
+    } else {
+      structured[key] = raw;
+    }
+  }
+
+  return Object.keys(structured).length
+    ? { ...output, ...structured }
+    : null;
+}
+
 function buildFallbackUnnormalizedAddress(structuredValues) {
   if (!structuredValues || typeof structuredValues !== "object") return null;
 
@@ -7497,26 +7583,22 @@ async function main() {
     : null;
 
   let finalAddressPayload = null;
-  let addressMode = null;
 
   if (normalizedPrimaryUnnormalized) {
     finalAddressPayload = {
       ...addressMetadataForOutput,
       unnormalized_address: normalizedPrimaryUnnormalized,
     };
-    addressMode = "unnormalized";
   } else if (sanitizedStructuredCandidate) {
     finalAddressPayload = {
       ...addressMetadataForOutput,
       ...sanitizedStructuredCandidate,
     };
-    addressMode = "structured";
   } else if (normalizedUnnormalized) {
     finalAddressPayload = {
       ...addressMetadataForOutput,
       unnormalized_address: normalizedUnnormalized,
     };
-    addressMode = "unnormalized";
   } else if (primaryStructuredCandidate) {
     const fallbackUnnormalized = buildFallbackUnnormalizedAddress(
       primaryStructuredCandidate,
@@ -7528,7 +7610,6 @@ async function main() {
         ...addressMetadataForOutput,
         unnormalized_address: normalizedFallback,
       };
-      addressMode = "unnormalized";
     }
   }
 
@@ -7545,31 +7626,14 @@ async function main() {
   let addressFileRef = null;
 
   if (finalAddressPayload) {
-    if (addressMode === "unnormalized") {
-      stripStructuredAddressFields(finalAddressPayload);
-    } else if (
-      addressMode === "structured" &&
-      Object.prototype.hasOwnProperty.call(
-        finalAddressPayload,
-        "unnormalized_address",
-      )
-    ) {
-      delete finalAddressPayload.unnormalized_address;
-    }
-
-    const preferredMode =
-      addressMode === "structured" ? "structured" : "unnormalized";
-    const normalizedForWrite =
-      enforceStrictAddressOneOf(finalAddressPayload) ||
-      enforceAddressOneOfForWrite(finalAddressPayload, preferredMode);
-    const exclusiveAddress =
-      normalizedForWrite &&
-      ensureExclusiveAddressMode(normalizedForWrite, preferredMode);
-
-    if (exclusiveAddress) {
+    const sanitizedAddress = buildSimpleAddressRecord(
+      finalAddressPayload,
+      requestIdentifierValue,
+    );
+    if (sanitizedAddress) {
       await fsp.writeFile(
         addressFilePath,
-        JSON.stringify(exclusiveAddress, null, 2),
+        JSON.stringify(sanitizedAddress, null, 2),
       );
       addressFileRef = `./${addressFileName}`;
     } else {
@@ -8660,6 +8724,25 @@ async function main() {
       mailingAddressOut = null;
     }
 
+
+    if (mailingAddressOut) {
+      const sanitizedMailing = buildSimpleAddressRecord(
+        mailingAddressOut,
+        requestIdentifierValue,
+      );
+      if (sanitizedMailing) {
+        mailingAddressOut = sanitizedMailing;
+        await fsp.writeFile(
+          path.join("data", "mailing_address.json"),
+          JSON.stringify(sanitizedMailing, null, 2),
+        );
+      } else {
+        mailingAddressOut = null;
+        await fsp.unlink(path.join("data", "mailing_address.json")).catch(
+          () => {},
+        );
+      }
+    }
 
     const salesRows = $("article#sale-info table.table tbody tr").toArray();
     for (let i = salesRows.length - 1; i >= 0; i--) { // Iterate in reverse to get chronological order
