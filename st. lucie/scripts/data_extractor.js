@@ -6542,10 +6542,18 @@ async function main() {
   });
 
   const addressPath = path.join("data", addressFileName);
-  if (simplifiedAddress) {
+  const exclusiveSimplifiedAddress =
+    simplifiedAddress && typeof simplifiedAddress === "object"
+      ? coerceAddressToSingleMode(
+          simplifiedAddress,
+          fallbackUnnormalizedValue,
+        ) || simplifiedAddress
+      : null;
+
+  if (exclusiveSimplifiedAddress) {
     await fsp.writeFile(
       addressPath,
-      JSON.stringify(simplifiedAddress, null, 2),
+      JSON.stringify(exclusiveSimplifiedAddress, null, 2),
     );
     addressFileRef = `./${addressFileName}`;
   } else {
@@ -7453,11 +7461,16 @@ async function main() {
                   preferStructured: false,
                 });
                 if (mailingSchemaSafe) {
+                  const exclusiveMailingAddress =
+                    coerceAddressToSingleMode(
+                      mailingSchemaSafe,
+                      mailingAddressText,
+                    ) || mailingSchemaSafe;
                   await fsp.writeFile(
                     path.join("data", "mailing_address.json"),
-                    JSON.stringify(mailingSchemaSafe, null, 2),
+                    JSON.stringify(exclusiveMailingAddress, null, 2),
                   );
-                  mailingAddressOut = mailingSchemaSafe;
+                  mailingAddressOut = exclusiveMailingAddress;
                   console.log("mailing_address.json created.");
                 } else {
                   await fsp
@@ -8020,6 +8033,12 @@ async function main() {
         continue;
       }
       personOut = patternEnforcedPerson;
+      if (
+        personOut.middle_name != null &&
+        !PERSON_MIDDLE_NAME_PATTERN.test(personOut.middle_name)
+      ) {
+        personOut.middle_name = null;
+      }
 
       personIdx += 1;
       const fileName = `person_${personIdx}.json`;
