@@ -7739,15 +7739,16 @@ async function main() {
         sanitizedStructuredCandidate[key].trim().length > 0,
     );
 
-  let selectedUnnormalized =
-    normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
   let selectedStructured = structuredHasRequired
     ? sanitizedStructuredCandidate
     : null;
+  let selectedUnnormalized =
+    normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
+  const preferStructuredForOutput = !!selectedStructured;
 
-  if (selectedUnnormalized) {
-    selectedStructured = null;
-  } else if (!selectedStructured && primaryStructuredCandidate) {
+  if (selectedStructured) {
+    selectedUnnormalized = null;
+  } else if (!selectedUnnormalized && primaryStructuredCandidate) {
     const fallbackFromStructured = normalizeUnnormalizedAddressValue(
       buildFallbackUnnormalizedAddress(primaryStructuredCandidate),
     );
@@ -7774,33 +7775,27 @@ async function main() {
     baseAddressPayload.request_identifier = normalizedRequestIdentifier;
   }
 
+  const fallbackUnnormalizedForOutput =
+    normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
   let finalizedAddressRecord = null;
 
-  if (selectedUnnormalized) {
+  if (selectedStructured) {
+    const structuredRecord = { ...baseAddressPayload };
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(selectedStructured, key)) {
+        structuredRecord[key] = selectedStructured[key];
+      }
+    }
+    finalizedAddressRecord = structuredRecord;
+  }
+
+  if (!finalizedAddressRecord && selectedUnnormalized) {
     const normalized = normalizeUnnormalizedAddressValue(selectedUnnormalized);
     if (normalized) {
       finalizedAddressRecord = {
         ...baseAddressPayload,
         unnormalized_address: normalized,
       };
-    }
-  }
-
-  if (!finalizedAddressRecord && selectedStructured) {
-    const hasRequiredStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-      (key) => {
-        const value = selectedStructured[key];
-        return typeof value === "string" && value.trim().length > 0;
-      },
-    );
-    if (hasRequiredStructured) {
-      const structuredRecord = { ...baseAddressPayload };
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(selectedStructured, key)) {
-          structuredRecord[key] = selectedStructured[key];
-        }
-      }
-      finalizedAddressRecord = structuredRecord;
     }
   }
 
@@ -7816,100 +7811,19 @@ async function main() {
     }
   }
 
-  if (finalizedAddressRecord) {
-    const hasUnnormalized =
-      typeof finalizedAddressRecord.unnormalized_address === "string" &&
-      finalizedAddressRecord.unnormalized_address.trim().length > 0;
-
-    if (hasUnnormalized) {
-      finalizedAddressRecord.unnormalized_address =
-        normalizeUnnormalizedAddressValue(
-          finalizedAddressRecord.unnormalized_address,
-        );
-      stripStructuredAddressFields(finalizedAddressRecord);
-    } else {
-      removeUnnormalizedAddress(finalizedAddressRecord);
-      const sanitizedStructured = sanitizeStructuredAddressCandidate(
-        finalizedAddressRecord,
-      );
-      if (sanitizedStructured) {
-        const hasRequiredStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-          (key) => {
-            const value = sanitizedStructured[key];
-            return typeof value === "string" && value.trim().length > 0;
-          },
-        );
-        if (hasRequiredStructured) {
-          const structuredRecord = { ...baseAddressPayload };
-          for (const key of STRUCTURED_ADDRESS_FIELDS) {
-            if (
-              Object.prototype.hasOwnProperty.call(sanitizedStructured, key)
-            ) {
-              structuredRecord[key] = sanitizedStructured[key];
-            }
-          }
-          finalizedAddressRecord = structuredRecord;
-        } else {
-          const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
-            buildFallbackUnnormalizedAddress(
-              sanitizedStructured ?? primaryStructuredCandidate ?? {},
-            ),
-          );
-          if (fallbackUnnormalized) {
-            finalizedAddressRecord = {
-              ...baseAddressPayload,
-              unnormalized_address: fallbackUnnormalized,
-            };
-            stripStructuredAddressFields(finalizedAddressRecord);
-          } else {
-            finalizedAddressRecord = null;
-          }
-        }
-      } else {
-        finalizedAddressRecord = null;
-      }
-    }
-  }
-
-  const finalizedAddressOutput = finalizedAddressRecord
-    ? finalizeAddressPayloadForWrite(finalizedAddressRecord)
+  const normalizedAddressOutput = finalizedAddressRecord
+    ? buildFinalAddressOutput(finalizedAddressRecord, {
+        preferStructured: preferStructuredForOutput,
+        fallbackUnnormalized: fallbackUnnormalizedForOutput,
+      })
     : null;
 
-  if (finalizedAddressOutput) {
-    const hasUnnormalizedAddress = hasUnnormalizedAddressValue(
-      finalizedAddressOutput,
+  if (normalizedAddressOutput) {
+    await fsp.writeFile(
+      addressFilePath,
+      JSON.stringify(normalizedAddressOutput, null, 2),
     );
-    if (hasUnnormalizedAddress) {
-      stripStructuredAddressFields(finalizedAddressOutput);
-      finalizedAddressOutput.unnormalized_address =
-        normalizeUnnormalizedAddressValue(
-          finalizedAddressOutput.unnormalized_address,
-        );
-    } else {
-      removeUnnormalizedAddress(finalizedAddressOutput);
-    }
-
-    const hasStructuredAddress = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-      (key) =>
-        Object.prototype.hasOwnProperty.call(finalizedAddressOutput, key) &&
-        typeof finalizedAddressOutput[key] === "string" &&
-        finalizedAddressOutput[key].trim().length > 0,
-    );
-
-    const normalizedOutput =
-      hasUnnormalizedAddress || hasStructuredAddress
-        ? finalizedAddressOutput
-        : null;
-
-    if (normalizedOutput) {
-      await fsp.writeFile(
-        addressFilePath,
-        JSON.stringify(normalizedOutput, null, 2),
-      );
-      addressFileRef = `./${addressFileName}`;
-    } else {
-      await fsp.unlink(addressFilePath).catch(() => {});
-    }
+    addressFileRef = `./${addressFileName}`;
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
@@ -8033,11 +7947,6 @@ async function main() {
           "relationship_address_has_fact_sheet.json",
           addressPointer,
           propertyPointer,
-        );
-        await writeRelationshipFile(
-          "relationship_property_has_address.json",
-          propertyPointer,
-          addressPointer,
         );
       }
     }
