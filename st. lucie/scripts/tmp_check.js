@@ -642,13 +642,8 @@ function reconcileAddressForSchema(address) {
   let hasUnnormalized = normalizedUnnormalized != null;
 
   if (hasStructured && hasUnnormalized) {
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(address, key)) {
-        delete address[key];
-      }
-    }
-    address.unnormalized_address = normalizedUnnormalized;
-    hasStructured = false;
+    delete address.unnormalized_address;
+    hasUnnormalized = false;
   } else if (!hasStructured && hasUnnormalized) {
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(address, key)) {
@@ -919,14 +914,7 @@ function sanitizeAddressPayloadForOneOf(payload) {
     typeof rawUnnormalized === "string" && rawUnnormalized.trim().length > 0;
 
   if (hasStructured && hasUnnormalized) {
-    const normalized = normalizeUnnormalizedAddressValue(rawUnnormalized);
-    if (!normalized) return null;
-    payload.unnormalized_address = normalized;
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(payload, key)) {
-        delete payload[key];
-      }
-    }
+    delete payload.unnormalized_address;
     return payload;
   }
 
@@ -1009,10 +997,6 @@ function coerceAddressPayloadToOneOf(payload) {
     typeof normalizedUnnormalized === "string" &&
     normalizedUnnormalized.length > 0;
 
-  if (hasStructured && hasUnnormalized) {
-    return { ...base, unnormalized_address: normalizedUnnormalized };
-  }
-
   if (hasStructured) {
     const structured = {};
     for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
@@ -1052,16 +1036,7 @@ function enforceAddressOneOfCompliance(payload) {
     clone.unnormalized_address.trim().length > 0;
 
   if (hasStructured && hasUnnormalized) {
-    const normalized = normalizeUnnormalizedAddressValue(
-      clone.unnormalized_address,
-    );
-    if (!normalized) return null;
-    clone.unnormalized_address = normalized;
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(clone, key)) {
-        delete clone[key];
-      }
-    }
+    delete clone.unnormalized_address;
     return clone;
   }
 
@@ -1120,10 +1095,29 @@ function ensureExclusiveAddressMode(address) {
     normalizedUnnormalized.length > 0;
 
   if (hasStructured && hasUnnormalized) {
-    clone.unnormalized_address = normalizedUnnormalized;
+    delete clone.unnormalized_address;
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(clone, key)) {
+      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+      const value = clone[key];
+      if (value == null) {
         delete clone[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        let trimmed = value.trim();
+        if (!trimmed) {
+          delete clone[key];
+          continue;
+        }
+        if (key === "city_name" || key === "state_code") {
+          trimmed = trimmed.toUpperCase();
+        } else if (
+          key === "postal_code" ||
+          key === "plus_four_postal_code"
+        ) {
+          trimmed = trimmed.replace(/\s+/g, "");
+        }
+        clone[key] = trimmed;
       }
     }
     return clone;
