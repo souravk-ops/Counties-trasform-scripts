@@ -7683,7 +7683,19 @@ async function main() {
           addressFilePath,
           JSON.stringify(sanitizedAddress, null, 2),
         );
-        addressFileRef = `./${addressFileName}`;
+        const preferModeForOneOf = prefersUnnormalized
+          ? "unnormalized"
+          : "structured";
+        const enforcedAddress = await enforceAddressFileOneOf(
+          addressFileName,
+          preferModeForOneOf,
+        );
+        if (enforcedAddress && typeof enforcedAddress === "object") {
+          addressFileRef = `./${addressFileName}`;
+        } else {
+          await fsp.unlink(addressFilePath).catch(() => {});
+          addressFileRef = null;
+        }
       } else {
         await fsp.unlink(addressFilePath).catch(() => {});
       }
