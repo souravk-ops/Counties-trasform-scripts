@@ -3660,6 +3660,63 @@ async function enforceAddressOneOfStrict(fileName) {
   return output;
 }
 
+async function sanitizeAddressFileForSchema(fileName, preferStructured = false) {
+  if (!fileName || typeof fileName !== "string") return null;
+  const filePath = path.join("data", fileName);
+
+  let raw;
+  try {
+    raw = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const metadata = collectAddressMetadata([parsed]);
+  const structuredCandidate = sanitizeStructuredAddressCandidate(parsed);
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(parsed, "unnormalized_address")
+      ? parsed.unnormalized_address
+      : null,
+  );
+
+  const requestIdentifier = resolveAddressRequestIdentifier(
+    parsed.request_identifier,
+    parsed.requestIdentifier,
+  );
+
+  let payload = null;
+  if (structuredCandidate && (preferStructured || !normalizedUnnormalized)) {
+    payload = { ...metadata, ...structuredCandidate };
+  } else if (normalizedUnnormalized) {
+    payload = { ...metadata, unnormalized_address: normalizedUnnormalized };
+  } else if (structuredCandidate) {
+    payload = { ...metadata, ...structuredCandidate };
+  } else {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (requestIdentifier) {
+    payload.request_identifier = requestIdentifier;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(payload, null, 2));
+  return payload;
+}
+
 async function enforceAddressSchemaOneOf(
   fileName,
   {
@@ -5278,6 +5335,70 @@ function enforcePersonNamePatterns(person) {
   };
 }
 
+function sanitizePersonForSchemaOutput(person) {
+  if (!person || typeof person !== "object") return null;
+
+  const sanitizeLoose = (value) => {
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
+    return value;
+  };
+
+  const normalizedLast = normalizeNameToPattern(
+    person.last_name,
+    PERSON_NAME_PATTERN,
+  );
+  const normalizedFirst = normalizeNameToPattern(
+    person.first_name,
+    PERSON_NAME_PATTERN,
+  );
+
+  if (!normalizedLast || !normalizedFirst) return null;
+
+  const normalizedMiddle =
+    person.middle_name != null
+      ? normalizeNameToPattern(
+          person.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        )
+      : null;
+
+  const allowedKeys = new Set([
+    "birth_date",
+    "first_name",
+    "last_name",
+    "middle_name",
+    "prefix_name",
+    "suffix_name",
+    "us_citizenship_status",
+    "veteran_status",
+    "request_identifier",
+  ]);
+
+  const sanitized = {
+    birth_date: sanitizeLoose(person.birth_date),
+    first_name: normalizedFirst,
+    last_name: normalizedLast,
+    middle_name: normalizedMiddle ?? null,
+    prefix_name: sanitizeLoose(person.prefix_name),
+    suffix_name: sanitizeLoose(person.suffix_name),
+    us_citizenship_status: sanitizeLoose(person.us_citizenship_status),
+    veteran_status: sanitizeLoose(person.veteran_status),
+    request_identifier: sanitizeLoose(person.request_identifier),
+  };
+
+  for (const key of Object.keys(person)) {
+    if (!allowedKeys.has(key)) continue;
+    if (Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
+    sanitized[key] = sanitizeLoose(person[key]);
+  }
+
+  return sanitized;
+}
+
 function buildPersonDisplayName(person) {
   if (!person) return null;
   const parts = [
@@ -6739,17 +6860,26 @@ async function main() {
                   ],
                 },
               );
-              if (schemaSafeAddress) {
-                const strictAddress = await enforceAddressOneOfStrict(
-                  addressFileName,
-                );
-                if (strictAddress) {
-                  addressFileRef = `./${addressFileName}`;
+                if (schemaSafeAddress) {
+                  const strictAddress = await enforceAddressOneOfStrict(
+                    addressFileName,
+                  );
+                  if (strictAddress) {
+                    const sanitizedAddress =
+                      await sanitizeAddressFileForSchema(
+                        addressFileName,
+                        preferStructuredAddress,
+                      );
+                    if (sanitizedAddress) {
+                      addressFileRef = `./${addressFileName}`;
+                    } else {
+                      await fsp.unlink(addressFilePath).catch(() => {});
+                    }
+                  } else {
+                    await fsp.unlink(addressFilePath).catch(() => {});
+                  }
                 } else {
                   await fsp.unlink(addressFilePath).catch(() => {});
-                }
-              } else {
-                await fsp.unlink(addressFilePath).catch(() => {});
               }
             } else {
               await fsp.unlink(addressFilePath).catch(() => {});
@@ -7743,8 +7873,22 @@ async function main() {
                                 },
                               );
                             if (schemaSafeMailing) {
-                              mailingAddressOut = schemaSafeMailing;
-                              console.log("mailing_address.json created.");
+                              const sanitizedMailing =
+                                await sanitizeAddressFileForSchema(
+                                  "mailing_address.json",
+                                  preferMailingStructuredForWrite,
+                                );
+                              if (sanitizedMailing) {
+                                mailingAddressOut = sanitizedMailing;
+                                console.log("mailing_address.json created.");
+                              } else {
+                                await fsp
+                                  .unlink(
+                                    path.join("data", "mailing_address.json"),
+                                  )
+                                  .catch(() => {});
+                                mailingAddressOut = null;
+                              }
                             } else {
                               await fsp
                                 .unlink(path.join("data", "mailing_address.json"))
@@ -8402,12 +8546,9 @@ async function main() {
             ? middleForSchema
             : null,
       };
-      if (
-        !finalSchemaPerson.last_name ||
-        !PERSON_NAME_PATTERN.test(finalSchemaPerson.last_name) ||
-        !finalSchemaPerson.first_name ||
-        !PERSON_NAME_PATTERN.test(finalSchemaPerson.first_name)
-      ) {
+      const sanitizedFinalPerson =
+        sanitizePersonForSchemaOutput(finalSchemaPerson);
+      if (!sanitizedFinalPerson) {
         await fsp.unlink(path.join("data", fileName)).catch(() => {});
         personIdx -= 1;
         await promoteToCompany(validationFallback);
@@ -8415,9 +8556,9 @@ async function main() {
       }
       await fsp.writeFile(
         path.join("data", fileName),
-        JSON.stringify(finalSchemaPerson, null, 2),
+        JSON.stringify(sanitizedFinalPerson, null, 2),
       );
-      personOut = finalSchemaPerson;
+      personOut = sanitizedFinalPerson;
       ownerToFileMap.set(record.id, {
         fileName,
         type: "person",
