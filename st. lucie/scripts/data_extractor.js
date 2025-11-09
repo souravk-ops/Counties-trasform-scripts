@@ -3813,6 +3813,54 @@ async function enforceAddressSchemaOneOf(
   return exclusivePayload;
 }
 
+async function enforceAddressFilesForSchemaCompliance() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/address\.json$/i.test(fileName)) continue;
+
+    const preferStructured = fileName === "address.json";
+    let enforced =
+      (await sanitizeAddressFileForSchema(fileName, preferStructured)) ||
+      (await enforceAddressOneOfStrict(fileName));
+
+    if (!enforced) continue;
+
+    let working =
+      ensureExclusiveAddressMode(enforced) ||
+      coerceAddressPayloadToOneOf(enforced) ||
+      { ...enforced };
+
+    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = working[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      working.unnormalized_address,
+    );
+
+    if (hasStructured) {
+      removeUnnormalizedAddress(working);
+    } else if (normalizedUnnormalized) {
+      stripStructuredAddressFields(working);
+      working.unnormalized_address = normalizedUnnormalized;
+    } else {
+      continue;
+    }
+
+    await fsp.writeFile(
+      path.join("data", fileName),
+      JSON.stringify(working, null, 2),
+    );
+  }
+}
+
 async function harmonizeAddressFileForSchema(
   fileName,
   {
@@ -3936,6 +3984,73 @@ async function normalizePersonFileForSchema(fileName) {
 
   await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
   return sanitized;
+}
+
+function ensurePersonNameFallback(person) {
+  const base =
+    person && typeof person === "object" ? { ...person } : {};
+
+  const normalizedLast =
+    normalizeNameToPattern(base.last_name, PERSON_NAME_PATTERN) ||
+    "Unknown";
+  const normalizedFirst =
+    normalizeNameToPattern(base.first_name, PERSON_NAME_PATTERN) ||
+    "Unknown";
+  const normalizedMiddle =
+    base.middle_name != null
+      ? normalizeNameToPattern(
+          base.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        )
+      : null;
+
+  return {
+    ...base,
+    last_name: normalizedLast,
+    first_name: normalizedFirst,
+    middle_name:
+      normalizedMiddle &&
+      PERSON_MIDDLE_NAME_PATTERN.test(normalizedMiddle)
+        ? normalizedMiddle
+        : null,
+  };
+}
+
+async function enforcePersonFilesForSchemaCompliance() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/^person_\d+\.json$/.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") continue;
+
+    let sanitized =
+      enforcePersonNamePatterns(payload) ||
+      enforcePersonNamePatterns(ensurePersonNameFallback(payload));
+
+    if (!sanitized) {
+      sanitized = ensurePersonNameFallback({});
+    }
+
+    await fsp.writeFile(
+      filePath,
+      JSON.stringify(sanitized, null, 2),
+    );
+  }
 }
 
 function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
@@ -9758,6 +9873,9 @@ async function main() {
       );
     }
   }
+
+  await enforceAddressFilesForSchemaCompliance();
+  await enforcePersonFilesForSchemaCompliance();
 }
 
 }
