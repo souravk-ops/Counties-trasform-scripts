@@ -29,63 +29,42 @@ function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeRelationshipRef(value) {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? { "/": trimmed } : null;
+  }
+  if (value && typeof value === "object") {
+    const candidates = ["/", "path", "ref"];
+    for (const key of candidates) {
+      if (typeof value[key] === "string") {
+        const trimmed = value[key].trim();
+        if (trimmed) return { "/": trimmed };
+      }
+    }
+  }
+  return null;
+}
+
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
-  const payload =
-    extras && typeof extras === "object" ? { ...extras } : {};
+  const fromRef = normalizeRelationshipRef(fromPath);
+  const toRef = normalizeRelationshipRef(toPath);
+  const payload = {};
 
-  const normalizeEndpoint = (value) => {
-    if (value == null) return null;
-
-    const normalizeStringPath = (input) => {
-      if (typeof input !== "string") return null;
-      const trimmed = input.trim();
-      return trimmed || null;
-    };
-
-    const toRefObject = (pathValue) =>
-      pathValue ? { "/": pathValue } : null;
-
-    if (typeof value === "string") {
-      return toRefObject(normalizeStringPath(value));
-    }
-
-    if (value && typeof value === "object") {
-      if (typeof value["/"] === "string") {
-        return toRefObject(normalizeStringPath(value["/"]));
-      }
-      if (typeof value.path === "string") {
-        return toRefObject(normalizeStringPath(value.path));
-      }
-      if (typeof value.ref === "string") {
-        return toRefObject(normalizeStringPath(value.ref));
-      }
-    }
-    return null;
-  };
-
-  const fromValue = normalizeEndpoint(
-    Object.prototype.hasOwnProperty.call(payload, "from")
-      ? payload.from
-      : fromPath,
-  );
-  const toValue = normalizeEndpoint(
-    Object.prototype.hasOwnProperty.call(payload, "to") ? payload.to : toPath,
-  );
-
-  const hasFrom = fromValue != null;
-  const hasTo = toValue != null;
-
-  if (!hasFrom && !hasTo) {
-    const extraKeys = Object.keys(payload).filter(
-      (key) => key !== "from" && key !== "to",
-    );
-    if (extraKeys.length === 0) {
-      return null;
+  if (extras && typeof extras === "object") {
+    for (const [key, val] of Object.entries(extras)) {
+      if (key === "from" || key === "to") continue;
+      payload[key] = val;
     }
   }
 
-  payload.from = hasFrom ? fromValue : null;
-  payload.to = hasTo ? toValue : null;
+  if (!fromRef && !toRef && Object.keys(payload).length === 0) {
+    return null;
+  }
+
+  payload.from = fromRef ?? null;
+  payload.to = toRef ?? null;
 
   return payload;
 }
@@ -951,6 +930,79 @@ function sanitizeAddressPayloadForOneOf(payload) {
       }
     }
     return payload;
+  }
+
+  return null;
+}
+
+function enforceStrictAddressOneOf(address) {
+  if (!address || typeof address !== "object") return null;
+
+  const sanitized = {};
+
+  if (
+    Object.prototype.hasOwnProperty.call(address, "request_identifier") &&
+    address.request_identifier != null
+  ) {
+    if (typeof address.request_identifier === "string") {
+      const trimmed = address.request_identifier.trim();
+      if (trimmed) sanitized.request_identifier = trimmed;
+    } else {
+      sanitized.request_identifier = address.request_identifier;
+    }
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const value = address[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      sanitized[key] = trimmed;
+    } else {
+      sanitized[key] = value;
+    }
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = address[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+  const hasUnnormalized =
+    typeof address.unnormalized_address === "string" &&
+    address.unnormalized_address.trim().length > 0;
+
+  if (hasStructured) {
+    for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+      const value = address[key];
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      sanitized[key] = trimmed;
+    }
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+      const value = address[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) continue;
+        sanitized[key] = trimmed;
+      } else {
+        sanitized[key] = value;
+      }
+    }
+    return sanitized;
+  }
+
+  if (hasUnnormalized) {
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      address.unnormalized_address,
+    );
+    if (!normalizedUnnormalized) return null;
+    sanitized.unnormalized_address = normalizedUnnormalized;
+    return sanitized;
   }
 
   return null;
@@ -3940,6 +3992,7 @@ async function enforceAddressFilesForSchemaCompliance() {
 
   for (const fileName of entries) {
     if (!/address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
     const filePath = path.join("data", fileName);
 
     let raw;
@@ -7485,11 +7538,19 @@ async function main() {
             delete normalizedFinalAddress.request_identifier;
           }
 
-          await fsp.writeFile(
-            addressFilePath,
-            JSON.stringify(normalizedFinalAddress, null, 2),
+          const strictAddress = enforceStrictAddressOneOf(
+            normalizedFinalAddress,
           );
-          addressFileRef = `./${addressFileName}`;
+          if (strictAddress) {
+            await fsp.writeFile(
+              addressFilePath,
+              JSON.stringify(strictAddress, null, 2),
+            );
+            addressFileRef = `./${addressFileName}`;
+          } else {
+            await fsp.unlink(addressFilePath).catch(() => {});
+            addressFileRef = null;
+          }
         } else {
           await fsp.unlink(addressFilePath).catch(() => {});
           addressFileRef = null;
@@ -7614,28 +7675,19 @@ async function main() {
         typeof addressFileRef === "string" && addressFileRef.trim()
           ? { "/": addressFileRef.trim() }
           : null;
-      const wrotePropertyRel = await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyPointer,
-        addressPointer,
-      );
       if (
-        !wrotePropertyRel &&
         propertyPointer &&
-        addressPointer &&
         propertyPointer["/"] &&
+        addressPointer &&
         addressPointer["/"]
       ) {
+        const relationshipPayload = {
+          from: { "/": String(propertyPointer["/"]).trim() },
+          to: { "/": String(addressPointer["/"]).trim() },
+        };
         await fsp.writeFile(
           path.join("data", "relationship_property_has_address.json"),
-          JSON.stringify(
-            {
-              from: { "/": String(propertyPointer["/"]).trim() },
-              to: { "/": String(addressPointer["/"]).trim() },
-            },
-            null,
-            2,
-          ),
+          JSON.stringify(relationshipPayload, null, 2),
         );
       }
       await writeRelationshipFile(
