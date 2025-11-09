@@ -3813,6 +3813,71 @@ async function enforceAddressSchemaOneOf(
   return exclusivePayload;
 }
 
+async function harmonizeAddressFileForSchema(
+  fileName,
+  {
+    preferStructured = false,
+    fallbackUnnormalized = null,
+    metadataSources = [],
+    requestIdentifiers = [],
+  } = {},
+) {
+  if (!fileName || typeof fileName !== "string") return null;
+
+  const preferMode = preferStructured ? "structured" : "unnormalized";
+  const steps = [
+    () => enforceAddressFileOneOf(fileName, preferMode),
+    () =>
+      enforceAddressOutputMode(
+        fileName,
+        preferStructured,
+        fallbackUnnormalized,
+      ),
+    () => enforceAddressPreferredDataMode(fileName),
+    () =>
+      enforceAddressSchemaOneOf(fileName, {
+        fallbackUnnormalized,
+        metadataSources,
+        requestIdentifiers,
+      }),
+    () => sanitizeAddressFileForSchema(fileName, preferStructured),
+    () =>
+      enforceAddressSchemaOneOf(fileName, {
+        fallbackUnnormalized,
+        metadataSources,
+        requestIdentifiers,
+      }),
+    () =>
+      normalizeAddressFileForSchema(fileName, {
+        preferStructured,
+        fallbackUnnormalized,
+      }),
+    () =>
+      enforceAddressSchemaOneOf(fileName, {
+        fallbackUnnormalized,
+        metadataSources,
+        requestIdentifiers,
+      }),
+    () => enforceAddressOneOfStrict(fileName),
+  ];
+
+  let latest = null;
+  for (const step of steps) {
+    latest = await step();
+    if (!latest) {
+      await fsp.unlink(path.join("data", fileName)).catch(() => {});
+      return null;
+    }
+  }
+
+  const exclusive = ensureExclusiveAddressMode(latest) || latest;
+  await fsp.writeFile(
+    path.join("data", fileName),
+    JSON.stringify(exclusive, null, 2),
+  );
+  return exclusive;
+}
+
 async function normalizePersonFileForSchema(fileName) {
   if (!fileName || typeof fileName !== "string") return null;
 
@@ -6809,11 +6874,31 @@ async function main() {
   if (addressPayload) {
     const exclusivePayload =
       ensureExclusiveAddressMode(addressPayload) || addressPayload;
+    const preferStructuredAddress = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) =>
+        typeof exclusivePayload[key] === "string" &&
+        exclusivePayload[key].trim().length > 0,
+    );
     await fsp.writeFile(
       addressFilePath,
       JSON.stringify(exclusivePayload, null, 2),
     );
-    addressFileRef = `./${addressFileName}`;
+    const harmonizedAddress = await harmonizeAddressFileForSchema(
+      addressFileName,
+      {
+        preferStructured: preferStructuredAddress,
+        fallbackUnnormalized: normalizedUnnormalized,
+        metadataSources: addressMetadataSourcesForOutput,
+        requestIdentifiers: requestIdentifierValue
+          ? [requestIdentifierValue]
+          : [],
+      },
+    );
+    if (harmonizedAddress) {
+      addressFileRef = `./${addressFileName}`;
+    } else {
+      addressFileRef = null;
+    }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
