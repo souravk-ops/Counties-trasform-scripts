@@ -6898,8 +6898,20 @@ async function main() {
       },
     );
     if (harmonizedAddress) {
-      addressFileRef = `./${addressFileName}`;
+      const finalizedAddressPayload =
+        finalizeAddressPayloadForWrite(harmonizedAddress);
+      if (finalizedAddressPayload) {
+        await fsp.writeFile(
+          addressFilePath,
+          JSON.stringify(finalizedAddressPayload, null, 2),
+        );
+        addressFileRef = `./${addressFileName}`;
+      } else {
+        await fsp.unlink(addressFilePath).catch(() => {});
+        addressFileRef = null;
+      }
     } else {
+      await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
     }
   } else {
@@ -7885,8 +7897,29 @@ async function main() {
                                   preferMailingStructuredForWrite,
                                 );
                               if (sanitizedMailing) {
-                                mailingAddressOut = sanitizedMailing;
-                                console.log("mailing_address.json created.");
+                                const finalizedMailingPayload =
+                                  finalizeAddressPayloadForWrite(
+                                    sanitizedMailing,
+                                  );
+                                if (finalizedMailingPayload) {
+                                  mailingAddressOut = finalizedMailingPayload;
+                                  await fsp.writeFile(
+                                    path.join("data", "mailing_address.json"),
+                                    JSON.stringify(
+                                      finalizedMailingPayload,
+                                      null,
+                                      2,
+                                    ),
+                                  );
+                                  console.log("mailing_address.json created.");
+                                } else {
+                                  await fsp
+                                    .unlink(
+                                      path.join("data", "mailing_address.json"),
+                                    )
+                                    .catch(() => {});
+                                  mailingAddressOut = null;
+                                }
                               } else {
                                 await fsp
                                   .unlink(
@@ -8600,12 +8633,98 @@ async function main() {
       }
     }
 
+    // Ensure persisted person files continue to satisfy schema expectations; otherwise downgrade to company.
+    for (const [recordId, meta] of ownerToFileMap.entries()) {
+      if (!meta || meta.type !== "person" || !meta.fileName) continue;
+      const personPath = path.join("data", meta.fileName);
+      let personPayload;
+      try {
+        const raw = await fsp.readFile(personPath, "utf8");
+        personPayload = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+
+      const safeLast = ensurePersonNamePattern(
+        personPayload.last_name,
+        PERSON_NAME_PATTERN,
+      );
+      const safeFirst = ensurePersonNamePattern(
+        personPayload.first_name,
+        PERSON_NAME_PATTERN,
+      );
+
+      if (!safeLast || !safeFirst) {
+        await fsp.unlink(personPath).catch(() => {});
+        const record = ownerRecords.get(recordId) || null;
+        const companyName =
+          (record && record.displayName) ||
+          buildPersonDisplayName(personPayload) ||
+          safeLast ||
+          personPayload.last_name ||
+          null;
+        const requestIdentifier = personPayload.request_identifier ?? null;
+        const companyOut = {
+          name: companyName,
+          request_identifier: requestIdentifier,
+        };
+        companyIdx += 1;
+        const companyFileName = `company_${companyIdx}.json`;
+        await fsp.writeFile(
+          path.join("data", companyFileName),
+          JSON.stringify(companyOut, null, 2),
+        );
+        ownerToFileMap.set(recordId, {
+          fileName: companyFileName,
+          type: "company",
+          index: companyIdx,
+        });
+        if (record) {
+          record.type = "company";
+          record.company = {
+            name: companyName,
+            request_identifier: requestIdentifier,
+          };
+          record.person = undefined;
+        }
+        continue;
+      }
+
+      const safeMiddle =
+        personPayload.middle_name != null
+          ? ensurePersonNamePattern(
+              personPayload.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null;
+
+      const sanitizedPerson = {
+        ...personPayload,
+        last_name: safeLast,
+        first_name: safeFirst,
+        middle_name: safeMiddle ?? null,
+      };
+
+      await fsp.writeFile(
+        personPath,
+        JSON.stringify(sanitizedPerson, null, 2),
+      );
+
+      const record = ownerRecords.get(recordId);
+      if (record) {
+        record.person = {
+          ...(record.person || {}),
+          ...sanitizedPerson,
+        };
+      }
+    }
+
     // --- Create relationship between latest owner (if person) and mailing address ---
     // This relationship should only be created if mailingAddressOut was successfully created
     // and ownerToFileMap is now fully populated.
     if (currentOwnerRecord  && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
-      if (latestOwnerMeta) { // Ensure it's a person for this relationship
+      if (latestOwnerMeta && latestOwnerMeta.type === "person") {
         const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
         const wroteRelationship = await writeRelationshipFile(
           relFileName,
@@ -8620,7 +8739,7 @@ async function main() {
           );
         }
       } else {
-        console.log("Warning: Could not find metadata for currentOwnerRecord (or it's not a person) to create mailing address relationship.");
+        console.log("Warning: Could not find eligible person metadata for currentOwnerRecord to create mailing address relationship.");
       }
     } else {
       console.log("Mailing address relationship not created. Conditions not met:", {
