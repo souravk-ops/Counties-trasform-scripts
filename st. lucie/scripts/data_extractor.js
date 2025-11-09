@@ -2701,17 +2701,13 @@ function buildAddressOneOfPayload(source) {
     return typeof value === "string" && value.trim().length > 0;
   });
 
-  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-    Object.prototype.hasOwnProperty.call(source, "unnormalized_address")
-      ? source.unnormalized_address
-      : null,
-  );
-
   const base = { ...metadata };
   if (requestIdentifier) base.request_identifier = requestIdentifier;
 
-  const fallbackCandidates = [
-    normalizedUnnormalized,
+  const directUnnormalizedCandidates = [
+    Object.prototype.hasOwnProperty.call(source, "unnormalized_address")
+      ? source.unnormalized_address
+      : null,
     Object.prototype.hasOwnProperty.call(source, "full_address")
       ? source.full_address
       : null,
@@ -2726,24 +2722,17 @@ function buildAddressOneOfPayload(source) {
       : null,
   ];
 
-  if (!normalizedUnnormalized) {
-    const fallbackFromStructured = buildFallbackUnnormalizedAddress(structured);
-    if (fallbackFromStructured) {
-      fallbackCandidates.push(fallbackFromStructured);
-    }
-  }
-
-  let resolvedUnnormalized = null;
-  for (const candidate of fallbackCandidates) {
+  let directUnnormalized = null;
+  for (const candidate of directUnnormalizedCandidates) {
     const normalized = normalizeUnnormalizedAddressValue(candidate);
     if (normalized) {
-      resolvedUnnormalized = normalized;
+      directUnnormalized = normalized;
       break;
     }
   }
 
-  if (resolvedUnnormalized) {
-    base.unnormalized_address = resolvedUnnormalized;
+  if (directUnnormalized) {
+    base.unnormalized_address = directUnnormalized;
     return base;
   }
 
@@ -2752,6 +2741,15 @@ function buildAddressOneOfPayload(source) {
       if (!Object.prototype.hasOwnProperty.call(structured, key)) continue;
       base[key] = structured[key];
     }
+    return base;
+  }
+
+  const fallbackFromStructured = buildFallbackUnnormalizedAddress(structured);
+  const fallbackNormalized =
+    normalizeUnnormalizedAddressValue(fallbackFromStructured) || null;
+
+  if (fallbackNormalized) {
+    base.unnormalized_address = fallbackNormalized;
     return base;
   }
 
