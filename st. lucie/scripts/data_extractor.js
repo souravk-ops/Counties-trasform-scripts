@@ -6409,11 +6409,52 @@ async function main() {
   let addressFileRef = null;
   const addressFilePath = path.join("data", addressFileName);
   if (addressOutput) {
+    const exclusiveAddressPayload =
+      coerceAddressToSingleMode(
+        addressOutput,
+        normalizedUnnormalized || unnormalizedAddressCandidate || null,
+      ) || addressOutput;
+
     await fsp.writeFile(
       addressFilePath,
-      JSON.stringify(addressOutput, null, 2),
+      JSON.stringify(exclusiveAddressPayload, null, 2),
     );
-    addressFileRef = `./${addressFileName}`;
+
+    const preferStructuredAddress = !hasUnnormalizedCandidate;
+    const enforcedAddress = await enforceAddressFileOneOf(
+      addressFileName,
+      preferStructuredAddress ? "structured" : "unnormalized",
+    );
+
+    if (enforcedAddress) {
+      const normalizedAddress = await enforceAddressOutputMode(
+        addressFileName,
+        preferStructuredAddress,
+        normalizedUnnormalized || unnormalizedAddressCandidate || null,
+      );
+
+      if (normalizedAddress) {
+        await enforceAddressPreferredDataMode(addressFileName);
+        const harmonizedAddress = await normalizeAddressFileForSchema(
+          addressFileName,
+          {
+            preferStructured: preferStructuredAddress,
+            fallbackUnnormalized:
+              normalizedUnnormalized || unnormalizedAddressCandidate || null,
+          },
+        );
+
+        if (harmonizedAddress) {
+          addressFileRef = `./${addressFileName}`;
+        } else {
+          await fsp.unlink(addressFilePath).catch(() => {});
+        }
+      } else {
+        await fsp.unlink(addressFilePath).catch(() => {});
+      }
+    } else {
+      await fsp.unlink(addressFilePath).catch(() => {});
+    }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
