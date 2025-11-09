@@ -3600,6 +3600,66 @@ async function enforceFinalAddressSchema(
   return output;
 }
 
+async function enforceAddressOneOfStrict(fileName) {
+  if (!fileName || typeof fileName !== "string") return null;
+
+  const filePath = path.join("data", fileName);
+  let rawPayload;
+  try {
+    rawPayload = await fsp.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawPayload);
+  } catch {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const metadata = collectAddressMetadata([parsed]);
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    parsed.unnormalized_address,
+  );
+  const structuredCandidate = sanitizeStructuredAddressCandidate(parsed);
+  const hasUnnormalized = Boolean(normalizedUnnormalized);
+  const hasStructured = Boolean(structuredCandidate);
+
+  if (!hasUnnormalized && !hasStructured) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  const output = { ...metadata };
+  if (hasUnnormalized) {
+    output.unnormalized_address = normalizedUnnormalized;
+  } else if (hasStructured) {
+    for (const [key, value] of Object.entries(structuredCandidate)) {
+      output[key] = value;
+    }
+  }
+
+  const requestIdentifier = resolveAddressRequestIdentifier(
+    parsed.request_identifier,
+    parsed.requestIdentifier,
+    structuredCandidate,
+    parsed,
+  );
+  if (requestIdentifier) {
+    output.request_identifier = requestIdentifier;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(output, null, 2));
+  return output;
+}
+
 async function normalizePersonFileForSchema(fileName) {
   if (!fileName || typeof fileName !== "string") return null;
 
@@ -6570,7 +6630,13 @@ async function main() {
                 addressFilePath,
                 JSON.stringify(exclusiveFinalAddress, null, 2),
               );
-              addressFileRef = `./${addressFileName}`;
+              const strictAddress =
+                await enforceAddressOneOfStrict(addressFileName);
+              if (strictAddress) {
+                addressFileRef = `./${addressFileName}`;
+              } else {
+                await fsp.unlink(addressFilePath).catch(() => {});
+              }
             } else {
               await fsp.unlink(addressFilePath).catch(() => {});
             }
@@ -6689,7 +6755,18 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    // Relationship files linking property and address are generated downstream by the pipeline.
+    if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
+      await writeRelationshipFile(
+        "relationship_address_has_fact_sheet.json",
+        addressFileRef,
+        propertyRef,
+      );
+    }
 
     // Lot data
     const lotOut = {
@@ -7538,8 +7615,19 @@ async function main() {
                               path.join("data", "mailing_address.json"),
                               JSON.stringify(exclusiveFinalMailing, null, 2),
                             );
-                            mailingAddressOut = exclusiveFinalMailing;
-                            console.log("mailing_address.json created.");
+                            const strictMailing =
+                              await enforceAddressOneOfStrict(
+                                "mailing_address.json",
+                              );
+                            if (strictMailing) {
+                              mailingAddressOut = strictMailing;
+                              console.log("mailing_address.json created.");
+                            } else {
+                              await fsp
+                                .unlink(path.join("data", "mailing_address.json"))
+                                .catch(() => {});
+                              mailingAddressOut = null;
+                            }
                           } else {
                             await fsp
                               .unlink(path.join("data", "mailing_address.json"))
