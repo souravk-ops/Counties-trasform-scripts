@@ -6502,33 +6502,48 @@ async function main() {
     unnormalizedAddressData,
   ];
 
-  const hasUnnormalizedCandidate = Boolean(
-    selectUnnormalizedAddressCandidate(unnormalizedAddressCandidates),
+  const primaryStructuredCandidate = selectStructuredAddressCandidate(
+    structuredAddressSources,
   );
+  const primaryUnnormalizedCandidate = selectUnnormalizedAddressCandidate(
+    unnormalizedAddressCandidates,
+  );
+  const hasStructuredCandidate = Boolean(primaryStructuredCandidate);
+  const hasUnnormalizedCandidate = Boolean(primaryUnnormalizedCandidate);
+  const preferStructuredAddress =
+    hasStructuredCandidate || !hasUnnormalizedCandidate;
 
   const addressOutput = buildSchemaCompliantAddressOutput({
     structuredSources: structuredAddressSources,
     unnormalizedCandidates: unnormalizedAddressCandidates,
     metadataSources: addressMetadataSourcesForOutput,
     requestIdentifier: requestIdentifierValue,
-    preferStructured: !hasUnnormalizedCandidate,
+    preferStructured: preferStructuredAddress,
   });
+
+  const addressFallbackUnnormalized =
+    primaryUnnormalizedCandidate ??
+    (normalizedUnnormalized || unnormalizedAddressCandidate || null);
 
   let addressFileRef = null;
   const addressFilePath = path.join("data", addressFileName);
   if (addressOutput) {
+    const exclusiveAddressSource =
+      preferStructuredAddress || !addressFallbackUnnormalized
+        ? addressOutput
+        : coerceAddressToSingleMode(
+            addressOutput,
+            addressFallbackUnnormalized,
+          ) || addressOutput;
     const exclusiveAddressPayload =
-      coerceAddressToSingleMode(
-        addressOutput,
-        normalizedUnnormalized || unnormalizedAddressCandidate || null,
-      ) || addressOutput;
+      ensureExclusiveAddressMode(exclusiveAddressSource) ||
+      exclusiveAddressSource;
 
     await fsp.writeFile(
       addressFilePath,
       JSON.stringify(exclusiveAddressPayload, null, 2),
     );
 
-    const preferStructuredAddress = !hasUnnormalizedCandidate;
     const enforcedAddress = await enforceAddressFileOneOf(
       addressFileName,
       preferStructuredAddress ? "structured" : "unnormalized",
@@ -6538,7 +6553,7 @@ async function main() {
       const normalizedAddress = await enforceAddressOutputMode(
         addressFileName,
         preferStructuredAddress,
-        normalizedUnnormalized || unnormalizedAddressCandidate || null,
+        addressFallbackUnnormalized,
       );
 
       if (normalizedAddress) {
@@ -6547,8 +6562,7 @@ async function main() {
           addressFileName,
           {
             preferStructured: preferStructuredAddress,
-            fallbackUnnormalized:
-              normalizedUnnormalized || unnormalizedAddressCandidate || null,
+            fallbackUnnormalized: addressFallbackUnnormalized,
           },
         );
 
@@ -6557,14 +6571,21 @@ async function main() {
             addressFileName,
             {
               preferStructured: preferStructuredAddress,
-              fallbackUnnormalized:
-                normalizedUnnormalized ||
-                unnormalizedAddressCandidate ||
-                null,
+              fallbackUnnormalized: addressFallbackUnnormalized,
             },
           );
           if (finalizedAddress) {
-            addressFileRef = `./${addressFileName}`;
+            const exclusiveFinalAddress =
+              ensureExclusiveAddressMode(finalizedAddress);
+            if (exclusiveFinalAddress) {
+              await fsp.writeFile(
+                addressFilePath,
+                JSON.stringify(exclusiveFinalAddress, null, 2),
+              );
+              addressFileRef = `./${addressFileName}`;
+            } else {
+              await fsp.unlink(addressFilePath).catch(() => {});
+            }
           } else {
             await fsp.unlink(addressFilePath).catch(() => {});
           }
@@ -7184,6 +7205,8 @@ async function main() {
 
     // --- Mailing Address File Creation ---
     if (mailingAddressText) {
+      const mailingFallbackUnnormalized =
+        normalizeUnnormalizedAddressValue(mailingAddressText);
       const mailingAddressPayload = buildAddressRecord({
         structuredAddress: null,
         unnormalizedValue: mailingAddressText,
@@ -7195,20 +7218,22 @@ async function main() {
         const preparedMailingAddress = prepareAddressForWrite(
           mailingAddressPayload,
           {
-            fallbackUnnormalized: mailingAddressText,
+            fallbackUnnormalized:
+              mailingFallbackUnnormalized ?? mailingAddressText,
             preferMode: "unnormalized",
           },
         );
         let finalMailingAddress = finalizeAddressOutputForSchema(
           preparedMailingAddress,
-          mailingAddressText,
+          mailingFallbackUnnormalized ?? mailingAddressText,
         );
-        let fallbackMailingUnnormalized = mailingAddressText;
+        let fallbackMailingUnnormalized =
+          mailingFallbackUnnormalized ?? mailingAddressText;
 
         if (finalMailingAddress) {
           finalMailingAddress = enforceAddressModePreference(
             finalMailingAddress,
-            mailingAddressText,
+            mailingFallbackUnnormalized ?? mailingAddressText,
           );
         }
         if (finalMailingAddress) {
@@ -7291,7 +7316,9 @@ async function main() {
             },
           );
 
-          fallbackMailingUnnormalized = preferMailingStructured ? null : mailingAddressText;
+          fallbackMailingUnnormalized = preferMailingStructured
+            ? null
+            : mailingFallbackUnnormalized ?? mailingAddressText;
 
           finalMailingAddress = buildPreferredSchemaAddressPayload({
             candidate: mailingCandidate,
@@ -7322,7 +7349,7 @@ async function main() {
           ) {
             const oneOfSafeMailing = coerceAddressToSingleMode(
               projectedMailingAddress,
-              mailingAddressText,
+              mailingFallbackUnnormalized,
             );
             if (
               oneOfSafeMailing &&
@@ -7476,14 +7503,20 @@ async function main() {
                   requestIdentifier:
                     finalMailingForFile.request_identifier ??
                     requestIdentifierValue,
-                  preferStructured: false,
+                  preferStructured: preferMailingStructuredForWrite,
                 });
                 if (mailingSchemaSafe) {
+                  const exclusiveMailingSource =
+                    preferMailingStructuredForWrite ||
+                    !mailingFallbackUnnormalized
+                      ? mailingSchemaSafe
+                      : coerceAddressToSingleMode(
+                          mailingSchemaSafe,
+                          mailingFallbackUnnormalized,
+                        ) || mailingSchemaSafe;
                   const exclusiveMailingAddress =
-                    coerceAddressToSingleMode(
-                      mailingSchemaSafe,
-                      mailingAddressText,
-                    ) || mailingSchemaSafe;
+                    ensureExclusiveAddressMode(exclusiveMailingSource) ||
+                    exclusiveMailingSource;
                   await fsp.writeFile(
                     path.join("data", "mailing_address.json"),
                     JSON.stringify(exclusiveMailingAddress, null, 2),
@@ -7496,7 +7529,7 @@ async function main() {
                     const normalizedMailing = await enforceAddressOutputMode(
                       "mailing_address.json",
                       preferMailingStructuredForWrite,
-                      mailingAddressText,
+                      mailingFallbackUnnormalized,
                     );
                     if (normalizedMailing) {
                       await enforceAddressPreferredDataMode(
@@ -7507,7 +7540,7 @@ async function main() {
                           "mailing_address.json",
                           {
                             preferStructured: preferMailingStructuredForWrite,
-                            fallbackUnnormalized: mailingAddressText,
+                            fallbackUnnormalized: mailingFallbackUnnormalized,
                           },
                         );
                       if (harmonizedMailing) {
@@ -7517,12 +7550,25 @@ async function main() {
                             {
                               preferStructured:
                                 preferMailingStructuredForWrite,
-                              fallbackUnnormalized: mailingAddressText,
+                              fallbackUnnormalized: mailingFallbackUnnormalized,
                             },
                           );
                         if (finalizedMailing) {
-                          mailingAddressOut = finalizedMailing;
-                          console.log("mailing_address.json created.");
+                          const exclusiveFinalMailing =
+                            ensureExclusiveAddressMode(finalizedMailing);
+                          if (exclusiveFinalMailing) {
+                            await fsp.writeFile(
+                              path.join("data", "mailing_address.json"),
+                              JSON.stringify(exclusiveFinalMailing, null, 2),
+                            );
+                            mailingAddressOut = exclusiveFinalMailing;
+                            console.log("mailing_address.json created.");
+                          } else {
+                            await fsp
+                              .unlink(path.join("data", "mailing_address.json"))
+                              .catch(() => {});
+                            mailingAddressOut = null;
+                          }
                         } else {
                           await fsp
                             .unlink(path.join("data", "mailing_address.json"))
