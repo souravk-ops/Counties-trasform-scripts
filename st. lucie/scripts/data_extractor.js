@@ -6844,7 +6844,16 @@ async function main() {
   );
 
   let addressPayload = null;
-  if (primaryUnnormalizedCandidate) {
+  if (primaryStructuredCandidate) {
+    const sanitizedStructured =
+      sanitizeStructuredAddressCandidate(primaryStructuredCandidate);
+    if (sanitizedStructured) {
+      addressPayload = {
+        ...addressMetadataForOutput,
+        ...sanitizedStructured,
+      };
+    }
+  } else if (primaryUnnormalizedCandidate) {
     const normalizedPrimaryUnnormalized = normalizeUnnormalizedAddressValue(
       primaryUnnormalizedCandidate,
     );
@@ -6852,15 +6861,6 @@ async function main() {
       addressPayload = {
         ...addressMetadataForOutput,
         unnormalized_address: normalizedPrimaryUnnormalized,
-      };
-    }
-  } else if (primaryStructuredCandidate) {
-    const sanitizedStructured =
-      sanitizeStructuredAddressCandidate(primaryStructuredCandidate);
-    if (sanitizedStructured) {
-      addressPayload = {
-        ...addressMetadataForOutput,
-        ...sanitizedStructured,
       };
     }
   }
@@ -6879,6 +6879,9 @@ async function main() {
         typeof exclusivePayload[key] === "string" &&
         exclusivePayload[key].trim().length > 0,
     );
+    const fallbackUnnormalizedForSchema = preferStructuredAddress
+      ? null
+      : normalizedUnnormalized;
     await fsp.writeFile(
       addressFilePath,
       JSON.stringify(exclusivePayload, null, 2),
@@ -6887,7 +6890,7 @@ async function main() {
       addressFileName,
       {
         preferStructured: preferStructuredAddress,
-        fallbackUnnormalized: normalizedUnnormalized,
+        fallbackUnnormalized: fallbackUnnormalizedForSchema,
         metadataSources: addressMetadataSourcesForOutput,
         requestIdentifiers: requestIdentifierValue
           ? [requestIdentifierValue]
