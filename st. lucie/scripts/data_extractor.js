@@ -6396,10 +6396,38 @@ async function main() {
   });
 
   const addressPath = path.join("data", addressFileName);
-  if (schemaSafeAddress) {
+  const enforceSchemaAddress = (candidate) =>
+    candidate
+      ? enforceAddressOneOfCompliance(candidate) ||
+        ensureExclusiveAddressMode(candidate) ||
+        coerceAddressToSingleMode(candidate, fallbackUnnormalizedValue)
+      : null;
+
+  let addressPayloadForWrite = enforceSchemaAddress(schemaSafeAddress);
+
+  if (!addressPayloadForWrite) {
+    const fallbackUnnormalizedCandidate = normalizeUnnormalizedAddressValue(
+      normalizedUnnormalized ||
+        fallbackUnnormalizedValue ||
+        unnormalizedAddressCandidate ||
+        null,
+    );
+    if (fallbackUnnormalizedCandidate) {
+      const fallbackAddressPayload = {
+        ...cleanedAddressMetadata,
+        unnormalized_address: fallbackUnnormalizedCandidate,
+      };
+      if (requestIdentifierValue) {
+        fallbackAddressPayload.request_identifier = requestIdentifierValue;
+      }
+      addressPayloadForWrite = enforceSchemaAddress(fallbackAddressPayload);
+    }
+  }
+
+  if (addressPayloadForWrite) {
     await fsp.writeFile(
       addressPath,
-      JSON.stringify(schemaSafeAddress, null, 2),
+      JSON.stringify(addressPayloadForWrite, null, 2),
     );
     addressFileRef = `./${addressFileName}`;
   } else {
