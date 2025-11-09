@@ -4468,23 +4468,39 @@ async function enforcePersonFilesForSchemaCompliance() {
     const sanitizeName = (value, pattern, fallback = null) => {
       const normalized = normalizeNameToPattern(value, pattern);
       if (normalized && pattern.test(normalized)) return normalized;
+      if (fallback == null) return fallback;
+      const normalizedFallback = normalizeNameToPattern(fallback, pattern);
+      if (normalizedFallback && pattern.test(normalizedFallback)) {
+        return normalizedFallback;
+      }
       return fallback;
     };
 
     const sanitized = { ...payload };
+    const fallbackValue =
+      normalizeNameToPattern("Unknown", PERSON_NAME_PATTERN) || "Unknown";
+
+    const rawFirst =
+      sanitizeName(sanitized.first_name, PERSON_NAME_PATTERN, fallbackValue) ??
+      fallbackValue;
+    const rawLast =
+      sanitizeName(sanitized.last_name, PERSON_NAME_PATTERN, fallbackValue) ??
+      fallbackValue;
+
     sanitized.first_name =
-      sanitizeName(sanitized.first_name, PERSON_NAME_PATTERN, "Unknown") ||
-      "Unknown";
+      normalizeNameToPattern(rawFirst, PERSON_NAME_PATTERN) || fallbackValue;
     sanitized.last_name =
-      sanitizeName(sanitized.last_name, PERSON_NAME_PATTERN, "Unknown") ||
-      "Unknown";
+      normalizeNameToPattern(rawLast, PERSON_NAME_PATTERN) || fallbackValue;
 
     if (sanitized.middle_name != null) {
-      sanitized.middle_name = sanitizeName(
+      const normalizedMiddle = normalizeNameToPattern(
         sanitized.middle_name,
         PERSON_MIDDLE_NAME_PATTERN,
-        null,
       );
+      sanitized.middle_name =
+        normalizedMiddle && PERSON_MIDDLE_NAME_PATTERN.test(normalizedMiddle)
+          ? normalizedMiddle
+          : null;
     } else {
       sanitized.middle_name = null;
     }
@@ -4493,8 +4509,8 @@ async function enforcePersonFilesForSchemaCompliance() {
       !PERSON_NAME_PATTERN.test(sanitized.first_name) ||
       !PERSON_NAME_PATTERN.test(sanitized.last_name)
     ) {
-      sanitized.first_name = "Unknown";
-      sanitized.last_name = "Unknown";
+      sanitized.first_name = fallbackValue;
+      sanitized.last_name = fallbackValue;
     }
 
     await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
@@ -7626,21 +7642,68 @@ async function main() {
   let addressFileRef = null;
 
   if (finalAddressPayload) {
-    const sanitizedAddress = buildSimpleAddressRecord(
+    let sanitizedAddress = buildSimpleAddressRecord(
       finalAddressPayload,
       requestIdentifierValue,
     );
+
     if (sanitizedAddress) {
-      await fsp.writeFile(
-        addressFilePath,
-        JSON.stringify(sanitizedAddress, null, 2),
-      );
-      addressFileRef = `./${addressFileName}`;
+      const prefersUnnormalized =
+        typeof sanitizedAddress.unnormalized_address === "string" &&
+        sanitizedAddress.unnormalized_address.trim().length > 0;
+      const preferredMode = prefersUnnormalized ? "unnormalized" : "structured";
+
+      const exclusiveAddress =
+        ensureExclusiveAddressMode(sanitizedAddress, preferredMode) ??
+        coerceAddressToSingleMode(sanitizedAddress);
+      if (exclusiveAddress && typeof exclusiveAddress === "object") {
+        sanitizedAddress = exclusiveAddress;
+      }
+
+      const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+        const value = sanitizedAddress[key];
+        return typeof value === "string" && value.trim().length > 0;
+      });
+      const hasUnnormalized =
+        typeof sanitizedAddress.unnormalized_address === "string" &&
+        sanitizedAddress.unnormalized_address.trim().length > 0;
+
+      if (hasStructured && hasUnnormalized) {
+        if (prefersUnnormalized) {
+          stripStructuredAddressFields(sanitizedAddress);
+        } else {
+          delete sanitizedAddress.unnormalized_address;
+        }
+      } else if (!hasStructured && !hasUnnormalized) {
+        sanitizedAddress = null;
+      }
+
+      if (sanitizedAddress) {
+        await fsp.writeFile(
+          addressFilePath,
+          JSON.stringify(sanitizedAddress, null, 2),
+        );
+        addressFileRef = `./${addressFileName}`;
+      } else {
+        await fsp.unlink(addressFilePath).catch(() => {});
+      }
     } else {
       await fsp.unlink(addressFilePath).catch(() => {});
     }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
+  }
+
+  const propertyPointerValue =
+    typeof propertyRef === "string" && propertyRef.trim()
+      ? propertyRef.trim()
+      : null;
+  if (propertyPointerValue && addressFileRef) {
+    await writeRelationshipFile(
+      "relationship_property_has_address.json",
+      propertyPointerValue,
+      addressFileRef,
+    );
   }
 
   // --- Parcel extraction ---
