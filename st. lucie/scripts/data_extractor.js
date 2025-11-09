@@ -4281,6 +4281,12 @@ async function enforceAddressFilesForSchemaCompliance() {
       continue;
     }
 
+    if (hasUnnormalized) {
+      stripStructuredAddressFields(output);
+    } else {
+      delete output.unnormalized_address;
+    }
+
     await fsp.writeFile(
       filePath,
       JSON.stringify(output, null, 2),
@@ -4465,55 +4471,60 @@ async function enforcePersonFilesForSchemaCompliance() {
 
     if (!payload || typeof payload !== "object") continue;
 
-    const sanitizeName = (value, pattern, fallback = null) => {
-      const normalized = normalizeNameToPattern(value, pattern);
-      if (normalized && pattern.test(normalized)) return normalized;
-      if (fallback == null) return fallback;
-      const normalizedFallback = normalizeNameToPattern(fallback, pattern);
-      if (normalizedFallback && pattern.test(normalizedFallback)) {
-        return normalizedFallback;
-      }
-      return fallback;
-    };
-
-    const sanitized = { ...payload };
-    const fallbackValue =
+    const fallbackName =
       normalizeNameToPattern("Unknown", PERSON_NAME_PATTERN) || "Unknown";
 
-    const rawFirst =
-      sanitizeName(sanitized.first_name, PERSON_NAME_PATTERN, fallbackValue) ??
-      fallbackValue;
-    const rawLast =
-      sanitizeName(sanitized.last_name, PERSON_NAME_PATTERN, fallbackValue) ??
-      fallbackValue;
+    const applyFallback = (person) =>
+      ensurePersonNameFallback(person ?? { first_name: fallbackName, last_name: fallbackName });
 
-    sanitized.first_name =
-      normalizeNameToPattern(rawFirst, PERSON_NAME_PATTERN) || fallbackValue;
-    sanitized.last_name =
-      normalizeNameToPattern(rawLast, PERSON_NAME_PATTERN) || fallbackValue;
+    let harmonized = applyFallback(payload);
+    harmonized =
+      sanitizePersonForSchemaOutput(harmonized) || applyFallback(harmonized);
+    harmonized = applyFallback(harmonized);
 
-    if (sanitized.middle_name != null) {
-      const normalizedMiddle = normalizeNameToPattern(
-        sanitized.middle_name,
-        PERSON_MIDDLE_NAME_PATTERN,
-      );
-      sanitized.middle_name =
-        normalizedMiddle && PERSON_MIDDLE_NAME_PATTERN.test(normalizedMiddle)
-          ? normalizedMiddle
-          : null;
-    } else {
-      sanitized.middle_name = null;
+    const finalPerson = {
+      birth_date: harmonized.birth_date ?? null,
+      first_name:
+        normalizeNameToPattern(harmonized.first_name, PERSON_NAME_PATTERN) ||
+        fallbackName,
+      last_name:
+        normalizeNameToPattern(harmonized.last_name, PERSON_NAME_PATTERN) ||
+        fallbackName,
+      middle_name:
+        harmonized.middle_name != null
+          ? normalizeNameToPattern(
+              harmonized.middle_name,
+              PERSON_MIDDLE_NAME_PATTERN,
+            )
+          : null,
+      prefix_name:
+        typeof harmonized.prefix_name === "string"
+          ? harmonized.prefix_name.trim() || null
+          : harmonized.prefix_name ?? null,
+      suffix_name:
+        typeof harmonized.suffix_name === "string"
+          ? harmonized.suffix_name.trim() || null
+          : harmonized.suffix_name ?? null,
+      us_citizenship_status:
+        harmonized.us_citizenship_status ?? null,
+      veteran_status: harmonized.veteran_status ?? null,
+      request_identifier: harmonized.request_identifier ?? null,
+    };
+
+    if (!PERSON_NAME_PATTERN.test(finalPerson.first_name)) {
+      finalPerson.first_name = fallbackName;
     }
-
+    if (!PERSON_NAME_PATTERN.test(finalPerson.last_name)) {
+      finalPerson.last_name = fallbackName;
+    }
     if (
-      !PERSON_NAME_PATTERN.test(sanitized.first_name) ||
-      !PERSON_NAME_PATTERN.test(sanitized.last_name)
+      finalPerson.middle_name != null &&
+      !PERSON_MIDDLE_NAME_PATTERN.test(finalPerson.middle_name)
     ) {
-      sanitized.first_name = fallbackValue;
-      sanitized.last_name = fallbackValue;
+      finalPerson.middle_name = null;
     }
 
-    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+    await fsp.writeFile(filePath, JSON.stringify(finalPerson, null, 2));
   }
 }
 
@@ -7706,17 +7717,6 @@ async function main() {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
 
-  const propertyPointerValue =
-    typeof propertyRef === "string" && propertyRef.trim()
-      ? propertyRef.trim()
-      : null;
-  if (propertyPointerValue && addressFileRef) {
-    await writeRelationshipFile(
-      "relationship_property_has_address.json",
-      propertyPointerValue,
-      addressFileRef,
-    );
-  }
 
   // --- Parcel extraction ---
   const parcelOut = {
