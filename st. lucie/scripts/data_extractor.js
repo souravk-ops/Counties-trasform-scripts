@@ -3371,6 +3371,73 @@ function enforceAddressOneOfForWrite(address, preferMode = "unnormalized") {
   return null;
 }
 
+function ensureExclusiveAddressMode(address, preferMode = "unnormalized") {
+  if (!address || typeof address !== "object") return null;
+  const clone = deepClone(address);
+  if (!clone || typeof clone !== "object") return null;
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+      ? clone.unnormalized_address
+      : null,
+  );
+  const hasUnnormalized =
+    typeof normalizedUnnormalized === "string" &&
+    normalizedUnnormalized.length > 0;
+
+  if (hasUnnormalized) {
+    clone.unnormalized_address = normalizedUnnormalized;
+  } else {
+    delete clone.unnormalized_address;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  if (!hasStructured) {
+    stripStructuredAddressFields(clone);
+  }
+
+  if (hasStructured && hasUnnormalized) {
+    const preferStructured =
+      typeof preferMode === "string" &&
+      preferMode.toLowerCase() === "structured";
+    if (preferStructured) {
+      delete clone.unnormalized_address;
+    } else {
+      stripStructuredAddressFields(clone);
+      clone.unnormalized_address = normalizedUnnormalized;
+    }
+  } else if (hasStructured) {
+    delete clone.unnormalized_address;
+  } else if (hasUnnormalized) {
+    stripStructuredAddressFields(clone);
+    clone.unnormalized_address = normalizedUnnormalized;
+  }
+
+  const finalHasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+  const finalHasUnnormalized =
+    typeof clone.unnormalized_address === "string" &&
+    clone.unnormalized_address.trim().length > 0;
+
+  if (!finalHasStructured && !finalHasUnnormalized) {
+    return null;
+  }
+
+  if (finalHasStructured) {
+    delete clone.unnormalized_address;
+  } else {
+    stripStructuredAddressFields(clone);
+  }
+
+  return clone;
+}
+
 async function enforceAddressFileOneOf(
   fileName,
   preferMode = "unnormalized",
@@ -7432,18 +7499,18 @@ async function main() {
   let finalAddressPayload = null;
   let addressMode = null;
 
-  if (sanitizedStructuredCandidate) {
-    finalAddressPayload = {
-      ...addressMetadataForOutput,
-      ...sanitizedStructuredCandidate,
-    };
-    addressMode = "structured";
-  } else if (normalizedPrimaryUnnormalized) {
+  if (normalizedPrimaryUnnormalized) {
     finalAddressPayload = {
       ...addressMetadataForOutput,
       unnormalized_address: normalizedPrimaryUnnormalized,
     };
     addressMode = "unnormalized";
+  } else if (sanitizedStructuredCandidate) {
+    finalAddressPayload = {
+      ...addressMetadataForOutput,
+      ...sanitizedStructuredCandidate,
+    };
+    addressMode = "structured";
   } else if (normalizedUnnormalized) {
     finalAddressPayload = {
       ...addressMetadataForOutput,
@@ -7495,11 +7562,14 @@ async function main() {
     const normalizedForWrite =
       enforceStrictAddressOneOf(finalAddressPayload) ||
       enforceAddressOneOfForWrite(finalAddressPayload, preferredMode);
+    const exclusiveAddress =
+      normalizedForWrite &&
+      ensureExclusiveAddressMode(normalizedForWrite, preferredMode);
 
-    if (normalizedForWrite) {
+    if (exclusiveAddress) {
       await fsp.writeFile(
         addressFilePath,
-        JSON.stringify(normalizedForWrite, null, 2),
+        JSON.stringify(exclusiveAddress, null, 2),
       );
       addressFileRef = `./${addressFileName}`;
     } else {
@@ -7623,20 +7693,12 @@ async function main() {
         addressPointer &&
         addressPointer["/"]
       ) {
-        const relationshipPayload = {
-          from: { "/": String(propertyPointer["/"]).trim() },
-          to: { "/": String(addressPointer["/"]).trim() },
-        };
-        await fsp.writeFile(
-          path.join("data", "relationship_property_has_address.json"),
-          JSON.stringify(relationshipPayload, null, 2),
+        await writeRelationshipFile(
+          "relationship_address_has_fact_sheet.json",
+          addressPointer,
+          propertyPointer,
         );
       }
-      await writeRelationshipFile(
-        "relationship_address_has_fact_sheet.json",
-        addressPointer,
-        propertyPointer,
-      );
     }
 
     // Lot data
