@@ -3202,6 +3202,13 @@ function buildSchemaCompliantAddress(payload, fallbackUnnormalized = null) {
       ? normalizeUnnormalizedAddressValue(fallbackUnnormalized)
       : null;
 
+  if (normalizedUnnormalized || fallbackNormalized) {
+    return {
+      ...metadata,
+      unnormalized_address: normalizedUnnormalized || fallbackNormalized,
+    };
+  }
+
   if (hasStructured) {
     const out = { ...metadata };
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
@@ -3209,13 +3216,6 @@ function buildSchemaCompliantAddress(payload, fallbackUnnormalized = null) {
       out[key] = structured[key];
     }
     return out;
-  }
-
-  if (normalizedUnnormalized || fallbackNormalized) {
-    return {
-      ...metadata,
-      unnormalized_address: normalizedUnnormalized || fallbackNormalized,
-    };
   }
 
   if (Object.keys(structured).length > 0) {
