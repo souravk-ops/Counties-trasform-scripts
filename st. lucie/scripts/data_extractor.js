@@ -948,6 +948,68 @@ function stripStructuredAddressFields(address) {
   }
 }
 
+function coerceAddressToStrictOneOfPayload(address) {
+  if (!address || typeof address !== "object") return null;
+  const clone = deepClone(address);
+  if (!clone || typeof clone !== "object") return null;
+
+  const hasUnnormalized = hasUnnormalizedAddressValue(clone);
+  if (hasUnnormalized) {
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      clone.unnormalized_address,
+    );
+    if (!normalizedUnnormalized) return null;
+    stripStructuredAddressFields(clone);
+    clone.unnormalized_address = normalizedUnnormalized;
+  } else {
+    removeUnnormalizedAddress(clone);
+    const structured = sanitizeStructuredAddressCandidate(clone);
+    if (!structured) return null;
+    stripStructuredAddressFields(clone);
+    for (const [key, value] of Object.entries(structured)) {
+      clone[key] = value;
+    }
+    const hasRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = clone[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    if (!hasRequired) return null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(clone, "request_identifier")) {
+    const rawRequestId = clone.request_identifier;
+    if (rawRequestId == null) {
+      delete clone.request_identifier;
+    } else if (typeof rawRequestId === "string") {
+      const trimmed = rawRequestId.trim();
+      if (trimmed) {
+        clone.request_identifier = trimmed;
+      } else {
+        delete clone.request_identifier;
+      }
+    }
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+    const value = clone[key];
+    if (value == null) {
+      delete clone[key];
+      continue;
+    }
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (cleaned) {
+        clone[key] = cleaned;
+      } else {
+        delete clone[key];
+      }
+    }
+  }
+
+  return clone;
+}
+
 function ensureAddressStrictOneOf(address, preferMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
   const working = deepClone(address);
@@ -4932,6 +4994,37 @@ async function enforcePreferredAddressRecords() {
   }
 }
 
+async function enforceStrictAddressOutputs() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const strictPayload = coerceAddressToStrictOneOfPayload(payload);
+    if (!strictPayload || !isAddressOneOfCompliant(strictPayload)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(strictPayload, null, 2));
+  }
+}
+
 async function harmonizeAddressFileForSchema(
   fileName,
   {
@@ -5041,8 +5134,14 @@ async function finalizeAddressFileForOneOf(
     return null;
   }
 
-  await fsp.writeFile(filePath, JSON.stringify(finalized, null, 2));
-  return finalized;
+  const strictPayload = coerceAddressToStrictOneOfPayload(finalized);
+  if (!strictPayload || !isAddressOneOfCompliant(strictPayload)) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(strictPayload, null, 2));
+  return strictPayload;
 }
 
 async function normalizePersonFileForSchema(fileName) {
@@ -8928,10 +9027,14 @@ async function main() {
   }
 
   const preferStructuredForFinal = shouldPreferStructured;
-  const finalAddressForWrite = buildFinalAddressRecord(
+  let finalAddressForWrite = buildFinalAddressRecord(
     addressCandidateForFinal,
     preferStructuredForFinal,
   );
+  if (finalAddressForWrite) {
+    finalAddressForWrite =
+      coerceAddressToStrictOneOfPayload(finalAddressForWrite);
+  }
 
   if (finalAddressForWrite) {
     await fsp.writeFile(
@@ -8942,11 +9045,15 @@ async function main() {
     const preferredModeForFinalize = shouldPreferStructured
       ? "structured"
       : "unnormalized";
-    const finalizedAddress =
+    let finalizedAddress =
       (await finalizeAddressFileForOneOf(
         addressFileName,
         preferredModeForFinalize,
       )) || null;
+    if (finalizedAddress) {
+      finalizedAddress =
+        coerceAddressToStrictOneOfPayload(finalizedAddress);
+    }
 
     if (finalizedAddress && isAddressOneOfCompliant(finalizedAddress)) {
       await fsp.writeFile(
@@ -8971,20 +9078,28 @@ async function main() {
           ...baseAddressPayload,
           unnormalized_address: fallbackUnnormalizedCandidate,
         };
-        const fallbackFinal = buildFinalAddressRecord(
+        let fallbackFinal = buildFinalAddressRecord(
           fallbackPayload,
           false,
         );
+        if (fallbackFinal) {
+          fallbackFinal =
+            coerceAddressToStrictOneOfPayload(fallbackFinal);
+        }
         if (fallbackFinal && isAddressOneOfCompliant(fallbackFinal)) {
           await fsp.writeFile(
             addressFilePath,
             JSON.stringify(fallbackFinal, null, 2),
           );
-          const finalizedFallback =
+          let finalizedFallback =
             (await finalizeAddressFileForOneOf(
               addressFileName,
               "unnormalized",
             )) || fallbackFinal;
+          if (finalizedFallback) {
+            finalizedFallback =
+              coerceAddressToStrictOneOfPayload(finalizedFallback);
+          }
           if (
             finalizedFallback &&
             isAddressOneOfCompliant(finalizedFallback)
@@ -11806,6 +11921,7 @@ async function main() {
   await enforceAddressFilesForSchemaCompliance();
   await enforcePreferredAddressRecords();
   await enforceFinalAddressOneOfCompliance();
+  await enforceStrictAddressOutputs();
   await enforcePersonFilesForSchemaCompliance();
 }
 
