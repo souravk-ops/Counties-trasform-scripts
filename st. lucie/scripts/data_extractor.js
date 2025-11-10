@@ -8278,6 +8278,54 @@ async function main() {
   }
 
   if (finalAddressOutput) {
+    const normalizedUnnormalizedForWrite = normalizeUnnormalizedAddressValue(
+      Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")
+        ? finalAddressOutput.unnormalized_address
+        : null,
+    );
+
+    if (
+      typeof normalizedUnnormalizedForWrite === "string" &&
+      normalizedUnnormalizedForWrite.length > 0
+    ) {
+      finalAddressOutput.unnormalized_address = normalizedUnnormalizedForWrite;
+      for (const field of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, field)) {
+          delete finalAddressOutput[field];
+        }
+      }
+    } else {
+      if (
+        Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")
+      ) {
+        delete finalAddressOutput.unnormalized_address;
+      }
+      for (const field of STRUCTURED_ADDRESS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(finalAddressOutput, field)) continue;
+        const rawValue = finalAddressOutput[field];
+        if (rawValue == null) {
+          delete finalAddressOutput[field];
+          continue;
+        }
+        if (typeof rawValue === "string") {
+          let cleaned = rawValue.trim();
+          if (!cleaned) {
+            delete finalAddressOutput[field];
+            continue;
+          }
+          if (field === "city_name" || field === "state_code") {
+            cleaned = cleaned.toUpperCase();
+          } else if (
+            field === "postal_code" ||
+            field === "plus_four_postal_code"
+          ) {
+            cleaned = cleaned.replace(/\s+/g, "");
+          }
+          finalAddressOutput[field] = cleaned;
+        }
+      }
+    }
+
     await fsp.writeFile(
       addressFilePath,
       JSON.stringify(finalAddressOutput, null, 2),
@@ -10174,23 +10222,62 @@ async function main() {
             )
           : null;
 
-      const sanitizedPerson = {
+      const baseSanitizedPerson = {
         ...personPayload,
         last_name: safeLast,
         first_name: safeFirst,
         middle_name: safeMiddle ?? null,
       };
 
+      const fallbackName =
+        normalizeNameToPattern("Unknown", PERSON_NAME_PATTERN) || "Unknown";
+
+      const enforcedNames =
+        enforcePersonNamePatterns(baseSanitizedPerson) ??
+        ensurePersonNameFallback({
+          ...baseSanitizedPerson,
+          last_name: baseSanitizedPerson.last_name ?? fallbackName,
+          first_name: baseSanitizedPerson.first_name ?? fallbackName,
+        });
+
+      const finalSanitizedPerson = {
+        ...baseSanitizedPerson,
+        ...enforcedNames,
+      };
+
+      finalSanitizedPerson.first_name =
+        normalizeNameToPattern(
+          finalSanitizedPerson.first_name,
+          PERSON_NAME_PATTERN,
+        ) || fallbackName;
+
+      finalSanitizedPerson.last_name =
+        normalizeNameToPattern(
+          finalSanitizedPerson.last_name,
+          PERSON_NAME_PATTERN,
+        ) || fallbackName;
+
+      if (finalSanitizedPerson.middle_name != null) {
+        const normalizedMiddle = normalizeNameToPattern(
+          finalSanitizedPerson.middle_name,
+          PERSON_MIDDLE_NAME_PATTERN,
+        );
+        finalSanitizedPerson.middle_name =
+          normalizedMiddle && PERSON_MIDDLE_NAME_PATTERN.test(normalizedMiddle)
+            ? normalizedMiddle
+            : null;
+      }
+
       await fsp.writeFile(
         personPath,
-        JSON.stringify(sanitizedPerson, null, 2),
+        JSON.stringify(finalSanitizedPerson, null, 2),
       );
 
       const record = ownerRecords.get(recordId);
       if (record) {
         record.person = {
           ...(record.person || {}),
-          ...sanitizedPerson,
+          ...finalSanitizedPerson,
         };
       }
     }
