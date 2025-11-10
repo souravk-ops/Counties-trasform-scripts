@@ -8296,23 +8296,13 @@ async function main() {
     ? normalizeUnnormalizedAddressValue(primaryUnnormalizedCandidate)
     : null;
 
-  let selectedUnnormalized =
+  const sourceUnnormalizedCandidate =
     normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
-  if (typeof selectedUnnormalized === "string") {
-    const trimmedCandidate = selectedUnnormalized.trim();
-    selectedUnnormalized = trimmedCandidate ? trimmedCandidate : null;
+  let normalizedSourceUnnormalized = sourceUnnormalizedCandidate;
+  if (typeof normalizedSourceUnnormalized === "string") {
+    normalizedSourceUnnormalized =
+      normalizedSourceUnnormalized.trim() || null;
   }
-  const hasSourceUnnormalized = Boolean(selectedUnnormalized);
-
-  if (!selectedUnnormalized && primaryStructuredCandidate) {
-    const fallbackFromStructured = normalizeUnnormalizedAddressValue(
-      buildFallbackUnnormalizedAddress(primaryStructuredCandidate),
-    );
-    if (fallbackFromStructured) {
-      selectedUnnormalized = fallbackFromStructured;
-    }
-  }
-
   const addressFilePath = path.join("data", addressFileName);
   let addressFileRef = null;
 
@@ -8343,36 +8333,29 @@ async function main() {
         structuredForOutput[key].trim().length > 0,
     );
 
-  const normalizedSelectedUnnormalized = normalizeUnnormalizedAddressValue(
-    selectedUnnormalized,
-  );
-
   const fallbackFromStructured = sanitizedStructuredCandidate
     ? normalizeUnnormalizedAddressValue(
         buildFallbackUnnormalizedAddress(sanitizedStructuredCandidate),
       )
     : null;
 
+  const normalizedSelectedUnnormalized =
+    normalizedSourceUnnormalized ?? fallbackFromStructured ?? null;
+
   let preferredAddressMode = null;
   let addressPayload = null;
 
-  if (hasSourceUnnormalized && normalizedSelectedUnnormalized) {
-    preferredAddressMode = "unnormalized";
-    addressPayload = {
-      ...baseAddressPayload,
-      unnormalized_address: normalizedSelectedUnnormalized,
-    };
-  } else if (hasStructuredForOutput) {
+  if (hasStructuredForOutput) {
     preferredAddressMode = "structured";
     addressPayload = {
       ...baseAddressPayload,
       ...structuredForOutput,
     };
-  } else if (fallbackFromStructured) {
+  } else if (normalizedSelectedUnnormalized) {
     preferredAddressMode = "unnormalized";
     addressPayload = {
       ...baseAddressPayload,
-      unnormalized_address: fallbackFromStructured,
+      unnormalized_address: normalizedSelectedUnnormalized,
     };
   }
 
