@@ -4,6 +4,29 @@ const fsp = require("fs/promises");
 const path = require("path");
 const cheerio = require("cheerio");
 
+const RELATIONSHIP_ALLOWED_TYPE_VALUES = new Set([
+  "layout_has_appliance",
+  "person_has_mortgage",
+  "person_has_property",
+  "company_has_person",
+  "person_owns_property",
+  "property_appliance",
+  "property_has_address",
+  "property_has_file",
+  "property_has_layout",
+  "property_has_lot",
+  "property_has_mortgage",
+  "property_has_nearby_locations",
+  "property_has_sales_history",
+  "property_has_structure",
+  "property_has_tax",
+  "property_has_utilities",
+  "property_has_environmental_risk",
+  "property_seed",
+  "property_flood_storm_information",
+  null,
+]);
+
 async function readJson(p) {
   const s = await fsp.readFile(p, "utf8");
   return JSON.parse(s);
@@ -30,8 +53,8 @@ function deepClone(value) {
 }
 
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
-  const payload =
-    extras && typeof extras === "object" ? { ...extras } : {};
+  const extrasSource =
+    extras && typeof extras === "object" ? extras : {};
 
   const normalizeEndpoint = (value) => {
     if (value == null) return null;
@@ -63,25 +86,46 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     return null;
   };
 
-  const fromValue = normalizeEndpoint(
-    Object.prototype.hasOwnProperty.call(payload, "from")
-      ? payload.from
-      : fromPath,
-  );
-  const toValue = normalizeEndpoint(
-    Object.prototype.hasOwnProperty.call(payload, "to") ? payload.to : toPath,
-  );
+  const fromCandidate = Object.prototype.hasOwnProperty.call(
+    extrasSource,
+    "from",
+  )
+    ? extrasSource.from
+    : fromPath;
+  const toCandidate = Object.prototype.hasOwnProperty.call(extrasSource, "to")
+    ? extrasSource.to
+    : toPath;
+
+  const payload = {};
+
+  if (Object.keys(extrasSource).length > 0) {
+    for (const [key, value] of Object.entries(extrasSource)) {
+      if (key === "from" || key === "to") continue;
+      if (key === "type") {
+        if (value == null) {
+          payload.type = null;
+          continue;
+        }
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+            payload.type = trimmed;
+          }
+        }
+        continue;
+      }
+      // Ignore unsupported extras; relationships only allow from, to, and type.
+    }
+  }
+
+  const fromValue = normalizeEndpoint(fromCandidate);
+  const toValue = normalizeEndpoint(toCandidate);
 
   const hasFrom = fromValue != null;
   const hasTo = toValue != null;
 
-  if (!hasFrom && !hasTo) {
-    const extraKeys = Object.keys(payload).filter(
-      (key) => key !== "from" && key !== "to",
-    );
-    if (extraKeys.length === 0) {
-      return null;
-    }
+  if (!hasFrom && !hasTo && Object.keys(payload).length === 0) {
+    return null;
   }
 
   payload.from = hasFrom ? fromValue : null;

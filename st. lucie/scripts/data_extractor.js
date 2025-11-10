@@ -4,6 +4,29 @@ const fsp = require("fs/promises");
 const path = require("path");
 const cheerio = require("cheerio");
 
+const RELATIONSHIP_ALLOWED_TYPE_VALUES = new Set([
+  "layout_has_appliance",
+  "person_has_mortgage",
+  "person_has_property",
+  "company_has_person",
+  "person_owns_property",
+  "property_appliance",
+  "property_has_address",
+  "property_has_file",
+  "property_has_layout",
+  "property_has_lot",
+  "property_has_mortgage",
+  "property_has_nearby_locations",
+  "property_has_sales_history",
+  "property_has_structure",
+  "property_has_tax",
+  "property_has_utilities",
+  "property_has_environmental_risk",
+  "property_seed",
+  "property_flood_storm_information",
+  null,
+]);
+
 async function readJson(p) {
   const s = await fsp.readFile(p, "utf8");
   return JSON.parse(s);
@@ -48,16 +71,43 @@ function normalizeRelationshipRef(value) {
 }
 
 function createRelationshipPayload(fromPath, toPath, extras = {}) {
-  const fromRef = normalizeRelationshipRef(fromPath);
-  const toRef = normalizeRelationshipRef(toPath);
+  const extrasSource =
+    extras && typeof extras === "object" ? extras : {};
+
+  const fromCandidate = Object.prototype.hasOwnProperty.call(
+    extrasSource,
+    "from",
+  )
+    ? extrasSource.from
+    : fromPath;
+  const toCandidate = Object.prototype.hasOwnProperty.call(extrasSource, "to")
+    ? extrasSource.to
+    : toPath;
+
   const payload = {};
 
-  if (extras && typeof extras === "object") {
-    for (const [key, val] of Object.entries(extras)) {
+  if (Object.keys(extrasSource).length > 0) {
+    for (const [key, value] of Object.entries(extrasSource)) {
       if (key === "from" || key === "to") continue;
-      payload[key] = val;
+      if (key === "type") {
+        if (value == null) {
+          payload.type = null;
+          continue;
+        }
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+            payload.type = trimmed;
+          }
+        }
+        continue;
+      }
+      // Ignore unsupported extras; relationships only allow from, to, and type.
     }
   }
+
+  const fromRef = normalizeRelationshipRef(fromCandidate);
+  const toRef = normalizeRelationshipRef(toCandidate);
 
   if (!fromRef && !toRef && Object.keys(payload).length === 0) {
     return null;
@@ -8501,6 +8551,7 @@ async function main() {
           "relationship_property_has_address.json",
           propertyRef,
           addressFileRef,
+          { type: "property_has_address" },
         );
       } catch {}
     }
@@ -11059,7 +11110,12 @@ async function main() {
 
     if (!linkedToLayout && propertyOut) {
       const relFile = `relationship_property_has_utility_${record.index}.json`;
-      await writeRelationshipFile(relFile, propertyRef, utilityRef);
+      await writeRelationshipFile(
+        relFile,
+        propertyRef,
+        utilityRef,
+        { type: "property_has_utilities" },
+      );
     }
   }
 
@@ -11103,7 +11159,12 @@ async function main() {
 
     if (!linkedToLayout && propertyOut) {
       const relFile = `relationship_property_has_structure_${record.index}.json`;
-      await writeRelationshipFile(relFile, propertyRef, structureRef);
+      await writeRelationshipFile(
+        relFile,
+        propertyRef,
+        structureRef,
+        { type: "property_has_structure" },
+      );
     }
   }
 
