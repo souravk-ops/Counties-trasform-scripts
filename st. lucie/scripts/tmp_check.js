@@ -821,6 +821,57 @@ function removeUnnormalizedAddress(address) {
   }
 }
 
+function enforcePreferredAddressMode(address) {
+  if (!address || typeof address !== "object") return null;
+  const clone = { ...address };
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+      ? clone.unnormalized_address
+      : null,
+  );
+
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(clone);
+    clone.unnormalized_address = normalizedUnnormalized;
+    return clone;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    if (typeof value === "string") return value.trim().length > 0;
+    return value != null;
+  });
+
+  if (hasStructured) {
+    removeUnnormalizedAddress(clone);
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+      const value = clone[key];
+      if (value == null) {
+        delete clone[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        let cleaned = textClean(value);
+        if (!cleaned) {
+          delete clone[key];
+          continue;
+        }
+        if (key === "city_name" || key === "state_code") {
+          cleaned = cleaned.toUpperCase();
+        } else if (key === "postal_code" || key === "plus_four_postal_code") {
+          cleaned = cleaned.replace(/\s+/g, "");
+        }
+        clone[key] = cleaned;
+      }
+    }
+    return clone;
+  }
+
+  return null;
+}
+
 function normalizeAddressForOutput(address, preferredMode = null) {
   const reconciliation = reconcileAddressForSchema(address);
   pruneAddressFieldsForSchema(

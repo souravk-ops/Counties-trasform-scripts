@@ -889,6 +889,57 @@ function removeUnnormalizedAddress(address) {
   }
 }
 
+function enforcePreferredAddressMode(address) {
+  if (!address || typeof address !== "object") return null;
+  const clone = { ...address };
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+      ? clone.unnormalized_address
+      : null,
+  );
+
+  if (normalizedUnnormalized) {
+    stripStructuredAddressFields(clone);
+    clone.unnormalized_address = normalizedUnnormalized;
+    return clone;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = clone[key];
+    if (typeof value === "string") return value.trim().length > 0;
+    return value != null;
+  });
+
+  if (hasStructured) {
+    removeUnnormalizedAddress(clone);
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue;
+      const value = clone[key];
+      if (value == null) {
+        delete clone[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        let cleaned = textClean(value);
+        if (!cleaned) {
+          delete clone[key];
+          continue;
+        }
+        if (key === "city_name" || key === "state_code") {
+          cleaned = cleaned.toUpperCase();
+        } else if (key === "postal_code" || key === "plus_four_postal_code") {
+          cleaned = cleaned.replace(/\s+/g, "");
+        }
+        clone[key] = cleaned;
+      }
+    }
+    return clone;
+  }
+
+  return null;
+}
+
 function coerceAddressToSchemaOneOf(address, preferMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
@@ -4474,7 +4525,13 @@ async function enforceAddressFilesForSchemaCompliance() {
       continue;
     }
 
-    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+    const exclusive = enforcePreferredAddressMode(sanitized);
+    if (!exclusive) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(exclusive, null, 2));
   }
 }
 
@@ -4937,24 +4994,25 @@ function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
     return value != null;
   });
 
+  let candidate = null;
+
   if (normalizedUnnormalized) {
-    return {
+    candidate = {
       ...result,
       unnormalized_address: normalizedUnnormalized,
     };
-  }
-
-  if (hasStructured) {
+  } else if (hasStructured) {
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(structuredValues, key)) continue;
       const value = structuredValues[key];
       if (value == null) continue;
       result[key] = value;
     }
-    return Object.keys(result).length > 0 ? result : null;
+    candidate = Object.keys(result).length > 0 ? result : null;
   }
 
-  return null;
+  if (!candidate) return null;
+  return enforcePreferredAddressMode(candidate);
 }
 
 function sanitizeAddressRecordForSchemaOutput(record) {
@@ -5040,14 +5098,14 @@ function sanitizeAddressRecordForSchemaOutput(record) {
     return value != null;
   });
 
+  let candidate = null;
+
   if (normalizedUnnormalized) {
-    return {
+    candidate = {
       ...result,
       unnormalized_address: normalizedUnnormalized,
     };
-  }
-
-  if (hasStructured) {
+  } else if (hasStructured) {
     const structuredOutput = { ...result };
     for (const [key, value] of Object.entries(structured)) {
       if (value == null) continue;
@@ -5063,23 +5121,23 @@ function sanitizeAddressRecordForSchemaOutput(record) {
         structuredOutput[key] = value;
       }
     }
-    return structuredOutput;
-  }
-
-  const fallbackStructured =
+    candidate = structuredOutput;
+  } else {
+    const fallbackStructured =
     buildFallbackUnnormalizedAddress(structured) ||
     buildFallbackUnnormalizedAddress(record);
-  const normalizedFallback =
+    const normalizedFallback =
     normalizeUnnormalizedAddressValue(fallbackStructured);
-
-  if (normalizedFallback) {
-    return {
-      ...result,
-      unnormalized_address: normalizedFallback,
-    };
+    if (normalizedFallback) {
+      candidate = {
+        ...result,
+        unnormalized_address: normalizedFallback,
+      };
+    }
   }
 
-  return null;
+  if (!candidate) return null;
+  return enforcePreferredAddressMode(candidate);
 }
 
 function finalizeAddressPayloadForWrite(payload) {
@@ -6093,12 +6151,9 @@ function buildFinalAddressOutput(payload, options = {}) {
       ? payload.unnormalized_address
       : null,
   );
-  const effectiveUnnormalized =
-    normalizedUnnormalized || fallbackUnnormalized || null;
-  const preferStructured =
-    options && typeof options.preferStructured === "boolean"
-      ? options.preferStructured
-      : false;
+  const hasExplicitUnnormalized = Boolean(normalizedUnnormalized);
+  const fallbackOnly =
+    !hasExplicitUnnormalized && fallbackUnnormalized != null;
 
   const metadata = {};
   if (Object.prototype.hasOwnProperty.call(payload, "request_identifier")) {
@@ -6132,14 +6187,14 @@ function buildFinalAddressOutput(payload, options = {}) {
     return value != null;
   });
 
-  if (effectiveUnnormalized && (!preferStructured || !hasStructured)) {
-    return {
-      ...metadata,
-      unnormalized_address: effectiveUnnormalized,
-    };
-  }
+  let candidate = null;
 
-  if (hasStructured) {
+  if (hasExplicitUnnormalized) {
+    candidate = {
+      ...metadata,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  } else if (hasStructured) {
     const structured = {};
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
@@ -6159,34 +6214,38 @@ function buildFinalAddressOutput(payload, options = {}) {
       }
     }
 
+    let structuredValid = true;
     for (const requiredKey of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
       const value = structured[requiredKey];
       if (typeof value !== "string" || !value.trim()) {
-        if (effectiveUnnormalized) {
-          return {
-            ...metadata,
-            unnormalized_address: effectiveUnnormalized,
-          };
-        }
-        return null;
+        structuredValid = false;
+        break;
       }
       structured[requiredKey] = value.trim();
     }
 
-    return {
+    if (structuredValid) {
+      candidate = {
+        ...metadata,
+        ...structured,
+      };
+    } else if (fallbackOnly) {
+      candidate = {
+        ...metadata,
+        unnormalized_address: fallbackUnnormalized,
+      };
+    }
+  }
+
+  if (!candidate && fallbackOnly) {
+    candidate = {
       ...metadata,
-      ...structured,
+      unnormalized_address: fallbackUnnormalized,
     };
   }
 
-  if (effectiveUnnormalized) {
-    return {
-      ...metadata,
-      unnormalized_address: effectiveUnnormalized,
-    };
-  }
-
-  return null;
+  if (!candidate) return null;
+  return enforcePreferredAddressMode(candidate);
 }
 
 function enforceAddressOutputForSchema(
