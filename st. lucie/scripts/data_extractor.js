@@ -5242,24 +5242,33 @@ async function enforceAddressPreferredOneOfFiles() {
       continue;
     }
 
-    const exclusive =
-      ensureExclusiveAddressMode(preferred, "structured") ||
-      ensureExclusiveAddressMode(preferred) ||
-      preferred;
-    if (!exclusive || !isAddressOneOfCompliant(exclusive)) {
-      const fallback =
-        ensureExclusiveAddressMode(preferred, "unnormalized") ||
-        ensureExclusiveAddressMode(preferred) ||
-        null;
-      if (!fallback || !isAddressOneOfCompliant(fallback)) {
-        await fsp.unlink(filePath).catch(() => {});
+    const attemptCandidates = [
+      ensureExclusiveAddressMode(preferred, "structured"),
+      ensureExclusiveAddressMode(preferred, "unnormalized"),
+      finalizeAddressRecordForSchema(preferred, "structured"),
+      finalizeAddressRecordForSchema(preferred, "unnormalized"),
+      finalizeAddressRecordForSchema(preferred),
+      enforceAddressOneOfCompliance(preferred),
+    ];
+
+    let sanitized = null;
+    for (const attempt of attemptCandidates) {
+      if (!attempt || typeof attempt !== "object") continue;
+      const exclusiveCandidate =
+        ensureExclusiveAddressMode(attempt) || attempt;
+      if (!exclusiveCandidate || !isAddressOneOfCompliant(exclusiveCandidate)) {
         continue;
       }
-      await fsp.writeFile(filePath, JSON.stringify(fallback, null, 2));
+      sanitized = exclusiveCandidate;
+      break;
+    }
+
+    if (!sanitized) {
+      await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    await fsp.writeFile(filePath, JSON.stringify(exclusive, null, 2));
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
   }
 }
 
