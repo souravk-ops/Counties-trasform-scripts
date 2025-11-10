@@ -8302,6 +8302,7 @@ async function main() {
     const trimmedCandidate = selectedUnnormalized.trim();
     selectedUnnormalized = trimmedCandidate ? trimmedCandidate : null;
   }
+  const hasSourceUnnormalized = Boolean(selectedUnnormalized);
 
   if (!selectedUnnormalized && primaryStructuredCandidate) {
     const fallbackFromStructured = normalizeUnnormalizedAddressValue(
@@ -8355,17 +8356,17 @@ async function main() {
   let preferredAddressMode = null;
   let addressPayload = null;
 
-  if (hasStructuredForOutput) {
-    preferredAddressMode = "structured";
-    addressPayload = {
-      ...baseAddressPayload,
-      ...structuredForOutput,
-    };
-  } else if (normalizedSelectedUnnormalized) {
+  if (hasSourceUnnormalized && normalizedSelectedUnnormalized) {
     preferredAddressMode = "unnormalized";
     addressPayload = {
       ...baseAddressPayload,
       unnormalized_address: normalizedSelectedUnnormalized,
+    };
+  } else if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
+    addressPayload = {
+      ...baseAddressPayload,
+      ...structuredForOutput,
     };
   } else if (fallbackFromStructured) {
     preferredAddressMode = "unnormalized";
@@ -9269,12 +9270,21 @@ async function main() {
               normalizedMailingForWrite &&
               typeof normalizedMailingForWrite === "object"
             ) {
-              preferMailingStructuredForWrite =
+              const hasStructuredForWrite =
                 STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
                   const value = normalizedMailingForWrite[key];
                   if (typeof value !== "string") return false;
                   return value.trim().length > 0;
                 });
+              const hasUnnormalizedForWrite =
+                typeof normalizedMailingForWrite.unnormalized_address ===
+                  "string" &&
+                normalizedMailingForWrite.unnormalized_address.trim().length >
+                  0;
+
+              preferMailingStructuredForWrite =
+                hasStructuredForWrite && !hasUnnormalizedForWrite;
+
               const exclusiveMailingForWrite = enforceSingleAddressModeForWrite(
                 normalizedMailingForWrite,
                 preferMailingStructuredForWrite,
