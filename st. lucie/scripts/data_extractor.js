@@ -4311,141 +4311,126 @@ async function enforceAddressFilesForSchemaCompliance() {
   for (const fileName of entries) {
     if (!/address\.json$/i.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
 
-    let raw;
+    const filePath = path.join("data", fileName);
+    let rawPayload;
     try {
-      raw = await fsp.readFile(filePath, "utf8");
+      rawPayload = await fsp.readFile(filePath, "utf8");
     } catch {
       continue;
     }
 
     let parsed;
     try {
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(rawPayload);
     } catch {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
+    if (!parsed || typeof parsed !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
     const normalized = buildAddressOneOfPayload(parsed);
-    if (!normalized) {
+    if (!normalized || typeof normalized !== "object") {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const preferMode =
-      typeof normalized.unnormalized_address === "string" &&
-      normalized.unnormalized_address.trim().length > 0
-        ? "unnormalized"
-        : "structured";
-
-    const harmonized =
-      enforceAddressOneOfForWrite({ ...normalized }, preferMode) ||
-      ensureExclusiveAddressMode(normalized) ||
-      coerceAddressToSingleMode(normalized);
-
-    if (!harmonized || typeof harmonized !== "object") {
-      await fsp.unlink(filePath).catch(() => {});
-      continue;
-    }
-
-    const output = {};
-
+    const metadata = {};
     if (
-      Object.prototype.hasOwnProperty.call(harmonized, "request_identifier") &&
-      harmonized.request_identifier != null
+      Object.prototype.hasOwnProperty.call(normalized, "request_identifier") &&
+      normalized.request_identifier != null
     ) {
-      output.request_identifier =
-        typeof harmonized.request_identifier === "string"
-          ? harmonized.request_identifier.trim() || null
-          : harmonized.request_identifier;
-      if (!output.request_identifier) delete output.request_identifier;
+      if (typeof normalized.request_identifier === "string") {
+        const trimmed = normalized.request_identifier.trim();
+        if (trimmed) metadata.request_identifier = trimmed;
+      } else {
+        metadata.request_identifier = normalized.request_identifier;
+      }
     }
 
     for (const key of ADDRESS_METADATA_KEYS) {
-      if (!Object.prototype.hasOwnProperty.call(harmonized, key)) continue;
-      const value = harmonized[key];
+      if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
+      const value = normalized[key];
       if (value == null) continue;
       if (typeof value === "string") {
         const cleaned = textClean(value);
-        if (!cleaned) continue;
-        output[key] = cleaned;
+        if (cleaned) metadata[key] = cleaned;
       } else {
-        output[key] = value;
+        metadata[key] = value;
       }
     }
 
-    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
-      if (!Object.prototype.hasOwnProperty.call(harmonized, key)) return false;
-      const value = harmonized[key];
-      if (typeof value !== "string") return false;
-      const trimmed = value.trim();
-      return trimmed.length > 0;
-    });
-
     const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-      Object.prototype.hasOwnProperty.call(harmonized, "unnormalized_address")
-        ? harmonized.unnormalized_address
+      Object.prototype.hasOwnProperty.call(normalized, "unnormalized_address")
+        ? normalized.unnormalized_address
         : null,
     );
 
-    if (hasStructured) {
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (!Object.prototype.hasOwnProperty.call(harmonized, key)) continue;
-        const rawValue = harmonized[key];
-        if (rawValue == null) continue;
-        if (typeof rawValue === "string") {
-          let cleaned = rawValue.trim();
-          if (!cleaned) continue;
-          if (key === "city_name" || key === "state_code") {
-            cleaned = cleaned.toUpperCase();
-          } else if (
-            key === "postal_code" ||
-            key === "plus_four_postal_code"
-          ) {
-            cleaned = cleaned.replace(/\s+/g, "");
-          }
-          output[key] = cleaned;
-        } else {
-          output[key] = rawValue;
-        }
-      }
-    } else if (normalizedUnnormalized) {
-      output.unnormalized_address = normalizedUnnormalized;
-    } else {
-      const fallback = buildFallbackUnnormalizedAddress(harmonized);
-      const normalizedFallback = normalizeUnnormalizedAddressValue(fallback);
-      if (normalizedFallback) {
-        output.unnormalized_address = normalizedFallback;
-      }
+    if (normalizedUnnormalized) {
+      const output = {
+        ...metadata,
+        unnormalized_address: normalizedUnnormalized,
+      };
+      await fsp.writeFile(filePath, JSON.stringify(output, null, 2));
+      continue;
     }
 
-    const hasUnnormalized =
-      typeof output.unnormalized_address === "string" &&
-      output.unnormalized_address.trim().length > 0;
-    const finalHasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-      (key) =>
-        Object.prototype.hasOwnProperty.call(output, key) &&
-        typeof output[key] === "string" &&
-        output[key].trim().length > 0,
+    const structured = {};
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
+      const rawValue = normalized[key];
+      if (rawValue == null) continue;
+
+      let cleaned = null;
+      switch (key) {
+        case "street_pre_directional_text":
+        case "street_post_directional_text":
+          cleaned = normalizeStreetDirectional(rawValue);
+          break;
+        case "street_suffix_type":
+          cleaned = normalizeStreetSuffix(rawValue);
+          break;
+        case "city_name":
+          cleaned = normalizeCityName(rawValue);
+          break;
+        case "state_code": {
+          const trimmed = textClean(String(rawValue)).toUpperCase();
+          cleaned = trimmed.length === 2 ? trimmed : null;
+          break;
+        }
+        case "postal_code":
+          cleaned = sanitizePostalCode(rawValue);
+          break;
+        case "plus_four_postal_code":
+          cleaned = sanitizePlusFour(rawValue);
+          break;
+        default:
+          cleaned = textClean(String(rawValue));
+      }
+
+      if (cleaned) structured[key] = cleaned;
+    }
+
+    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) =>
+      Object.prototype.hasOwnProperty.call(structured, key),
     );
 
-    if (!hasUnnormalized && !finalHasStructured) {
+    if (!hasStructured) {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    if (hasUnnormalized) {
-      stripStructuredAddressFields(output);
-    } else {
-      delete output.unnormalized_address;
+    const output = { ...metadata };
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(structured, key)) continue;
+      output[key] = structured[key];
     }
 
-    await fsp.writeFile(
-      filePath,
-      JSON.stringify(output, null, 2),
-    );
+    await fsp.writeFile(filePath, JSON.stringify(output, null, 2));
   }
 }
 
