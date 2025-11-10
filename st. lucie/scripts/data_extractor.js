@@ -7262,6 +7262,52 @@ const PERSON_NAME_PATTERN =
   /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
 const PERSON_MIDDLE_NAME_PATTERN =
   /^[A-Z][a-zA-Z\s\-',.]*$/;
+const PERSON_NAME_DESIGNATION_TOKENS = new Set([
+  "TR",
+  "TRS",
+  "TRUST",
+  "TRUSTEE",
+  "TRUSTEES",
+  "TTEE",
+  "TTEES",
+  "TSTEE",
+  "TSTEES",
+  "TRSTEE",
+  "TRSTEES",
+  "COTRUSTEE",
+  "CO-TRUSTEE",
+  "JTWROS",
+  "JTROS",
+  "ETAL",
+]);
+
+function stripNameDesignations(input) {
+  if (!input || typeof input !== "string") return "";
+  const tokens = input.split(/\s+/).filter(Boolean);
+  const filteredTokens = [];
+
+  for (const token of tokens) {
+    const hyphenParts = token.split("-");
+    const filteredParts = [];
+
+    for (const part of hyphenParts) {
+      const normalized = part.replace(/[^A-Za-z]/g, "");
+      if (!normalized) continue;
+      const hasLower = /[a-z]/.test(part);
+      const upper = normalized.toUpperCase();
+      if (!hasLower && PERSON_NAME_DESIGNATION_TOKENS.has(upper)) {
+        continue;
+      }
+      filteredParts.push(part);
+    }
+
+    if (filteredParts.length > 0) {
+      filteredTokens.push(filteredParts.join("-"));
+    }
+  }
+
+  return filteredTokens.join(" ");
+}
 
 function normalizeNameToPattern(value, pattern) {
   if (!value) return null;
@@ -7270,7 +7316,14 @@ function normalizeNameToPattern(value, pattern) {
   if (cleaned.normalize) {
     cleaned = cleaned.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }
+  cleaned = cleaned.replace(/[()]/g, " ");
+  cleaned = cleaned.replace(/\bET\.?[\s-]*AL\.?\b/gi, " ");
   cleaned = cleaned
+    .replace(/[^A-Za-z \-',.]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  cleaned = stripNameDesignations(cleaned)
     .replace(/[^A-Za-z \-',.]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
