@@ -8547,8 +8547,14 @@ async function main() {
       )
     : null;
 
-  const normalizedSelectedUnnormalized =
+  const fallbackUnnormalizedCandidate =
     normalizedSourceUnnormalized ?? fallbackFromStructured ?? null;
+
+  const shouldPreferStructured = Boolean(hasStructuredForOutput);
+
+  const normalizedSelectedUnnormalized = shouldPreferStructured
+    ? null
+    : fallbackUnnormalizedCandidate;
 
   const addressCandidateForFinal = {
     ...baseAddressPayload,
@@ -8559,8 +8565,7 @@ async function main() {
       normalizedSelectedUnnormalized;
   }
 
-  const preferStructuredForFinal =
-    Boolean(hasStructuredForOutput) && !normalizedSelectedUnnormalized;
+  const preferStructuredForFinal = shouldPreferStructured;
   const finalAddressForWrite = buildFinalAddressRecord(
     addressCandidateForFinal,
     preferStructuredForFinal,
@@ -8572,11 +8577,9 @@ async function main() {
       JSON.stringify(finalAddressForWrite, null, 2),
     );
 
-    const preferredModeForFinalize = normalizedSelectedUnnormalized
-      ? "unnormalized"
-      : hasStructuredForOutput
-        ? "structured"
-        : "unnormalized";
+    const preferredModeForFinalize = shouldPreferStructured
+      ? "structured"
+      : "unnormalized";
     const finalizedAddress =
       (await finalizeAddressFileForOneOf(
         addressFileName,
@@ -8600,6 +8603,40 @@ async function main() {
     } else {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
+
+      if (shouldPreferStructured && fallbackUnnormalizedCandidate) {
+        const fallbackPayload = {
+          ...baseAddressPayload,
+          unnormalized_address: fallbackUnnormalizedCandidate,
+        };
+        const fallbackFinal = buildFinalAddressRecord(
+          fallbackPayload,
+          false,
+        );
+        if (fallbackFinal && isAddressOneOfCompliant(fallbackFinal)) {
+          await fsp.writeFile(
+            addressFilePath,
+            JSON.stringify(fallbackFinal, null, 2),
+          );
+          const finalizedFallback =
+            (await finalizeAddressFileForOneOf(
+              addressFileName,
+              "unnormalized",
+            )) || fallbackFinal;
+          if (
+            finalizedFallback &&
+            isAddressOneOfCompliant(finalizedFallback)
+          ) {
+            await fsp.writeFile(
+              addressFilePath,
+              JSON.stringify(finalizedFallback, null, 2),
+            );
+            addressFileRef = `./${addressFileName}`;
+          } else {
+            await fsp.unlink(addressFilePath).catch(() => {});
+          }
+        }
+      }
     }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
