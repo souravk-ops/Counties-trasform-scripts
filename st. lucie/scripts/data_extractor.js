@@ -8792,17 +8792,23 @@ async function main() {
   const fallbackUnnormalizedCandidate =
     normalizedSourceUnnormalized ?? fallbackFromStructured ?? null;
 
-  const shouldPreferStructured = Boolean(hasStructuredForOutput);
+  const normalizedSelectedUnnormalized =
+    fallbackUnnormalizedCandidate != null
+      ? normalizeUnnormalizedAddressValue(fallbackUnnormalizedCandidate)
+      : null;
 
-  const normalizedSelectedUnnormalized = shouldPreferStructured
-    ? null
-    : fallbackUnnormalizedCandidate;
+  const hasUnnormalizedCandidate =
+    typeof normalizedSelectedUnnormalized === "string" &&
+    normalizedSelectedUnnormalized.length > 0;
+
+  const shouldPreferStructured =
+    Boolean(hasStructuredForOutput) && !hasUnnormalizedCandidate;
 
   const addressCandidateForFinal = {
     ...baseAddressPayload,
     ...(structuredForOutput || {}),
   };
-  if (normalizedSelectedUnnormalized) {
+  if (hasUnnormalizedCandidate) {
     addressCandidateForFinal.unnormalized_address =
       normalizedSelectedUnnormalized;
   }
@@ -9598,7 +9604,7 @@ async function main() {
           if (mailingAddressText) {
             mailingUnnormalizedCandidates.push(mailingAddressText);
           }
-          const preferMailingStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+          const hasMailingStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
             (key) => {
               const value =
                 mailingCandidate && Object.prototype.hasOwnProperty.call(mailingCandidate, key)
@@ -9608,9 +9614,23 @@ async function main() {
             },
           );
 
+          const normalizedMailingUnnormalizedCandidates = mailingUnnormalizedCandidates
+            .map((candidate) => normalizeUnnormalizedAddressValue(candidate))
+            .filter(
+              (candidate) =>
+                typeof candidate === "string" && candidate.trim().length > 0,
+            );
+
+          const preferMailingStructured =
+            hasMailingStructured &&
+            normalizedMailingUnnormalizedCandidates.length === 0;
+
           fallbackMailingUnnormalized = preferMailingStructured
             ? null
-            : mailingFallbackUnnormalized ?? mailingAddressText;
+            : normalizedMailingUnnormalizedCandidates[0] ??
+              normalizeUnnormalizedAddressValue(mailingFallbackUnnormalized) ??
+              normalizeUnnormalizedAddressValue(mailingAddressText) ??
+              null;
 
           finalMailingAddress = buildPreferredSchemaAddressPayload({
             candidate: mailingCandidate,
