@@ -7958,6 +7958,10 @@ async function main() {
     : null;
   let selectedUnnormalized =
     normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
+  if (typeof selectedUnnormalized === "string") {
+    const trimmedCandidate = selectedUnnormalized.trim();
+    selectedUnnormalized = trimmedCandidate ? trimmedCandidate : null;
+  }
 
   if (!selectedUnnormalized && primaryStructuredCandidate) {
     const fallbackFromStructured = normalizeUnnormalizedAddressValue(
@@ -7986,8 +7990,15 @@ async function main() {
     baseAddressPayload.request_identifier = normalizedRequestIdentifier;
   }
 
-  const preferStructuredForOutput = Boolean(selectedStructured);
-  const fallbackUnnormalizedForOutput = selectedUnnormalized ?? null;
+  const hasStructuredCandidate = Boolean(selectedStructured);
+  const hasUnnormalizedCandidate =
+    typeof selectedUnnormalized === "string" && selectedUnnormalized.length > 0;
+
+  const preferStructuredForOutput =
+    hasStructuredCandidate && !hasUnnormalizedCandidate;
+  const fallbackUnnormalizedForOutput = hasUnnormalizedCandidate
+    ? selectedUnnormalized
+    : null;
   let finalizedAddressRecord = null;
 
   const buildUnnormalizedRecord = (value) => {
@@ -8248,14 +8259,6 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
-
-    if (propertyOut && addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
-    }
 
     // Lot data
     const lotOut = {
