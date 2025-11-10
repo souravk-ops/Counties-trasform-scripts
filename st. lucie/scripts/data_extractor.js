@@ -4953,6 +4953,19 @@ function sanitizeAddressRecordForSchemaOutput(record) {
     return structuredOutput;
   }
 
+  const fallbackStructured =
+    buildFallbackUnnormalizedAddress(structured) ||
+    buildFallbackUnnormalizedAddress(record);
+  const normalizedFallback =
+    normalizeUnnormalizedAddressValue(fallbackStructured);
+
+  if (normalizedFallback) {
+    return {
+      ...result,
+      unnormalized_address: normalizedFallback,
+    };
+  }
+
   return null;
 }
 
@@ -8259,6 +8272,17 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+
+    if (addressFileRef) {
+      try {
+        await fsp.access(path.join("data", addressFileName));
+        await writeRelationshipFile(
+          "relationship_property_has_address.json",
+          propertyRef,
+          addressFileRef,
+        );
+      } catch {}
+    }
 
     // Lot data
     const lotOut = {
