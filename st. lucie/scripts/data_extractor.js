@@ -4657,118 +4657,67 @@ async function enforceAddressFilesForSchemaCompliance() {
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
-    let payload;
-
+    let parsed;
     try {
-      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+      parsed = JSON.parse(await fsp.readFile(filePath, "utf8"));
     } catch {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    if (!payload || typeof payload !== "object") {
+    if (!parsed || typeof parsed !== "object") {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const sanitized =
-      sanitizeAddressRecordForSchemaOutput(payload) ||
-      buildStrictAddressPayload(payload);
+    const candidates = [
+      finalizeAddressRecordForSchema(parsed),
+      finalizeAddressRecordForSchema(parsed, "unnormalized"),
+      finalizeAddressRecordForSchema(parsed, "structured"),
+    ].filter((candidate) => candidate && typeof candidate === "object");
 
-    if (!sanitized || typeof sanitized !== "object") {
+    let chosen = null;
+    for (const candidate of candidates) {
+      const exclusive = ensureExclusiveAddressMode(candidate) || candidate;
+      if (exclusive && isAddressOneOfCompliant(exclusive)) {
+        chosen = exclusive;
+        break;
+      }
+    }
+
+    if (!chosen) {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const normalized =
-      enforcePreferredAddressMode(sanitized) ||
-      sanitizeAddressForSchema(sanitized, "unnormalized") ||
-      sanitizeAddressForSchema(sanitized, "structured");
-
-    if (!normalized || typeof normalized !== "object") {
-      await fsp.unlink(filePath).catch(() => {});
-      continue;
-    }
-
-    const requestIdentifier = coerceRequestIdentifier(
-      Object.prototype.hasOwnProperty.call(normalized, "request_identifier")
-        ? normalized.request_identifier
-        : null,
-    );
-
-    if (requestIdentifier != null) {
-      normalized.request_identifier = requestIdentifier;
-    } else {
-      delete normalized.request_identifier;
-    }
-
-    if (hasUnnormalizedAddressValue(normalized)) {
-      const normalizedValue = normalizeUnnormalizedAddressValue(
-        normalized.unnormalized_address,
+    if (hasUnnormalizedAddressValue(chosen)) {
+      stripStructuredAddressFields(chosen);
+      chosen.unnormalized_address = normalizeUnnormalizedAddressValue(
+        chosen.unnormalized_address,
       );
-      if (!normalizedValue) {
+      if (!chosen.unnormalized_address) {
         await fsp.unlink(filePath).catch(() => {});
         continue;
       }
-
-      stripStructuredAddressFields(normalized);
-      normalized.unnormalized_address = normalizedValue;
     } else {
-      const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
-        const value = normalized[key];
-        if (typeof value === "string") {
-          return value.trim().length > 0;
-        }
-        return value != null;
-      });
-
-      if (!hasStructured) {
+      removeUnnormalizedAddress(chosen);
+      const structured = sanitizeStructuredAddressCandidate(chosen);
+      if (!structured) {
         await fsp.unlink(filePath).catch(() => {});
         continue;
       }
-
-      removeUnnormalizedAddress(normalized);
-
-      for (const key of STRUCTURED_ADDRESS_FIELDS) {
-        if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
-        const value = normalized[key];
-        if (value == null) {
-          delete normalized[key];
-          continue;
-        }
-        if (typeof value === "string") {
-          let cleaned = textClean(value);
-          if (!cleaned) {
-            delete normalized[key];
-            continue;
-          }
-          if (key === "city_name" || key === "state_code") {
-            cleaned = cleaned.toUpperCase();
-          } else if (
-            key === "postal_code" ||
-            key === "plus_four_postal_code"
-          ) {
-            cleaned = cleaned.replace(/\s+/g, "");
-          } else if (
-            key === "street_pre_directional_text" ||
-            key === "street_post_directional_text"
-          ) {
-            cleaned = normalizeStreetDirectional(cleaned) || null;
-          } else if (key === "street_suffix_type") {
-            cleaned = normalizeStreetSuffix(cleaned) || null;
-          }
-
-          if (cleaned == null) {
-            delete normalized[key];
-            continue;
-          }
-
-          normalized[key] = cleaned;
-        }
+      stripStructuredAddressFields(chosen);
+      for (const [key, value] of Object.entries(structured)) {
+        chosen[key] = value;
       }
     }
 
-    await fsp.writeFile(filePath, JSON.stringify(normalized, null, 2));
+    if (!isAddressOneOfCompliant(chosen)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(chosen, null, 2));
   }
 }
 
@@ -4864,99 +4813,25 @@ async function finalizeAddressFileForOneOf(
     return null;
   }
 
-  const preferStructured = typeof preferMode === "string" &&
-    preferMode.toLowerCase() === "structured";
+  const normalizedPreference =
+    preferMode === "structured" || preferMode === "unnormalized"
+      ? preferMode
+      : null;
 
-  const exclusiveCandidate =
-    ensureExclusiveAddressMode(parsed, preferMode) ||
-    coerceAddressToSingleMode(parsed);
+  const finalized =
+    finalizeAddressRecordForSchema(parsed, normalizedPreference) ||
+    finalizeAddressRecordForSchema(
+      parsed,
+      normalizedPreference === "structured" ? "unnormalized" : "structured",
+    );
 
-  if (!exclusiveCandidate || typeof exclusiveCandidate !== "object") {
+  if (!finalized) {
     await fsp.unlink(filePath).catch(() => {});
     return null;
   }
 
-  const flattened =
-    buildAddressOneOfPayload(exclusiveCandidate) ||
-    buildAddressOneOfPayload(parsed);
-  if (!flattened || typeof flattened !== "object") {
-    await fsp.unlink(filePath).catch(() => {});
-    return null;
-  }
-
-  const exclusive =
-    ensureExclusiveAddressMode(flattened, preferMode) ||
-    coerceAddressToSingleMode(flattened);
-  if (!exclusive || typeof exclusive !== "object") {
-    await fsp.unlink(filePath).catch(() => {});
-    return null;
-  }
-
-  const metadata = collectAddressMetadata([exclusive, flattened]);
-  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-    exclusive.unnormalized_address,
-  );
-  const structuredCandidate = sanitizeStructuredAddressCandidate(exclusive);
-  const hasStructured = Boolean(
-    structuredCandidate &&
-      STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
-        const value = structuredCandidate[key];
-        return typeof value === "string" && value.trim().length > 0;
-      }),
-  );
-
-  let finalPayload = { ...metadata };
-  const requestIdentifier = resolveAddressRequestIdentifier(
-    exclusive.request_identifier,
-    flattened.request_identifier,
-  );
-  if (requestIdentifier) {
-    finalPayload.request_identifier = requestIdentifier;
-  }
-
-  if (normalizedUnnormalized && (!preferStructured || !hasStructured)) {
-    finalPayload.unnormalized_address = normalizedUnnormalized;
-    stripStructuredAddressFields(finalPayload);
-  } else if (hasStructured) {
-    delete finalPayload.unnormalized_address;
-    for (const [key, value] of Object.entries(structuredCandidate)) {
-      finalPayload[key] = value;
-    }
-  } else {
-    const fallback = buildFallbackUnnormalizedAddress(exclusive);
-    const normalizedFallback = normalizeUnnormalizedAddressValue(fallback);
-    if (!normalizedFallback) {
-      await fsp.unlink(filePath).catch(() => {});
-      return null;
-    }
-    finalPayload.unnormalized_address = normalizedFallback;
-    stripStructuredAddressFields(finalPayload);
-  }
-
-  const finalHasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
-    const value = finalPayload[key];
-    return typeof value === "string" && value.trim().length > 0;
-  });
-  const finalHasUnnormalized =
-    typeof finalPayload.unnormalized_address === "string" &&
-    finalPayload.unnormalized_address.trim().length > 0;
-
-  if (!finalHasStructured && !finalHasUnnormalized) {
-    await fsp.unlink(filePath).catch(() => {});
-    return null;
-  }
-
-  if (finalHasUnnormalized) {
-    stripStructuredAddressFields(finalPayload);
-  } else {
-    delete finalPayload.unnormalized_address;
-  }
-
-  await fsp.writeFile(
-    filePath,
-    JSON.stringify(finalPayload, null, 2),
-  );
-  return finalPayload;
+  await fsp.writeFile(filePath, JSON.stringify(finalized, null, 2));
+  return finalized;
 }
 
 async function normalizePersonFileForSchema(fileName) {
@@ -5576,6 +5451,64 @@ function buildStrictAddressPayload(address) {
       payload.request_identifier = requestIdentifier;
     }
     return payload;
+  }
+
+  return null;
+}
+
+function finalizeAddressRecordForSchema(payload, preferMode = null) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const strictPayload = buildStrictAddressPayload(payload);
+  if (!strictPayload) return null;
+
+  const prefer =
+    preferMode === "structured"
+      ? "structured"
+      : preferMode === "unnormalized"
+        ? "unnormalized"
+        : hasUnnormalizedAddressValue(strictPayload)
+          ? "unnormalized"
+          : "structured";
+
+  const attempts = [
+    strictPayload,
+    ensureExclusiveAddressMode(strictPayload, prefer),
+    enforceAddressOneOfCompliance(strictPayload),
+    enforceAddressOneOfForWrite(strictPayload, prefer),
+  ];
+
+  for (const attempt of attempts) {
+    if (!attempt || typeof attempt !== "object") continue;
+    const working = deepClone(attempt);
+    if (!working || typeof working !== "object") continue;
+
+    if (hasUnnormalizedAddressValue(working)) {
+      stripStructuredAddressFields(working);
+      const normalized = normalizeUnnormalizedAddressValue(
+        working.unnormalized_address,
+      );
+      if (!normalized) continue;
+      working.unnormalized_address = normalized;
+    } else {
+      removeUnnormalizedAddress(working);
+      const sanitizedStructured = sanitizeStructuredAddressCandidate(working);
+      if (!sanitizedStructured) continue;
+
+      stripStructuredAddressFields(working);
+      for (const [key, value] of Object.entries(sanitizedStructured)) {
+        working[key] = value;
+      }
+
+      const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+        const value = working[key];
+        return typeof value === "string" && value.trim().length > 0;
+      });
+      if (!hasStructured) continue;
+    }
+
+    if (!isAddressOneOfCompliant(working)) continue;
+    return working;
   }
 
   return null;
