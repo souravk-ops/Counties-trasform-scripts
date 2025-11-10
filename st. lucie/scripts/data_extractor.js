@@ -8288,17 +8288,6 @@ async function main() {
     ? normalizeUnnormalizedAddressValue(primaryUnnormalizedCandidate)
     : null;
 
-  const structuredHasRequired =
-    sanitizedStructuredCandidate &&
-    STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
-      (key) =>
-        typeof sanitizedStructuredCandidate[key] === "string" &&
-        sanitizedStructuredCandidate[key].trim().length > 0,
-    );
-
-  let selectedStructured = structuredHasRequired
-    ? sanitizedStructuredCandidate
-    : null;
   let selectedUnnormalized =
     normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
   if (typeof selectedUnnormalized === "string") {
@@ -8333,252 +8322,86 @@ async function main() {
     baseAddressPayload.request_identifier = normalizedRequestIdentifier;
   }
 
-  const hasStructuredCandidate = Boolean(selectedStructured);
-  const hasUnnormalizedCandidate =
-    typeof selectedUnnormalized === "string" && selectedUnnormalized.length > 0;
-
-  const preferStructuredForOutput =
-    hasStructuredCandidate && !hasUnnormalizedCandidate;
-  const fallbackUnnormalizedForOutput = hasUnnormalizedCandidate
-    ? selectedUnnormalized
+  const structuredForOutput = sanitizedStructuredCandidate
+    ? pickStructuredAddress(sanitizedStructuredCandidate)
     : null;
-  let finalizedAddressRecord = null;
 
-  const buildUnnormalizedRecord = (value) => {
-    const normalized = normalizeUnnormalizedAddressValue(value);
-    if (!normalized) return null;
-    return {
+  const hasStructuredForOutput =
+    structuredForOutput &&
+    STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) =>
+        typeof structuredForOutput[key] === "string" &&
+        structuredForOutput[key].trim().length > 0,
+    );
+
+  const normalizedSelectedUnnormalized = normalizeUnnormalizedAddressValue(
+    selectedUnnormalized,
+  );
+
+  const fallbackFromStructured = sanitizedStructuredCandidate
+    ? normalizeUnnormalizedAddressValue(
+        buildFallbackUnnormalizedAddress(sanitizedStructuredCandidate),
+      )
+    : null;
+
+  let preferredAddressMode = null;
+  let addressPayload = null;
+
+  if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
+    addressPayload = {
       ...baseAddressPayload,
-      unnormalized_address: normalized,
+      ...structuredForOutput,
     };
-  };
-
-  if (selectedUnnormalized && !preferStructuredForOutput) {
-    finalizedAddressRecord = buildUnnormalizedRecord(selectedUnnormalized);
+  } else if (normalizedSelectedUnnormalized) {
+    preferredAddressMode = "unnormalized";
+    addressPayload = {
+      ...baseAddressPayload,
+      unnormalized_address: normalizedSelectedUnnormalized,
+    };
+  } else if (fallbackFromStructured) {
+    preferredAddressMode = "unnormalized";
+    addressPayload = {
+      ...baseAddressPayload,
+      unnormalized_address: fallbackFromStructured,
+    };
   }
 
-  if (!finalizedAddressRecord && selectedStructured) {
-    const structuredRecord = { ...baseAddressPayload };
-    for (const key of STRUCTURED_ADDRESS_FIELDS) {
-      if (Object.prototype.hasOwnProperty.call(selectedStructured, key)) {
-        structuredRecord[key] = selectedStructured[key];
-      }
-    }
-    finalizedAddressRecord = structuredRecord;
-  }
+  if (addressPayload) {
+    const strictPayload =
+      ensureAddressStrictOneOf(addressPayload, preferredAddressMode || "structured") ||
+      (preferredAddressMode === "structured" && normalizedSelectedUnnormalized
+        ? ensureAddressStrictOneOf(
+            {
+              ...baseAddressPayload,
+              unnormalized_address: normalizedSelectedUnnormalized,
+            },
+            "unnormalized",
+          )
+        : null) ||
+      (preferredAddressMode === "structured" && fallbackFromStructured
+        ? ensureAddressStrictOneOf(
+            {
+              ...baseAddressPayload,
+              unnormalized_address: fallbackFromStructured,
+            },
+            "unnormalized",
+          )
+        : null);
 
-  if (!finalizedAddressRecord && selectedUnnormalized) {
-    finalizedAddressRecord = buildUnnormalizedRecord(selectedUnnormalized);
-  }
-
-  if (!finalizedAddressRecord && primaryStructuredCandidate) {
-    const fallbackFromStructured = normalizeUnnormalizedAddressValue(
-      buildFallbackUnnormalizedAddress(primaryStructuredCandidate),
-    );
-    if (fallbackFromStructured) {
-      finalizedAddressRecord = {
-        ...baseAddressPayload,
-        unnormalized_address: fallbackFromStructured,
-      };
-    }
-  }
-
-  const normalizedAddressOutput = finalizedAddressRecord
-    ? buildFinalAddressOutput(finalizedAddressRecord, {
-        preferStructured: preferStructuredForOutput,
-        fallbackUnnormalized: fallbackUnnormalizedForOutput,
-      })
-    : null;
-
-  let finalAddressOutput = null;
-  if (normalizedAddressOutput) {
-    const preferMode = preferStructuredForOutput ? "structured" : "unnormalized";
-    const preparedAddress =
-      prepareAddressForWrite(
-        deepClone(normalizedAddressOutput),
-        {
-          preferMode,
-          fallbackUnnormalized: fallbackUnnormalizedForOutput,
-        },
-      ) || null;
-
-    const primaryCandidate =
-      preparedAddress ??
-      ensureExclusiveAddressMode(
-        deepClone(normalizedAddressOutput),
-        preferMode,
-      ) ??
-      sanitizeAddressPayloadForOneOf(
-        deepClone(normalizedAddressOutput),
-      ) ??
-      deepClone(normalizedAddressOutput);
-
-    if (primaryCandidate && typeof primaryCandidate === "object") {
-      const exclusiveCandidate =
-        ensureExclusiveAddressMode(
-          deepClone(primaryCandidate),
-          preferMode,
-        ) ?? primaryCandidate;
-
-      const sanitizedCandidate =
-        sanitizeAddressPayloadForOneOf(
-          deepClone(exclusiveCandidate),
-        ) ?? exclusiveCandidate;
-
-      const exclusiveSanitized =
-        ensureExclusiveAddressMode(
-          deepClone(sanitizedCandidate),
-          preferMode,
-        ) ?? sanitizedCandidate;
-
-      finalAddressOutput = exclusiveSanitized;
-    }
-  }
-
-  if (finalAddressOutput) {
-    const normalizedUnnormalizedForWrite = normalizeUnnormalizedAddressValue(
-      Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")
-        ? finalAddressOutput.unnormalized_address
-        : null,
-    );
-
-    if (
-      typeof normalizedUnnormalizedForWrite === "string" &&
-      normalizedUnnormalizedForWrite.length > 0
-    ) {
-      finalAddressOutput.unnormalized_address = normalizedUnnormalizedForWrite;
-      for (const field of STRUCTURED_ADDRESS_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(finalAddressOutput, field)) {
-          delete finalAddressOutput[field];
-        }
-      }
-    } else {
-      if (
-        Object.prototype.hasOwnProperty.call(finalAddressOutput, "unnormalized_address")
-      ) {
-        delete finalAddressOutput.unnormalized_address;
-      }
-      for (const field of STRUCTURED_ADDRESS_FIELDS) {
-        if (!Object.prototype.hasOwnProperty.call(finalAddressOutput, field)) continue;
-        const rawValue = finalAddressOutput[field];
-        if (rawValue == null) {
-          delete finalAddressOutput[field];
-          continue;
-        }
-        if (typeof rawValue === "string") {
-          let cleaned = rawValue.trim();
-          if (!cleaned) {
-            delete finalAddressOutput[field];
-            continue;
-          }
-          if (field === "city_name" || field === "state_code") {
-            cleaned = cleaned.toUpperCase();
-          } else if (
-            field === "postal_code" ||
-            field === "plus_four_postal_code"
-          ) {
-            cleaned = cleaned.replace(/\s+/g, "");
-          }
-          finalAddressOutput[field] = cleaned;
-        }
-      }
-    }
-
-    await fsp.writeFile(
-      addressFilePath,
-      JSON.stringify(finalAddressOutput, null, 2),
-    );
-
-    const enforcedAddress = await enforceFinalAddressSchema(
-      addressFileName,
-      {
-        preferStructured: Boolean(preferStructuredForOutput),
-        fallbackUnnormalized: fallbackUnnormalizedForOutput,
-      },
-    );
-
-    if (enforcedAddress) {
-      const finalPreferMode = preferStructuredForOutput ? "structured" : "unnormalized";
-      let sanitizedFinal =
-        sanitizeAddressForSchema(enforcedAddress, finalPreferMode) ??
-        ensureExclusiveAddressPayloadForWrite(enforcedAddress, finalPreferMode) ??
-        ensureExclusiveAddressMode(enforcedAddress, finalPreferMode) ??
-        coerceAddressToSingleMode(
-          enforcedAddress,
-          fallbackUnnormalizedForOutput,
-        );
-
-      if (!sanitizedFinal) {
-        sanitizedFinal = coerceAddressToSchemaOneOf(
-          enforcedAddress,
-          finalPreferMode,
-        );
-      } else {
-        const strictlyEnforced = coerceAddressToSchemaOneOf(
-          sanitizedFinal,
-          finalPreferMode,
-        );
-        if (strictlyEnforced) {
-          sanitizedFinal = strictlyEnforced;
-        }
-      }
-
-      if (sanitizedFinal) {
-        const exclusiveFinal =
-          ensureExclusiveAddressMode(sanitizedFinal, finalPreferMode) ??
-          coerceAddressToSingleMode(
-            sanitizedFinal,
-            fallbackUnnormalizedForOutput,
-          );
-
-        if (exclusiveFinal && isAddressOneOfCompliant(exclusiveFinal)) {
-          const normalizedFinal =
-            sanitizeAddressForSchema(exclusiveFinal, finalPreferMode) ??
-            ensureExclusiveAddressPayloadForWrite(
-              exclusiveFinal,
-              finalPreferMode,
-            ) ??
-            exclusiveFinal;
-
-          sanitizedFinal = isAddressOneOfCompliant(normalizedFinal)
-            ? normalizedFinal
-            : null;
-        } else {
-          sanitizedFinal = null;
-        }
-      }
-
-      if (sanitizedFinal && isAddressOneOfCompliant(sanitizedFinal)) {
-        const strictForWrite = ensureAddressStrictOneOf(
-          sanitizedFinal,
-          finalPreferMode,
-        );
-        if (
-          strictForWrite &&
-          isAddressOneOfCompliant(strictForWrite)
-        ) {
-          sanitizedFinal = strictForWrite;
-        } else if (!strictForWrite) {
-          sanitizedFinal = null;
-        }
-      }
-
-      if (sanitizedFinal && isAddressOneOfCompliant(sanitizedFinal)) {
-        await fsp.writeFile(
-          addressFilePath,
-          JSON.stringify(sanitizedFinal, null, 2),
-        );
-        addressFileRef = `./${addressFileName}`;
-      } else {
-        await fsp.unlink(addressFilePath).catch(() => {});
-        addressFileRef = null;
-      }
+    if (strictPayload && isAddressOneOfCompliant(strictPayload)) {
+      await fsp.writeFile(
+        addressFilePath,
+        JSON.stringify(strictPayload, null, 2),
+      );
+      addressFileRef = `./${addressFileName}`;
     } else {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
     }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
+    addressFileRef = null;
   }
 
 
