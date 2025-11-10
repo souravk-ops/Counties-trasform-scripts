@@ -4596,26 +4596,40 @@ async function enforceAddressFilesForSchemaCompliance() {
     }
 
     const sanitized = sanitizeAddressRecordForSchemaOutput(parsed);
-    if (!sanitized) {
+    let strictPayload =
+      buildStrictAddressPayload(sanitized ?? parsed) ??
+      (sanitized ? buildStrictAddressPayload(parsed) : null);
+
+    if (!strictPayload) {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const exclusive = enforcePreferredAddressMode(sanitized);
-    if (!exclusive) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        strictPayload,
+        "unnormalized_address",
+      )
+    ) {
+      const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+        strictPayload.unnormalized_address,
+      );
+      if (!normalizedUnnormalized) {
+        await fsp.unlink(filePath).catch(() => {});
+        continue;
+      }
+      strictPayload.unnormalized_address = normalizedUnnormalized;
+      stripStructuredAddressFields(strictPayload);
+    } else {
+      removeUnnormalizedAddress(strictPayload);
+    }
+
+    if (!isAddressOneOfCompliant(strictPayload)) {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const strictExclusive =
-      ensureAddressStrictOneOf(exclusive) ??
-      ensureAddressStrictOneOf(exclusive, "structured");
-    if (!strictExclusive) {
-      await fsp.unlink(filePath).catch(() => {});
-      continue;
-    }
-
-    await fsp.writeFile(filePath, JSON.stringify(strictExclusive, null, 2));
+    await fsp.writeFile(filePath, JSON.stringify(strictPayload, null, 2));
   }
 }
 
@@ -5222,6 +5236,66 @@ function sanitizeAddressRecordForSchemaOutput(record) {
 
   if (!candidate) return null;
   return enforcePreferredAddressMode(candidate);
+}
+
+function buildStrictAddressPayload(address) {
+  if (!address || typeof address !== "object") return null;
+
+  const metadata = {};
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const raw = address[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const cleaned = textClean(raw);
+      if (!cleaned) continue;
+      metadata[key] = cleaned;
+    } else if (typeof raw === "number") {
+      if (!Number.isFinite(raw)) continue;
+      metadata[key] = raw;
+    } else {
+      metadata[key] = raw;
+    }
+  }
+
+  const requestIdentifier = coerceRequestIdentifier(
+    Object.prototype.hasOwnProperty.call(address, "request_identifier")
+      ? address.request_identifier
+      : Object.prototype.hasOwnProperty.call(address, "requestIdentifier")
+        ? address.requestIdentifier
+        : null,
+  );
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(address, "unnormalized_address")
+      ? address.unnormalized_address
+      : null,
+  );
+
+  if (normalizedUnnormalized) {
+    const payload = {
+      ...metadata,
+      unnormalized_address: normalizedUnnormalized,
+    };
+    if (requestIdentifier != null) {
+      payload.request_identifier = requestIdentifier;
+    }
+    return payload;
+  }
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(address);
+  if (structuredCandidate) {
+    const payload = {
+      ...metadata,
+      ...structuredCandidate,
+    };
+    if (requestIdentifier != null) {
+      payload.request_identifier = requestIdentifier;
+    }
+    return payload;
+  }
+
+  return null;
 }
 
 function finalizeAddressPayloadForWrite(payload) {
