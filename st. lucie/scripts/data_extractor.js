@@ -889,6 +889,119 @@ function removeUnnormalizedAddress(address) {
   }
 }
 
+function coerceAddressToSchemaOneOf(address, preferMode = "unnormalized") {
+  if (!address || typeof address !== "object") return null;
+
+  const working = deepClone(address);
+  if (!working || typeof working !== "object") return null;
+
+  const normalizedPreferred =
+    typeof preferMode === "string" &&
+    preferMode.toLowerCase() === "structured"
+      ? "structured"
+      : "unnormalized";
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(working, "unnormalized_address")
+      ? working.unnormalized_address
+      : null,
+  );
+
+  const normalizeStructuredValue = (key, value) => {
+    if (value == null) return null;
+    if (typeof value !== "string") return value;
+    let cleaned = value.trim();
+    if (!cleaned) return null;
+    if (key === "city_name" || key === "state_code") {
+      cleaned = cleaned.toUpperCase();
+    } else if (key === "postal_code" || key === "plus_four_postal_code") {
+      cleaned = cleaned.replace(/\s+/g, "");
+    }
+    return cleaned;
+  };
+
+  const structuredValues = {};
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(working, key)) continue;
+    const normalized = normalizeStructuredValue(key, working[key]);
+    if (normalized != null) {
+      structuredValues[key] = normalized;
+    }
+  }
+
+  const structuredHasRequired = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(structuredValues, key) &&
+      typeof structuredValues[key] === "string" &&
+      structuredValues[key].trim().length > 0,
+  );
+
+  if (normalizedUnnormalized && structuredHasRequired) {
+    if (normalizedPreferred === "structured") {
+      if (Object.prototype.hasOwnProperty.call(working, "unnormalized_address")) {
+        delete working.unnormalized_address;
+      }
+      stripStructuredAddressFields(working);
+      for (const [key, value] of Object.entries(structuredValues)) {
+        working[key] = value;
+      }
+    } else {
+      stripStructuredAddressFields(working);
+      working.unnormalized_address = normalizedUnnormalized;
+    }
+  } else if (normalizedUnnormalized) {
+    stripStructuredAddressFields(working);
+    working.unnormalized_address = normalizedUnnormalized;
+  } else if (structuredHasRequired) {
+    stripStructuredAddressFields(working);
+    if (Object.prototype.hasOwnProperty.call(working, "unnormalized_address")) {
+      delete working.unnormalized_address;
+    }
+    for (const [key, value] of Object.entries(structuredValues)) {
+      working[key] = value;
+    }
+  } else {
+    stripStructuredAddressFields(working);
+    if (Object.prototype.hasOwnProperty.call(working, "unnormalized_address")) {
+      delete working.unnormalized_address;
+    }
+    return null;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(working, "unnormalized_address")
+  ) {
+    const normalized = normalizeUnnormalizedAddressValue(
+      working.unnormalized_address,
+    );
+    if (normalized) {
+      working.unnormalized_address = normalized;
+    } else {
+      delete working.unnormalized_address;
+    }
+  }
+
+  const metadataKeys = ["request_identifier", ...ADDRESS_METADATA_KEYS];
+  for (const key of metadataKeys) {
+    if (!Object.prototype.hasOwnProperty.call(address, key)) continue;
+    const value = address[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      working[key] = trimmed;
+    } else {
+      working[key] = value;
+    }
+  }
+
+  if (!isAddressOneOfCompliant(working)) {
+    return null;
+  }
+
+  return working;
+}
+
 function normalizeAddressForOutput(address, preferredMode = null) {
   const reconciliation = reconcileAddressForSchema(address);
   pruneAddressFieldsForSchema(
@@ -8129,6 +8242,21 @@ async function main() {
           enforcedAddress,
           fallbackUnnormalizedForOutput,
         );
+
+      if (!sanitizedFinal) {
+        sanitizedFinal = coerceAddressToSchemaOneOf(
+          enforcedAddress,
+          finalPreferMode,
+        );
+      } else {
+        const strictlyEnforced = coerceAddressToSchemaOneOf(
+          sanitizedFinal,
+          finalPreferMode,
+        );
+        if (strictlyEnforced) {
+          sanitizedFinal = strictlyEnforced;
+        }
+      }
 
       if (sanitizedFinal) {
         const exclusiveFinal =
