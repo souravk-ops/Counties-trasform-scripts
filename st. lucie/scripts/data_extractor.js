@@ -879,6 +879,82 @@ function stripStructuredAddressFields(address) {
   }
 }
 
+function ensureAddressStrictOneOf(address, preferMode = "unnormalized") {
+  if (!address || typeof address !== "object") return null;
+  const working = deepClone(address);
+  if (!working || typeof working !== "object") return null;
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(working, "unnormalized_address")
+      ? working.unnormalized_address
+      : null,
+  );
+  const hasUnnormalized =
+    typeof normalizedUnnormalized === "string" &&
+    normalizedUnnormalized.length > 0;
+
+  const normalizedStructured = {};
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(working, key)) continue;
+    const raw = working[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      let trimmed = raw.trim();
+      if (!trimmed) continue;
+      if (key === "city_name" || key === "state_code") {
+        trimmed = trimmed.toUpperCase();
+      } else if (
+        key === "postal_code" ||
+        key === "plus_four_postal_code"
+      ) {
+        trimmed = trimmed.replace(/\s+/g, "");
+      }
+      normalizedStructured[key] = trimmed;
+    } else {
+      normalizedStructured[key] = raw;
+    }
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = normalizedStructured[key];
+    return typeof value === "string" && value.length > 0;
+  });
+
+  const preferStructured =
+    typeof preferMode === "string" &&
+    preferMode.toLowerCase() === "structured";
+
+  let mode = null;
+  if (hasStructured && hasUnnormalized) {
+    mode = preferStructured ? "structured" : "unnormalized";
+  } else if (hasUnnormalized) {
+    mode = "unnormalized";
+  } else if (hasStructured) {
+    mode = "structured";
+  } else {
+    return null;
+  }
+
+  if (mode === "unnormalized") {
+    stripStructuredAddressFields(working);
+    working.unnormalized_address = normalizedUnnormalized;
+    return working;
+  }
+
+  delete working.unnormalized_address;
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (normalizedStructured[key] == null) {
+      if (Object.prototype.hasOwnProperty.call(working, key)) {
+        delete working[key];
+      }
+      continue;
+    }
+    working[key] = normalizedStructured[key];
+  }
+
+  return working;
+}
+
 function removeUnnormalizedAddress(address) {
   if (
     address &&
@@ -4531,7 +4607,15 @@ async function enforceAddressFilesForSchemaCompliance() {
       continue;
     }
 
-    await fsp.writeFile(filePath, JSON.stringify(exclusive, null, 2));
+    const strictExclusive =
+      ensureAddressStrictOneOf(exclusive) ??
+      ensureAddressStrictOneOf(exclusive, "structured");
+    if (!strictExclusive) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(strictExclusive, null, 2));
   }
 }
 
@@ -8391,6 +8475,21 @@ async function main() {
       }
 
       if (sanitizedFinal && isAddressOneOfCompliant(sanitizedFinal)) {
+        const strictForWrite = ensureAddressStrictOneOf(
+          sanitizedFinal,
+          finalPreferMode,
+        );
+        if (
+          strictForWrite &&
+          isAddressOneOfCompliant(strictForWrite)
+        ) {
+          sanitizedFinal = strictForWrite;
+        } else if (!strictForWrite) {
+          sanitizedFinal = null;
+        }
+      }
+
+      if (sanitizedFinal && isAddressOneOfCompliant(sanitizedFinal)) {
         await fsp.writeFile(
           addressFilePath,
           JSON.stringify(sanitizedFinal, null, 2),
@@ -9502,7 +9601,22 @@ async function main() {
             mailingPreferMode,
           )) || null;
         if (finalizedMailing) {
-          mailingAddressOut = finalizedMailing;
+          const strictMailing = ensureAddressStrictOneOf(
+            finalizedMailing,
+            mailingPreferMode,
+          );
+          if (strictMailing && isAddressOneOfCompliant(strictMailing)) {
+            mailingAddressOut = strictMailing;
+            await fsp.writeFile(
+              path.join("data", "mailing_address.json"),
+              JSON.stringify(strictMailing, null, 2),
+            );
+          } else {
+            mailingAddressOut = null;
+            await fsp
+              .unlink(path.join("data", "mailing_address.json"))
+              .catch(() => {});
+          }
         } else {
           mailingAddressOut = null;
         }
