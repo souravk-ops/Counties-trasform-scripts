@@ -9098,27 +9098,39 @@ async function main() {
     normalizeUnnormalizedAddressValue(fallbackFromStructured);
 
   let addressCandidateForFinal = null;
-  if (hasStructuredForOutput) {
+  const preferredAddressMode = hasSourceUnnormalized
+    ? "unnormalized"
+    : hasStructuredForOutput
+      ? "structured"
+      : typeof fallbackUnnormalizedValue === "string" &&
+          fallbackUnnormalizedValue.length > 0
+        ? "unnormalized"
+        : null;
+
+  if (preferredAddressMode === "structured") {
     addressCandidateForFinal = {
       ...baseAddressPayload,
       ...structuredForOutput,
     };
-  } else if (hasSourceUnnormalized) {
-    addressCandidateForFinal = {
-      ...baseAddressPayload,
-      unnormalized_address: normalizedSourceUnnormalizedValue,
-    };
-  } else if (
-    typeof fallbackUnnormalizedValue === "string" &&
-    fallbackUnnormalizedValue.length > 0
-  ) {
-    addressCandidateForFinal = {
-      ...baseAddressPayload,
-      unnormalized_address: fallbackUnnormalizedValue,
-    };
+  } else if (preferredAddressMode === "unnormalized") {
+    const chosenUnnormalized =
+      (typeof normalizedSourceUnnormalizedValue === "string" &&
+        normalizedSourceUnnormalizedValue.length > 0
+        ? normalizedSourceUnnormalizedValue
+        : null) ||
+      (typeof fallbackUnnormalizedValue === "string" &&
+        fallbackUnnormalizedValue.length > 0
+        ? fallbackUnnormalizedValue
+        : null);
+    if (chosenUnnormalized) {
+      addressCandidateForFinal = {
+        ...baseAddressPayload,
+        unnormalized_address: chosenUnnormalized,
+      };
+    }
   }
 
-  const preferStructuredForFinal = hasStructuredForOutput;
+  const preferStructuredForFinal = preferredAddressMode === "structured";
   let finalAddressForWrite = addressCandidateForFinal
     ? buildFinalAddressRecord(
         addressCandidateForFinal,
@@ -9129,6 +9141,14 @@ async function main() {
     finalAddressForWrite =
       coerceAddressToStrictOneOfPayload(finalAddressForWrite);
   }
+  if (finalAddressForWrite) {
+    const exclusive =
+      ensureExclusiveAddressMode(
+        finalAddressForWrite,
+        preferredAddressMode || "unnormalized",
+      ) || finalAddressForWrite;
+    finalAddressForWrite = exclusive;
+  }
 
   if (finalAddressForWrite) {
     await fsp.writeFile(
@@ -9136,9 +9156,9 @@ async function main() {
       JSON.stringify(finalAddressForWrite, null, 2),
     );
 
-    const preferredModeForFinalize = hasStructuredForOutput
-      ? "structured"
-      : "unnormalized";
+    const preferredModeForFinalize =
+      preferredAddressMode ||
+      (hasStructuredForOutput ? "structured" : "unnormalized");
     let finalizedAddress =
       (await finalizeAddressFileForOneOf(
         addressFileName,
@@ -9168,7 +9188,7 @@ async function main() {
       addressFileRef = null;
 
       if (
-        hasStructuredForOutput &&
+        preferredAddressMode === "structured" &&
         typeof fallbackUnnormalizedValue === "string" &&
         fallbackUnnormalizedValue.length > 0
       ) {
@@ -9184,6 +9204,11 @@ async function main() {
           fallbackFinal =
             coerceAddressToStrictOneOfPayload(fallbackFinal);
         }
+        if (fallbackFinal) {
+          fallbackFinal =
+            ensureExclusiveAddressMode(fallbackFinal, "unnormalized") ||
+            fallbackFinal;
+        }
         if (fallbackFinal && isAddressOneOfCompliant(fallbackFinal)) {
           await fsp.writeFile(
             addressFilePath,
@@ -9197,6 +9222,13 @@ async function main() {
           if (finalizedFallback) {
             finalizedFallback =
               coerceAddressToStrictOneOfPayload(finalizedFallback);
+          }
+          if (finalizedFallback) {
+            finalizedFallback =
+              ensureExclusiveAddressMode(
+                finalizedFallback,
+                "unnormalized",
+              ) || finalizedFallback;
           }
           if (
             finalizedFallback &&
@@ -9221,7 +9253,7 @@ async function main() {
   if (addressFileRef) {
     const strictlyOneOfAddress = await enforceAddressFileStrictOneOf(
       addressFileName,
-      hasStructuredForOutput && !hasSourceUnnormalized,
+      preferredAddressMode === "structured",
     );
     if (!strictlyOneOfAddress) {
       addressFileRef = null;
