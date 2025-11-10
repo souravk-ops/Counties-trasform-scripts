@@ -4633,61 +4633,131 @@ async function enforceAddressFilesForSchemaCompliance() {
     return;
   }
 
+  const metadataKeys = ["request_identifier", ...ADDRESS_METADATA_KEYS];
+
   for (const fileName of entries) {
     if (!/address\.json$/i.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
-    let rawPayload;
-    try {
-      rawPayload = await fsp.readFile(filePath, "utf8");
-    } catch {
-      continue;
-    }
-
     let parsed;
     try {
-      parsed = JSON.parse(rawPayload);
+      const raw = await fsp.readFile(filePath, "utf8");
+      parsed = JSON.parse(raw);
     } catch {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const sanitized = sanitizeAddressRecordForSchemaOutput(parsed);
-    let strictPayload =
-      buildStrictAddressPayload(sanitized ?? parsed) ??
-      (sanitized ? buildStrictAddressPayload(parsed) : null);
-
-    if (!strictPayload) {
+    if (!parsed || typeof parsed !== "object") {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    if (
-      Object.prototype.hasOwnProperty.call(
-        strictPayload,
-        "unnormalized_address",
-      )
-    ) {
-      const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
-        strictPayload.unnormalized_address,
-      );
-      if (!normalizedUnnormalized) {
-        await fsp.unlink(filePath).catch(() => {});
+    const baseRecord = buildFinalAddressRecord(parsed, false);
+    if (!baseRecord || typeof baseRecord !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const exclusive = ensureExclusiveAddressMode(baseRecord) || baseRecord;
+    if (!exclusive || typeof exclusive !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const metadata = {};
+    for (const key of metadataKeys) {
+      if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
+      const value = exclusive[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (!cleaned) continue;
+        metadata[key] = cleaned;
+      } else {
+        metadata[key] = value;
+      }
+    }
+
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      exclusive.unnormalized_address,
+    );
+    if (normalizedUnnormalized) {
+      const payload = {
+        ...metadata,
+        unnormalized_address: normalizedUnnormalized,
+      };
+      await fsp.writeFile(filePath, JSON.stringify(payload, null, 2));
+      continue;
+    }
+
+    const structuredPayload = {};
+    let hasStructured = true;
+    for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
+      const value = exclusive[key];
+      if (typeof value !== "string") {
+        hasStructured = false;
+        break;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) {
+        hasStructured = false;
+        break;
+      }
+      if (key === "postal_code") {
+        const sanitized = sanitizePostalCode(trimmed);
+        if (!sanitized) {
+          hasStructured = false;
+          break;
+        }
+        structuredPayload[key] = sanitized;
         continue;
       }
-      strictPayload.unnormalized_address = normalizedUnnormalized;
-      stripStructuredAddressFields(strictPayload);
-    } else {
-      removeUnnormalizedAddress(strictPayload);
+      structuredPayload[key] =
+        key === "city_name" || key === "state_code"
+          ? trimmed.toUpperCase()
+          : trimmed;
     }
 
-    if (!isAddressOneOfCompliant(strictPayload)) {
+    if (!hasStructured) {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    await fsp.writeFile(filePath, JSON.stringify(strictPayload, null, 2));
+    for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
+      const value = exclusive[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) continue;
+        if (key === "plus_four_postal_code") {
+          const sanitizedPlusFour = sanitizePlusFour(trimmed);
+          if (!sanitizedPlusFour) continue;
+          structuredPayload[key] = sanitizedPlusFour;
+        } else if (
+          key === "street_pre_directional_text" ||
+          key === "street_post_directional_text"
+        ) {
+          const normalized = STREET_DIRECTION_MAP[trimmed.toUpperCase()] || null;
+          if (!normalized || !STREET_DIRECTION_ALLOWED.has(normalized)) continue;
+          structuredPayload[key] = normalized;
+        } else if (key === "street_suffix_type") {
+          if (!STREET_SUFFIX_ALLOWED.has(trimmed)) continue;
+          structuredPayload[key] = trimmed;
+        } else if (key === "state_code" || key === "city_name") {
+          structuredPayload[key] = trimmed.toUpperCase();
+        } else {
+          structuredPayload[key] = trimmed;
+        }
+      } else {
+        structuredPayload[key] = value;
+      }
+    }
+
+    const payload = { ...metadata, ...structuredPayload };
+    await fsp.writeFile(filePath, JSON.stringify(payload, null, 2));
   }
 }
 
