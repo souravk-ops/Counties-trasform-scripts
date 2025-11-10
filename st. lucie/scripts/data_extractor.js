@@ -54,23 +54,41 @@ function deepClone(value) {
 
 function normalizeRelationshipRef(value) {
   if (value == null) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
+
+  const normalizeStringPath = (input) => {
+    if (typeof input !== "string") return null;
+    const trimmed = input.trim();
     if (!trimmed) return null;
-    if (/[\\/]/.test(trimmed) || /\.json$/i.test(trimmed)) {
+
+    // Reject obvious URLs/URNs – the platform generates canonical URNs later.
+    if (/^(?:https?:)?\/\//i.test(trimmed) || /^urn:/i.test(trimmed)) {
       return null;
     }
-    return trimmed;
+
+    // Accept relative JSON references like "./entity.json" or "entity.json".
+    if (trimmed.startsWith("./")) {
+      return trimmed;
+    }
+    if (/^[\w.-]+\.json$/i.test(trimmed)) {
+      return `./${trimmed}`;
+    }
+
+    return null;
+  };
+
+  if (typeof value === "string") {
+    return normalizeStringPath(value);
   }
+
   if (value && typeof value === "object") {
-    const candidates = ["/", "path", "ref"];
-    for (const key of candidates) {
+    for (const key of ["/", "path", "ref"]) {
       if (typeof value[key] === "string") {
-        const normalized = normalizeRelationshipRef(value[key]);
+        const normalized = normalizeStringPath(value[key]);
         if (normalized) return normalized;
       }
     }
   }
+
   return null;
 }
 
@@ -88,7 +106,14 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     ? extrasSource.to
     : toPath;
 
-  const payload = {};
+  const fromRef = normalizeRelationshipRef(fromCandidate);
+  const toRef = normalizeRelationshipRef(toCandidate);
+  if (!fromRef || !toRef) return null;
+
+  const payload = {
+    from: { "/": fromRef },
+    to: { "/": toRef },
+  };
 
   if (Object.keys(extrasSource).length > 0) {
     for (const [key, value] of Object.entries(extrasSource)) {
@@ -109,12 +134,6 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
       // Ignore unsupported extras; relationships only allow from, to, and type.
     }
   }
-
-  const fromRef = normalizeRelationshipRef(fromCandidate);
-  const toRef = normalizeRelationshipRef(toCandidate);
-
-  payload.from = fromRef ?? null;
-  payload.to = toRef ?? null;
 
   return payload;
 }

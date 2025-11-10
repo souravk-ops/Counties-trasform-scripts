@@ -52,43 +52,44 @@ function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function createRelationshipPayload(fromPath, toPath, extras = {}) {
-  const extrasSource =
-    extras && typeof extras === "object" ? extras : {};
+function normalizeRelationshipRef(value) {
+  if (value == null) return null;
 
-  const normalizeEndpoint = (value) => {
-    if (value == null) return null;
-
-    const normalizeStringPath = (input) => {
-      if (typeof input !== "string") return null;
-      const trimmed = input.trim();
-      if (!trimmed) return null;
-      if (/[\\/]/.test(trimmed) || /\.json$/i.test(trimmed)) {
-        return null;
-      }
-      return trimmed;
-    };
-
-    const buildRefObject = (normalizedPath) =>
-      normalizedPath ? normalizedPath : null;
-
-    if (typeof value === "string") {
-      return buildRefObject(normalizeStringPath(value));
+  const normalizeStringPath = (input) => {
+    if (typeof input !== "string") return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    if (/^(?:https?:)?\/\//i.test(trimmed) || /^urn:/i.test(trimmed)) {
+      return null;
     }
-
-    if (value && typeof value === "object") {
-      if (typeof value["/"] === "string") {
-        return buildRefObject(normalizeStringPath(value["/"]));
-      }
-      if (typeof value.path === "string") {
-        return buildRefObject(normalizeStringPath(value.path));
-      }
-      if (typeof value.ref === "string") {
-        return buildRefObject(normalizeStringPath(value.ref));
-      }
+    if (trimmed.startsWith("./")) {
+      return trimmed;
+    }
+    if (/^[\w.-]+\.json$/i.test(trimmed)) {
+      return `./${trimmed}`;
     }
     return null;
   };
+
+  if (typeof value === "string") {
+    return normalizeStringPath(value);
+  }
+
+  if (value && typeof value === "object") {
+    for (const key of ["/", "path", "ref"]) {
+      if (typeof value[key] === "string") {
+        const normalized = normalizeStringPath(value[key]);
+        if (normalized) return normalized;
+      }
+    }
+  }
+
+  return null;
+}
+
+function createRelationshipPayload(fromPath, toPath, extras = {}) {
+  const extrasSource =
+    extras && typeof extras === "object" ? extras : {};
 
   const fromCandidate = Object.prototype.hasOwnProperty.call(
     extrasSource,
@@ -100,7 +101,14 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     ? extrasSource.to
     : toPath;
 
-  const payload = {};
+  const fromRef = normalizeRelationshipRef(fromCandidate);
+  const toRef = normalizeRelationshipRef(toCandidate);
+  if (!fromRef || !toRef) return null;
+
+  const payload = {
+    from: { "/": fromRef },
+    to: { "/": toRef },
+  };
 
   if (Object.keys(extrasSource).length > 0) {
     for (const [key, value] of Object.entries(extrasSource)) {
@@ -121,15 +129,6 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
       // Ignore unsupported extras; relationships only allow from, to, and type.
     }
   }
-
-  const fromValue = normalizeEndpoint(fromCandidate);
-  const toValue = normalizeEndpoint(toCandidate);
-
-  const hasFrom = fromValue != null;
-  const hasTo = toValue != null;
-
-  payload.from = hasFrom ? fromValue : null;
-  payload.to = hasTo ? toValue : null;
 
   return payload;
 }
