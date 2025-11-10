@@ -5127,6 +5127,142 @@ function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
   return enforcePreferredAddressMode(candidate);
 }
 
+function coerceAddressToPreferredOneOf(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const metadata = {};
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+    if (value == null) continue;
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) {
+        metadata[key] = value;
+      }
+      continue;
+    }
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (!cleaned) continue;
+      metadata[key] = cleaned;
+      continue;
+    }
+    metadata[key] = value;
+  }
+
+  const requestIdentifier = coerceRequestIdentifier(
+    Object.prototype.hasOwnProperty.call(payload, "request_identifier")
+      ? payload.request_identifier
+      : Object.prototype.hasOwnProperty.call(payload, "requestIdentifier")
+        ? payload.requestIdentifier
+        : null,
+  );
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+      ? payload.unnormalized_address
+      : null,
+  );
+
+  if (structuredCandidate) {
+    const preferred = {
+      ...metadata,
+      ...structuredCandidate,
+    };
+    if (requestIdentifier != null) {
+      preferred.request_identifier = requestIdentifier;
+    }
+    return preferred;
+  }
+
+  if (normalizedUnnormalized) {
+    const preferred = {
+      ...metadata,
+      unnormalized_address: normalizedUnnormalized,
+    };
+    if (requestIdentifier != null) {
+      preferred.request_identifier = requestIdentifier;
+    }
+    return preferred;
+  }
+
+  const fallbackCandidates = [
+    payload.full_address,
+    payload.address,
+    payload.site_address,
+    payload.mailing_address,
+  ];
+  for (const candidate of fallbackCandidates) {
+    const normalized = normalizeUnnormalizedAddressValue(candidate);
+    if (!normalized) continue;
+    const preferred = {
+      ...metadata,
+      unnormalized_address: normalized,
+    };
+    if (requestIdentifier != null) {
+      preferred.request_identifier = requestIdentifier;
+    }
+    return preferred;
+  }
+
+  return null;
+}
+
+async function enforceAddressPreferredOneOfFiles() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const preferred = coerceAddressToPreferredOneOf(payload);
+    if (!preferred) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const exclusive =
+      ensureExclusiveAddressMode(preferred, "structured") ||
+      ensureExclusiveAddressMode(preferred) ||
+      preferred;
+    if (!exclusive || !isAddressOneOfCompliant(exclusive)) {
+      const fallback =
+        ensureExclusiveAddressMode(preferred, "unnormalized") ||
+        ensureExclusiveAddressMode(preferred) ||
+        null;
+      if (!fallback || !isAddressOneOfCompliant(fallback)) {
+        await fsp.unlink(filePath).catch(() => {});
+        continue;
+      }
+      await fsp.writeFile(filePath, JSON.stringify(fallback, null, 2));
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(exclusive, null, 2));
+  }
+}
+
 async function enforceAddressFileStrictOneOf(fileName, preferStructured = false) {
   if (!fileName || typeof fileName !== "string") return null;
 
@@ -11429,6 +11565,7 @@ async function main() {
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
 
+  await enforceAddressPreferredOneOfFiles();
   await enforceAddressFilesForSchemaCompliance();
   await enforcePersonFilesForSchemaCompliance();
 }
