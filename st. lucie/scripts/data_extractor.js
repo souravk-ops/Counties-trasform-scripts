@@ -4721,6 +4721,103 @@ async function enforceAddressFilesForSchemaCompliance() {
   }
 }
 
+function buildPreferredAddressRecord(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const metadata = {};
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const value = payload[key];
+    if (value == null) continue;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) continue;
+      metadata[key] = value;
+      continue;
+    }
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (!cleaned) continue;
+      metadata[key] = cleaned;
+      continue;
+    }
+    metadata[key] = value;
+  }
+
+  const requestIdentifier = coerceRequestIdentifier(
+    Object.prototype.hasOwnProperty.call(payload, "request_identifier")
+      ? payload.request_identifier
+      : Object.prototype.hasOwnProperty.call(payload, "requestIdentifier")
+        ? payload.requestIdentifier
+        : null,
+  );
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
+  if (structuredCandidate) {
+    const record = {
+      ...metadata,
+      ...structuredCandidate,
+    };
+    if (requestIdentifier != null) {
+      record.request_identifier = requestIdentifier;
+    }
+    return record;
+  }
+
+  const fallbackCandidates = [
+    payload.unnormalized_address,
+    payload.full_address,
+    payload.address,
+    payload.site_address,
+    payload.mailing_address,
+  ];
+
+  for (const candidate of fallbackCandidates) {
+    const normalized = normalizeUnnormalizedAddressValue(candidate);
+    if (!normalized) continue;
+    const record = {
+      ...metadata,
+      unnormalized_address: normalized,
+    };
+    if (requestIdentifier != null) {
+      record.request_identifier = requestIdentifier;
+    }
+    return record;
+  }
+
+  return null;
+}
+
+async function enforcePreferredAddressRecords() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const preferred = buildPreferredAddressRecord(payload);
+    if (!preferred) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(preferred, null, 2));
+  }
+}
+
 async function harmonizeAddressFileForSchema(
   fileName,
   {
@@ -11576,6 +11673,7 @@ async function main() {
 
   await enforceAddressPreferredOneOfFiles();
   await enforceAddressFilesForSchemaCompliance();
+  await enforcePreferredAddressRecords();
   await enforcePersonFilesForSchemaCompliance();
 }
 
