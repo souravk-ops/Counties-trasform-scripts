@@ -9002,35 +9002,44 @@ async function main() {
       )
     : null;
 
-  const fallbackUnnormalizedCandidate =
-    normalizedSourceUnnormalized ?? fallbackFromStructured ?? null;
+  const normalizedSourceUnnormalizedValue =
+    normalizeUnnormalizedAddressValue(normalizedSourceUnnormalized);
+  const hasSourceUnnormalized =
+    typeof normalizedSourceUnnormalizedValue === "string" &&
+    normalizedSourceUnnormalizedValue.length > 0;
 
-  const normalizedSelectedUnnormalized =
-    fallbackUnnormalizedCandidate != null
-      ? normalizeUnnormalizedAddressValue(fallbackUnnormalizedCandidate)
-      : null;
+  const fallbackUnnormalizedValue =
+    normalizedSourceUnnormalizedValue ||
+    normalizeUnnormalizedAddressValue(fallbackFromStructured);
 
-  const hasUnnormalizedCandidate =
-    typeof normalizedSelectedUnnormalized === "string" &&
-    normalizedSelectedUnnormalized.length > 0;
-
-  const shouldPreferStructured =
-    Boolean(hasStructuredForOutput) && !hasUnnormalizedCandidate;
-
-  const addressCandidateForFinal = {
-    ...baseAddressPayload,
-    ...(structuredForOutput || {}),
-  };
-  if (hasUnnormalizedCandidate) {
-    addressCandidateForFinal.unnormalized_address =
-      normalizedSelectedUnnormalized;
+  let addressCandidateForFinal = null;
+  if (hasStructuredForOutput) {
+    addressCandidateForFinal = {
+      ...baseAddressPayload,
+      ...structuredForOutput,
+    };
+  } else if (hasSourceUnnormalized) {
+    addressCandidateForFinal = {
+      ...baseAddressPayload,
+      unnormalized_address: normalizedSourceUnnormalizedValue,
+    };
+  } else if (
+    typeof fallbackUnnormalizedValue === "string" &&
+    fallbackUnnormalizedValue.length > 0
+  ) {
+    addressCandidateForFinal = {
+      ...baseAddressPayload,
+      unnormalized_address: fallbackUnnormalizedValue,
+    };
   }
 
-  const preferStructuredForFinal = shouldPreferStructured;
-  let finalAddressForWrite = buildFinalAddressRecord(
-    addressCandidateForFinal,
-    preferStructuredForFinal,
-  );
+  const preferStructuredForFinal = hasStructuredForOutput;
+  let finalAddressForWrite = addressCandidateForFinal
+    ? buildFinalAddressRecord(
+        addressCandidateForFinal,
+        preferStructuredForFinal,
+      )
+    : null;
   if (finalAddressForWrite) {
     finalAddressForWrite =
       coerceAddressToStrictOneOfPayload(finalAddressForWrite);
@@ -9042,7 +9051,7 @@ async function main() {
       JSON.stringify(finalAddressForWrite, null, 2),
     );
 
-    const preferredModeForFinalize = shouldPreferStructured
+    const preferredModeForFinalize = hasStructuredForOutput
       ? "structured"
       : "unnormalized";
     let finalizedAddress =
@@ -9073,10 +9082,14 @@ async function main() {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
 
-      if (shouldPreferStructured && fallbackUnnormalizedCandidate) {
+      if (
+        hasStructuredForOutput &&
+        typeof fallbackUnnormalizedValue === "string" &&
+        fallbackUnnormalizedValue.length > 0
+      ) {
         const fallbackPayload = {
           ...baseAddressPayload,
-          unnormalized_address: fallbackUnnormalizedCandidate,
+          unnormalized_address: fallbackUnnormalizedValue,
         };
         let fallbackFinal = buildFinalAddressRecord(
           fallbackPayload,
@@ -9123,7 +9136,7 @@ async function main() {
   if (addressFileRef) {
     const strictlyOneOfAddress = await enforceAddressFileStrictOneOf(
       addressFileName,
-      hasStructuredForOutput && !normalizedSelectedUnnormalized,
+      hasStructuredForOutput && !hasSourceUnnormalized,
     );
     if (!strictlyOneOfAddress) {
       addressFileRef = null;
