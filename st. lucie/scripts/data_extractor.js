@@ -3522,6 +3522,33 @@ function ensureExclusiveAddressMode(address, preferMode = "unnormalized") {
   return clone;
 }
 
+function addressHasStructuredValues(candidate) {
+  if (!candidate || typeof candidate !== "object") return false;
+  return STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = candidate[key];
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return value != null;
+  });
+}
+
+function addressHasUnnormalizedValue(candidate) {
+  if (!candidate || typeof candidate !== "object") return false;
+  const value = candidate.unnormalized_address;
+  if (typeof value !== "string") return false;
+  return Boolean(normalizeUnnormalizedAddressValue(value));
+}
+
+function isAddressOneOfCompliant(candidate) {
+  if (!candidate || typeof candidate !== "object") return false;
+  const hasStructured = addressHasStructuredValues(candidate);
+  const hasUnnormalized = addressHasUnnormalizedValue(candidate);
+  if (hasStructured && hasUnnormalized) return false;
+  if (!hasStructured && !hasUnnormalized) return false;
+  return true;
+}
+
 function ensureExclusiveAddressPayloadForWrite(payload, preferMode = "unnormalized") {
   if (!payload || typeof payload !== "object") return null;
 
@@ -7959,9 +7986,7 @@ async function main() {
     baseAddressPayload.request_identifier = normalizedRequestIdentifier;
   }
 
-  const preferStructuredForOutput = Boolean(
-    selectedStructured && !selectedUnnormalized,
-  );
+  const preferStructuredForOutput = Boolean(selectedStructured);
   const fallbackUnnormalizedForOutput = selectedUnnormalized ?? null;
   let finalizedAddressRecord = null;
 
@@ -8072,13 +8097,41 @@ async function main() {
 
     if (enforcedAddress) {
       const finalPreferMode = preferStructuredForOutput ? "structured" : "unnormalized";
-      const sanitizedFinal =
+      let sanitizedFinal =
         sanitizeAddressForSchema(enforcedAddress, finalPreferMode) ??
         ensureExclusiveAddressPayloadForWrite(enforcedAddress, finalPreferMode) ??
         ensureExclusiveAddressMode(enforcedAddress, finalPreferMode) ??
-        enforcedAddress;
+        coerceAddressToSingleMode(
+          enforcedAddress,
+          fallbackUnnormalizedForOutput,
+        );
 
       if (sanitizedFinal) {
+        const exclusiveFinal =
+          ensureExclusiveAddressMode(sanitizedFinal, finalPreferMode) ??
+          coerceAddressToSingleMode(
+            sanitizedFinal,
+            fallbackUnnormalizedForOutput,
+          );
+
+        if (exclusiveFinal && isAddressOneOfCompliant(exclusiveFinal)) {
+          const normalizedFinal =
+            sanitizeAddressForSchema(exclusiveFinal, finalPreferMode) ??
+            ensureExclusiveAddressPayloadForWrite(
+              exclusiveFinal,
+              finalPreferMode,
+            ) ??
+            exclusiveFinal;
+
+          sanitizedFinal = isAddressOneOfCompliant(normalizedFinal)
+            ? normalizedFinal
+            : null;
+        } else {
+          sanitizedFinal = null;
+        }
+      }
+
+      if (sanitizedFinal && isAddressOneOfCompliant(sanitizedFinal)) {
         await fsp.writeFile(
           addressFilePath,
           JSON.stringify(sanitizedFinal, null, 2),
