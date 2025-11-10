@@ -8342,80 +8342,49 @@ async function main() {
   const normalizedSelectedUnnormalized =
     normalizedSourceUnnormalized ?? fallbackFromStructured ?? null;
 
-  let preferredAddressMode = null;
-  let addressPayload = null;
-
-  if (hasStructuredForOutput) {
-    preferredAddressMode = "structured";
-    addressPayload = {
-      ...baseAddressPayload,
-      ...structuredForOutput,
-    };
-  } else if (normalizedSelectedUnnormalized) {
-    preferredAddressMode = "unnormalized";
-    addressPayload = {
-      ...baseAddressPayload,
-      unnormalized_address: normalizedSelectedUnnormalized,
-    };
+  const addressCandidateForFinal = {
+    ...baseAddressPayload,
+    ...(structuredForOutput || {}),
+  };
+  if (normalizedSelectedUnnormalized) {
+    addressCandidateForFinal.unnormalized_address =
+      normalizedSelectedUnnormalized;
   }
 
-  if (addressPayload) {
-    const strictPayload =
-      ensureAddressStrictOneOf(addressPayload, preferredAddressMode || "structured") ||
-      (preferredAddressMode === "structured" && normalizedSelectedUnnormalized
-        ? ensureAddressStrictOneOf(
-            {
-              ...baseAddressPayload,
-              unnormalized_address: normalizedSelectedUnnormalized,
-            },
-            "unnormalized",
-          )
-        : null) ||
-      (preferredAddressMode === "structured" && fallbackFromStructured
-        ? ensureAddressStrictOneOf(
-            {
-              ...baseAddressPayload,
-              unnormalized_address: fallbackFromStructured,
-            },
-            "unnormalized",
-          )
-        : null);
+  const finalAddressForWrite = buildFinalAddressRecord(
+    addressCandidateForFinal,
+    Boolean(hasStructuredForOutput),
+  );
 
-    const resolvedPreferredMode =
-      (preferredAddressMode === "structured" && "structured") || "unnormalized";
+  if (finalAddressForWrite) {
+    await fsp.writeFile(
+      addressFilePath,
+      JSON.stringify(finalAddressForWrite, null, 2),
+    );
 
-    if (strictPayload && isAddressOneOfCompliant(strictPayload)) {
+    const preferredModeForFinalize = hasStructuredForOutput
+      ? "structured"
+      : "unnormalized";
+    const finalizedAddress =
+      (await finalizeAddressFileForOneOf(
+        addressFileName,
+        preferredModeForFinalize,
+      )) || null;
+
+    if (finalizedAddress && isAddressOneOfCompliant(finalizedAddress)) {
       await fsp.writeFile(
         addressFilePath,
-        JSON.stringify(strictPayload, null, 2),
+        JSON.stringify(finalizedAddress, null, 2),
       );
-
-      const finalizedAddress =
-        (await finalizeAddressFileForOneOf(
-          addressFileName,
-          resolvedPreferredMode,
-        )) || null;
-
-      const normalizedFinalAddress =
-        (finalizedAddress &&
-          ensureAddressStrictOneOf(finalizedAddress, resolvedPreferredMode)) ||
-        (finalizedAddress &&
-          ensureAddressStrictOneOf(
-            finalizedAddress,
-            resolvedPreferredMode === "structured" ? "unnormalized" : "structured",
-          )) ||
-        strictPayload;
-
-      if (normalizedFinalAddress && isAddressOneOfCompliant(normalizedFinalAddress)) {
-        await fsp.writeFile(
-          addressFilePath,
-          JSON.stringify(normalizedFinalAddress, null, 2),
-        );
-        addressFileRef = `./${addressFileName}`;
-      } else {
-        await fsp.unlink(addressFilePath).catch(() => {});
-        addressFileRef = null;
-      }
+      addressFileRef = `./${addressFileName}`;
+    } else if (
+      isAddressOneOfCompliant(finalAddressForWrite)
+    ) {
+      await fsp.writeFile(
+        addressFilePath,
+        JSON.stringify(finalAddressForWrite, null, 2),
+      );
+      addressFileRef = `./${addressFileName}`;
     } else {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
