@@ -56,14 +56,18 @@ function normalizeRelationshipRef(value) {
   if (value == null) return null;
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed ? { "/": trimmed } : null;
+    if (!trimmed) return null;
+    if (/[\\/]/.test(trimmed) || /\.json$/i.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
   }
   if (value && typeof value === "object") {
     const candidates = ["/", "path", "ref"];
     for (const key of candidates) {
       if (typeof value[key] === "string") {
-        const trimmed = value[key].trim();
-        if (trimmed) return { "/": trimmed };
+        const normalized = normalizeRelationshipRef(value[key]);
+        if (normalized) return normalized;
       }
     }
   }
@@ -108,10 +112,6 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
 
   const fromRef = normalizeRelationshipRef(fromCandidate);
   const toRef = normalizeRelationshipRef(toCandidate);
-
-  if (!fromRef && !toRef && Object.keys(payload).length === 0) {
-    return null;
-  }
 
   payload.from = fromRef ?? null;
   payload.to = toRef ?? null;
@@ -8401,9 +8401,11 @@ async function main() {
       normalizedSelectedUnnormalized;
   }
 
+  const preferStructuredForFinal =
+    Boolean(hasStructuredForOutput) && !normalizedSelectedUnnormalized;
   const finalAddressForWrite = buildFinalAddressRecord(
     addressCandidateForFinal,
-    Boolean(hasStructuredForOutput),
+    preferStructuredForFinal,
   );
 
   if (finalAddressForWrite) {
@@ -8412,9 +8414,11 @@ async function main() {
       JSON.stringify(finalAddressForWrite, null, 2),
     );
 
-    const preferredModeForFinalize = hasStructuredForOutput
-      ? "structured"
-      : "unnormalized";
+    const preferredModeForFinalize = normalizedSelectedUnnormalized
+      ? "unnormalized"
+      : hasStructuredForOutput
+        ? "structured"
+        : "unnormalized";
     const finalizedAddress =
       (await finalizeAddressFileForOneOf(
         addressFileName,

@@ -62,11 +62,15 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
     const normalizeStringPath = (input) => {
       if (typeof input !== "string") return null;
       const trimmed = input.trim();
-      return trimmed || null;
+      if (!trimmed) return null;
+      if (/[\\/]/.test(trimmed) || /\.json$/i.test(trimmed)) {
+        return null;
+      }
+      return trimmed;
     };
 
     const buildRefObject = (normalizedPath) =>
-      normalizedPath ? { "/": normalizedPath } : null;
+      normalizedPath ? normalizedPath : null;
 
     if (typeof value === "string") {
       return buildRefObject(normalizeStringPath(value));
@@ -123,10 +127,6 @@ function createRelationshipPayload(fromPath, toPath, extras = {}) {
 
   const hasFrom = fromValue != null;
   const hasTo = toValue != null;
-
-  if (!hasFrom && !hasTo && Object.keys(payload).length === 0) {
-    return null;
-  }
 
   payload.from = hasFrom ? fromValue : null;
   payload.to = hasTo ? toValue : null;
