@@ -7895,11 +7895,8 @@ async function main() {
     : null;
   let selectedUnnormalized =
     normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
-  const preferStructuredForOutput = !!selectedStructured;
 
-  if (selectedStructured) {
-    selectedUnnormalized = null;
-  } else if (!selectedUnnormalized && primaryStructuredCandidate) {
+  if (!selectedUnnormalized && primaryStructuredCandidate) {
     const fallbackFromStructured = normalizeUnnormalizedAddressValue(
       buildFallbackUnnormalizedAddress(primaryStructuredCandidate),
     );
@@ -7926,11 +7923,26 @@ async function main() {
     baseAddressPayload.request_identifier = normalizedRequestIdentifier;
   }
 
-  const fallbackUnnormalizedForOutput =
-    normalizedPrimaryUnnormalized ?? normalizedUnnormalized ?? null;
+  const preferStructuredForOutput = Boolean(
+    selectedStructured && !selectedUnnormalized,
+  );
+  const fallbackUnnormalizedForOutput = selectedUnnormalized ?? null;
   let finalizedAddressRecord = null;
 
-  if (selectedStructured) {
+  const buildUnnormalizedRecord = (value) => {
+    const normalized = normalizeUnnormalizedAddressValue(value);
+    if (!normalized) return null;
+    return {
+      ...baseAddressPayload,
+      unnormalized_address: normalized,
+    };
+  };
+
+  if (selectedUnnormalized && !preferStructuredForOutput) {
+    finalizedAddressRecord = buildUnnormalizedRecord(selectedUnnormalized);
+  }
+
+  if (!finalizedAddressRecord && selectedStructured) {
     const structuredRecord = { ...baseAddressPayload };
     for (const key of STRUCTURED_ADDRESS_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(selectedStructured, key)) {
@@ -7941,13 +7953,7 @@ async function main() {
   }
 
   if (!finalizedAddressRecord && selectedUnnormalized) {
-    const normalized = normalizeUnnormalizedAddressValue(selectedUnnormalized);
-    if (normalized) {
-      finalizedAddressRecord = {
-        ...baseAddressPayload,
-        unnormalized_address: normalized,
-      };
-    }
+    finalizedAddressRecord = buildUnnormalizedRecord(selectedUnnormalized);
   }
 
   if (!finalizedAddressRecord && primaryStructuredCandidate) {
@@ -8029,7 +8035,23 @@ async function main() {
     );
 
     if (enforcedAddress) {
-      addressFileRef = `./${addressFileName}`;
+      const finalPreferMode = preferStructuredForOutput ? "structured" : "unnormalized";
+      const sanitizedFinal =
+        sanitizeAddressForSchema(enforcedAddress, finalPreferMode) ??
+        ensureExclusiveAddressPayloadForWrite(enforcedAddress, finalPreferMode) ??
+        ensureExclusiveAddressMode(enforcedAddress, finalPreferMode) ??
+        enforcedAddress;
+
+      if (sanitizedFinal) {
+        await fsp.writeFile(
+          addressFilePath,
+          JSON.stringify(sanitizedFinal, null, 2),
+        );
+        addressFileRef = `./${addressFileName}`;
+      } else {
+        await fsp.unlink(addressFilePath).catch(() => {});
+        addressFileRef = null;
+      }
     } else {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
