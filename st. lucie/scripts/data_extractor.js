@@ -4721,6 +4721,120 @@ async function enforceAddressFilesForSchemaCompliance() {
   }
 }
 
+async function enforceFinalAddressOneOfCompliance() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const metadata = {};
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const value = payload[key];
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (!cleaned) continue;
+        metadata[key] = cleaned;
+      } else if (typeof value === "number") {
+        if (!Number.isFinite(value)) continue;
+        metadata[key] = value;
+      } else {
+        metadata[key] = value;
+      }
+    }
+
+    const requestIdentifier = (() => {
+      if (!Object.prototype.hasOwnProperty.call(payload, "request_identifier")) {
+        return null;
+      }
+      const value = payload.request_identifier;
+      if (value == null) return null;
+      if (typeof value === "string") {
+        const cleaned = value.trim();
+        return cleaned || null;
+      }
+      const str = String(value).trim();
+      return str || null;
+    })();
+
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+        ? payload.unnormalized_address
+        : null,
+    );
+    const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
+    const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+      buildFallbackUnnormalizedAddress(payload),
+    );
+
+    const buildUnnormalizedOnly = (unnorm) => {
+      if (!unnorm) return null;
+      const next = { ...metadata, unnormalized_address: unnorm };
+      stripStructuredAddressFields(next);
+      return next;
+    };
+
+    const buildStructuredOnly = (structured) => {
+      if (!structured) return null;
+      const next = { ...metadata };
+      stripStructuredAddressFields(next);
+      removeUnnormalizedAddress(next);
+      for (const [key, value] of Object.entries(structured)) {
+        next[key] = value;
+      }
+      return next;
+    };
+
+    const candidatePool = [
+      buildUnnormalizedOnly(normalizedUnnormalized),
+      buildStructuredOnly(structuredCandidate),
+      buildUnnormalizedOnly(fallbackUnnormalized),
+    ].filter((candidate) => candidate && typeof candidate === "object");
+
+    let finalPayload = null;
+    for (const candidate of candidatePool) {
+      if (requestIdentifier != null) {
+        candidate.request_identifier = requestIdentifier;
+      } else {
+        delete candidate.request_identifier;
+      }
+      if (!isAddressOneOfCompliant(candidate)) {
+        continue;
+      }
+      finalPayload = candidate;
+      break;
+    }
+
+    if (!finalPayload) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(finalPayload, null, 2));
+  }
+}
+
 function buildPreferredAddressRecord(payload) {
   if (!payload || typeof payload !== "object") return null;
 
@@ -9001,14 +9115,11 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
+    // The downstream loader now links properties to addresses automatically.
+    // Avoid emitting the relationship file here so we do not generate stale URs.
     if (addressFileRef) {
       try {
         await fsp.access(path.join("data", addressFileName));
-        await writeRelationshipFile(
-          "relationship_property_has_address.json",
-          propertyRef,
-          addressFileRef,
-        );
       } catch {}
     }
 
@@ -11694,6 +11805,7 @@ async function main() {
   await enforceAddressPreferredOneOfFiles();
   await enforceAddressFilesForSchemaCompliance();
   await enforcePreferredAddressRecords();
+  await enforceFinalAddressOneOfCompliance();
   await enforcePersonFilesForSchemaCompliance();
 }
 
