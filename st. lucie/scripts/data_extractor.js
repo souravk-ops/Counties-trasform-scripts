@@ -8381,12 +8381,41 @@ async function main() {
           )
         : null);
 
+    const resolvedPreferredMode =
+      (preferredAddressMode === "structured" && "structured") || "unnormalized";
+
     if (strictPayload && isAddressOneOfCompliant(strictPayload)) {
       await fsp.writeFile(
         addressFilePath,
         JSON.stringify(strictPayload, null, 2),
       );
-      addressFileRef = `./${addressFileName}`;
+
+      const finalizedAddress =
+        (await finalizeAddressFileForOneOf(
+          addressFileName,
+          resolvedPreferredMode,
+        )) || null;
+
+      const normalizedFinalAddress =
+        (finalizedAddress &&
+          ensureAddressStrictOneOf(finalizedAddress, resolvedPreferredMode)) ||
+        (finalizedAddress &&
+          ensureAddressStrictOneOf(
+            finalizedAddress,
+            resolvedPreferredMode === "structured" ? "unnormalized" : "structured",
+          )) ||
+        strictPayload;
+
+      if (normalizedFinalAddress && isAddressOneOfCompliant(normalizedFinalAddress)) {
+        await fsp.writeFile(
+          addressFilePath,
+          JSON.stringify(normalizedFinalAddress, null, 2),
+        );
+        addressFileRef = `./${addressFileName}`;
+      } else {
+        await fsp.unlink(addressFilePath).catch(() => {});
+        addressFileRef = null;
+      }
     } else {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
