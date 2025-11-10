@@ -1500,6 +1500,14 @@ function ensureExclusiveAddressMode(address) {
     typeof normalizedUnnormalized === "string" &&
     normalizedUnnormalized.length > 0;
 
+  if (hasUnnormalized) {
+    clone.unnormalized_address = normalizedUnnormalized;
+  } else if (
+    Object.prototype.hasOwnProperty.call(clone, "unnormalized_address")
+  ) {
+    delete clone.unnormalized_address;
+  }
+
   if (hasStructured && hasUnnormalized) {
     if (normalizedUnnormalized) {
       clone.unnormalized_address = normalizedUnnormalized;
