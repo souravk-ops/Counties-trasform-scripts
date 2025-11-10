@@ -4652,17 +4652,15 @@ async function enforceAddressFilesForSchemaCompliance() {
     return;
   }
 
-  const metadataKeys = ["request_identifier", ...ADDRESS_METADATA_KEYS];
-
   for (const fileName of entries) {
     if (!/address\.json$/i.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
     let payload;
+
     try {
-      const raw = await fsp.readFile(filePath, "utf8");
-      payload = JSON.parse(raw);
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
     } catch {
       await fsp.unlink(filePath).catch(() => {});
       continue;
@@ -4673,187 +4671,104 @@ async function enforceAddressFilesForSchemaCompliance() {
       continue;
     }
 
-    const baseRecord = buildFinalAddressRecord(payload, false);
-    if (
-      !baseRecord ||
-      typeof baseRecord !== "object" ||
-      Object.keys(baseRecord).length === 0
-    ) {
+    const sanitized =
+      sanitizeAddressRecordForSchemaOutput(payload) ||
+      buildStrictAddressPayload(payload);
+
+    if (!sanitized || typeof sanitized !== "object") {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const preferMode = Object.prototype.hasOwnProperty.call(
-      baseRecord,
-      "unnormalized_address",
-    )
-      ? "unnormalized"
-      : "structured";
+    const normalized =
+      enforcePreferredAddressMode(sanitized) ||
+      sanitizeAddressForSchema(sanitized, "unnormalized") ||
+      sanitizeAddressForSchema(sanitized, "structured");
 
-    const strictCandidate =
-      ensureAddressStrictOneOf(baseRecord, preferMode) ||
-      ensureAddressStrictOneOf(
-        baseRecord,
-        preferMode === "unnormalized" ? "structured" : "unnormalized",
-      ) ||
-      sanitizeAddressRecordForSchemaOutput(baseRecord);
-
-    if (
-      !strictCandidate ||
-      typeof strictCandidate !== "object" ||
-      Object.keys(strictCandidate).length === 0
-    ) {
+    if (!normalized || typeof normalized !== "object") {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
 
-    const exclusive =
-      ensureExclusiveAddressMode(strictCandidate, preferMode) ||
-      ensureExclusiveAddressMode(strictCandidate) ||
-      strictCandidate;
+    const requestIdentifier = coerceRequestIdentifier(
+      Object.prototype.hasOwnProperty.call(normalized, "request_identifier")
+        ? normalized.request_identifier
+        : null,
+    );
 
-    if (!exclusive || typeof exclusive !== "object") {
-      await fsp.unlink(filePath).catch(() => {});
-      continue;
+    if (requestIdentifier != null) {
+      normalized.request_identifier = requestIdentifier;
+    } else {
+      delete normalized.request_identifier;
     }
 
-    const metadata = {};
-    for (const key of metadataKeys) {
-      if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
-      const value = exclusive[key];
-      if (value == null) continue;
-      if (typeof value === "number") {
-        if (!Number.isFinite(value)) continue;
-        metadata[key] = value;
-        continue;
-      }
-      if (typeof value === "string") {
-        const cleaned = textClean(value);
-        if (!cleaned) continue;
-        metadata[key] = cleaned;
-        continue;
-      }
-      metadata[key] = value;
-    }
-
-    let finalPayload = null;
-
-    if (
-      Object.prototype.hasOwnProperty.call(exclusive, "unnormalized_address") &&
-      exclusive.unnormalized_address != null
-    ) {
-      const normalized = normalizeUnnormalizedAddressValue(
-        exclusive.unnormalized_address,
+    if (hasUnnormalizedAddressValue(normalized)) {
+      const normalizedValue = normalizeUnnormalizedAddressValue(
+        normalized.unnormalized_address,
       );
-      if (!normalized) {
+      if (!normalizedValue) {
         await fsp.unlink(filePath).catch(() => {});
         continue;
       }
-      finalPayload = {
-        ...metadata,
-        unnormalized_address: normalized,
-      };
-    } else {
-      const structured = {};
-      let hasStructured = true;
 
-      for (const key of STRUCTURED_ADDRESS_REQUIRED_KEYS) {
-        if (!Object.prototype.hasOwnProperty.call(exclusive, key)) {
-          hasStructured = false;
-          break;
+      stripStructuredAddressFields(normalized);
+      normalized.unnormalized_address = normalizedValue;
+    } else {
+      const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+        const value = normalized[key];
+        if (typeof value === "string") {
+          return value.trim().length > 0;
         }
-        const rawValue = exclusive[key];
-        if (rawValue == null) {
-          hasStructured = false;
-          break;
-        }
-        if (typeof rawValue === "string") {
-          const trimmed = rawValue.trim();
-          if (!trimmed) {
-            hasStructured = false;
-            break;
-          }
-          if (key === "city_name" || key === "state_code") {
-            structured[key] = trimmed.toUpperCase();
-          } else if (
-            key === "postal_code" ||
-            key === "plus_four_postal_code"
-          ) {
-            structured[key] = trimmed.replace(/\s+/g, "");
-          } else {
-            const cleaned = textClean(trimmed);
-            if (!cleaned) {
-              hasStructured = false;
-              break;
-            }
-            structured[key] = cleaned;
-          }
-        } else if (typeof rawValue === "number") {
-          structured[key] = rawValue;
-        } else {
-          hasStructured = false;
-          break;
-        }
-      }
+        return value != null;
+      });
 
       if (!hasStructured) {
         await fsp.unlink(filePath).catch(() => {});
         continue;
       }
 
-      for (const key of STRUCTURED_ADDRESS_OPTIONAL_KEYS) {
-        if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
-        const rawValue = exclusive[key];
-        if (rawValue == null) continue;
-        if (typeof rawValue === "string") {
-          const trimmed = rawValue.trim();
-          if (!trimmed) continue;
+      removeUnnormalizedAddress(normalized);
+
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (!Object.prototype.hasOwnProperty.call(normalized, key)) continue;
+        const value = normalized[key];
+        if (value == null) {
+          delete normalized[key];
+          continue;
+        }
+        if (typeof value === "string") {
+          let cleaned = textClean(value);
+          if (!cleaned) {
+            delete normalized[key];
+            continue;
+          }
           if (key === "city_name" || key === "state_code") {
-            structured[key] = trimmed.toUpperCase();
+            cleaned = cleaned.toUpperCase();
           } else if (
             key === "postal_code" ||
             key === "plus_four_postal_code"
           ) {
-            structured[key] = trimmed.replace(/\s+/g, "");
-          } else {
-            const cleaned = textClean(trimmed);
-            if (!cleaned) continue;
-            if (
-              key === "street_pre_directional_text" ||
-              key === "street_post_directional_text"
-            ) {
-              const normalizedDirectional =
-                normalizeStreetDirectional(cleaned);
-              if (!normalizedDirectional) continue;
-              structured[key] = normalizedDirectional;
-            } else if (key === "street_suffix_type") {
-              const normalizedSuffix = normalizeStreetSuffix(cleaned);
-              if (!normalizedSuffix) continue;
-              structured[key] = normalizedSuffix;
-            } else {
-              structured[key] = cleaned;
-            }
+            cleaned = cleaned.replace(/\s+/g, "");
+          } else if (
+            key === "street_pre_directional_text" ||
+            key === "street_post_directional_text"
+          ) {
+            cleaned = normalizeStreetDirectional(cleaned) || null;
+          } else if (key === "street_suffix_type") {
+            cleaned = normalizeStreetSuffix(cleaned) || null;
           }
-        } else if (typeof rawValue === "number") {
-          structured[key] = rawValue;
-        } else {
-          structured[key] = rawValue;
+
+          if (cleaned == null) {
+            delete normalized[key];
+            continue;
+          }
+
+          normalized[key] = cleaned;
         }
       }
-
-      finalPayload = { ...metadata, ...structured };
     }
 
-    if (
-      !finalPayload ||
-      typeof finalPayload !== "object" ||
-      Object.keys(finalPayload).length === 0
-    ) {
-      await fsp.unlink(filePath).catch(() => {});
-      continue;
-    }
-
-    await fsp.writeFile(filePath, JSON.stringify(finalPayload, null, 2));
+    await fsp.writeFile(filePath, JSON.stringify(normalized, null, 2));
   }
 }
 
@@ -11540,6 +11455,9 @@ async function main() {
       );
     }
   }
+
+  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
+  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
 
   await enforceAddressFilesForSchemaCompliance();
   await enforcePersonFilesForSchemaCompliance();
