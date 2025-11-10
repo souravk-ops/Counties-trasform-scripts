@@ -7572,6 +7572,38 @@ function sanitizePersonForSchemaOutput(person) {
   return sanitized;
 }
 
+async function loadValidatedPersonRecord(fileName) {
+  if (!fileName || typeof fileName !== "string") return null;
+  const normalizedName = fileName.startsWith("./")
+    ? fileName.slice(2)
+    : fileName;
+  const personPath = path.join("data", normalizedName);
+  try {
+    const raw = await fsp.readFile(personPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const last = typeof parsed.last_name === "string" ? parsed.last_name : "";
+    const first = typeof parsed.first_name === "string" ? parsed.first_name : "";
+    const middle =
+      parsed.middle_name != null ? String(parsed.middle_name) : null;
+
+    if (!PERSON_NAME_PATTERN.test(first) || !PERSON_NAME_PATTERN.test(last)) {
+      return null;
+    }
+    if (
+      middle != null &&
+      !PERSON_MIDDLE_NAME_PATTERN.test(middle)
+    ) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function buildPersonDisplayName(person) {
   if (!person) return null;
   const parts = [
@@ -11070,18 +11102,27 @@ async function main() {
     if (currentOwnerRecord  && mailingAddressOut) {
       const latestOwnerMeta = ownerToFileMap.get(currentOwnerRecord.id);
       if (latestOwnerMeta && latestOwnerMeta.type === "person") {
-        const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
-        const wroteRelationship = await writeRelationshipFile(
-          relFileName,
-          `./${latestOwnerMeta.fileName}`,
-          "./mailing_address.json",
+        const validatedMailingPerson = await loadValidatedPersonRecord(
+          latestOwnerMeta.fileName,
         );
-        if (wroteRelationship) {
-          console.log(`Created mailing address relationship: ${relFileName}`);
-        } else {
+        if (!validatedMailingPerson) {
           console.log(
-            `Skipped mailing address relationship ${relFileName} due to unresolved reference.`,
+            `Skipped mailing address relationship for ${latestOwnerMeta.fileName} due to invalid person schema.`,
           );
+        } else {
+          const relFileName = `relationship_${latestOwnerMeta.type}_${latestOwnerMeta.index}_has_mailing_address.json`;
+          const wroteRelationship = await writeRelationshipFile(
+            relFileName,
+            `./${latestOwnerMeta.fileName}`,
+            "./mailing_address.json",
+          );
+          if (wroteRelationship) {
+            console.log(`Created mailing address relationship: ${relFileName}`);
+          } else {
+            console.log(
+              `Skipped mailing address relationship ${relFileName} due to unresolved reference.`,
+            );
+          }
         }
       } else {
         console.log("Warning: Could not find eligible person metadata for currentOwnerRecord to create mailing address relationship.");
@@ -11156,6 +11197,16 @@ async function main() {
           !PERSON_NAME_PATTERN.test(finalPerson.first_name || "") ||
           !PERSON_NAME_PATTERN.test(finalPerson.last_name || "")
         ) {
+          continue;
+        }
+
+        const validatedPropertyPerson = await loadValidatedPersonRecord(
+          meta.fileName,
+        );
+        if (!validatedPropertyPerson) {
+          console.log(
+            `Skipping property_has_person relationship for ${meta.fileName} because the person record failed schema validation.`,
+          );
           continue;
         }
 
@@ -11380,12 +11431,30 @@ async function main() {
         if (sale._grantee_record_id) {
           const granteeMeta = ownerToFileMap.get(sale._grantee_record_id);
           if (granteeMeta) {
-            const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
-            await writeRelationshipFile(
-              relFileName,
-              `./${saleFileName}`,
-              `./${granteeMeta.fileName}`,
-            );
+            if (granteeMeta.type === "person") {
+              const validatedGrantee = await loadValidatedPersonRecord(
+                granteeMeta.fileName,
+              );
+              if (!validatedGrantee) {
+                console.log(
+                  `Skipping sales_history_has_person relationship for ${granteeMeta.fileName} due to invalid person schema.`,
+                );
+              } else {
+                const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
+                await writeRelationshipFile(
+                  relFileName,
+                  `./${saleFileName}`,
+                  `./${granteeMeta.fileName}`,
+                );
+              }
+            } else {
+              const relFileName = `relationship_sales_history_${i + 1}_has_${granteeMeta.type}_${granteeMeta.index}.json`;
+              await writeRelationshipFile(
+                relFileName,
+                `./${saleFileName}`,
+                `./${granteeMeta.fileName}`,
+              );
+            }
           }
         }
         // --- End of sales_history_has_person/company relationships ---
