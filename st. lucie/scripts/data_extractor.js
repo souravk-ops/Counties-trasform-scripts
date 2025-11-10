@@ -8019,7 +8019,21 @@ async function main() {
       addressFilePath,
       JSON.stringify(finalAddressOutput, null, 2),
     );
-    addressFileRef = `./${addressFileName}`;
+
+    const enforcedAddress = await enforceFinalAddressSchema(
+      addressFileName,
+      {
+        preferStructured: Boolean(preferStructuredForOutput),
+        fallbackUnnormalized: fallbackUnnormalizedForOutput,
+      },
+    );
+
+    if (enforcedAddress) {
+      addressFileRef = `./${addressFileName}`;
+    } else {
+      await fsp.unlink(addressFilePath).catch(() => {});
+      addressFileRef = null;
+    }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
   }
