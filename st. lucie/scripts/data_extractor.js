@@ -163,6 +163,39 @@ function canonicalStringify(value) {
   return `{${entries.join(",")}}`;
 }
 
+const ADDRESS_RELATIONSHIP_FIELD_HINTS = new Set([
+  "unnormalized_address",
+  "street_number",
+  "street_name",
+  "street_post_directional_text",
+  "street_pre_directional_text",
+  "street_suffix_type",
+  "city_name",
+  "state_code",
+  "postal_code",
+  "plus_four_postal_code",
+]);
+
+const PERSON_RELATIONSHIP_FIELD_HINTS = new Set([
+  "first_name",
+  "last_name",
+  "middle_name",
+]);
+
+function endpointLooksLikeAddress(endpoint) {
+  if (!endpoint || typeof endpoint !== "object") return false;
+  return Object.keys(endpoint).some((key) =>
+    ADDRESS_RELATIONSHIP_FIELD_HINTS.has(key),
+  );
+}
+
+function endpointLooksLikePerson(endpoint) {
+  if (!endpoint || typeof endpoint !== "object") return false;
+  return Object.keys(endpoint).some((key) =>
+    PERSON_RELATIONSHIP_FIELD_HINTS.has(key),
+  );
+}
+
 function normalizeRelationshipEndpoint(endpoint, entityMap) {
   if (endpoint == null) return null;
 
@@ -173,30 +206,8 @@ function normalizeRelationshipEndpoint(endpoint, entityMap) {
   }
 
   if (endpoint && typeof endpoint === "object") {
-    const endpointKeys = Object.keys(endpoint);
-    const addressIndicativeKeys = new Set([
-      "unnormalized_address",
-      "street_number",
-      "street_name",
-      "street_post_directional_text",
-      "street_pre_directional_text",
-      "street_suffix_type",
-      "city_name",
-      "state_code",
-      "postal_code",
-      "plus_four_postal_code",
-    ]);
-    const personIndicativeKeys = new Set([
-      "first_name",
-      "last_name",
-      "middle_name",
-    ]);
-    const looksLikeAddress = endpointKeys.some((key) =>
-      addressIndicativeKeys.has(key),
-    );
-    const looksLikePerson = endpointKeys.some((key) =>
-      personIndicativeKeys.has(key),
-    );
+    const looksLikeAddress = endpointLooksLikeAddress(endpoint);
+    const looksLikePerson = endpointLooksLikePerson(endpoint);
 
     for (const key of ["/", "path", "ref", "href"]) {
       if (typeof endpoint[key] === "string") {
@@ -303,6 +314,247 @@ function normalizeRelationshipEndpoint(endpoint, entityMap) {
   return null;
 }
 
+function detectRelationshipEndpointKind(endpoint) {
+  if (!endpoint || typeof endpoint !== "object") return null;
+  if (endpointLooksLikeAddress(endpoint)) return "address";
+  if (endpointLooksLikePerson(endpoint)) return "person";
+  return null;
+}
+
+function nextAutoEntityFileName(type, existingFiles, autoEntityCounters) {
+  const normalizedType = type === "person" ? "person" : "address";
+  const prefix =
+    normalizedType === "address"
+      ? "address_relationship_"
+      : "person_relationship_";
+  const counters = autoEntityCounters;
+  counters[normalizedType] =
+    typeof counters[normalizedType] === "number"
+      ? counters[normalizedType]
+      : 0;
+
+  let candidate;
+  do {
+    counters[normalizedType] += 1;
+    candidate = `${prefix}${counters[normalizedType]}.json`;
+  } while (existingFiles.has(candidate));
+
+  existingFiles.add(candidate);
+  return candidate;
+}
+
+function registerEntityCanonical(entityMap, canonical, ref) {
+  if (!canonical || !ref) return;
+  if (!entityMap.has(canonical)) {
+    entityMap.set(canonical, []);
+  }
+  const refs = entityMap.get(canonical);
+  if (Array.isArray(refs) && !refs.includes(ref)) {
+    refs.push(ref);
+  }
+}
+
+function sanitizeAddressEndpointPayload(endpoint) {
+  if (!endpoint || typeof endpoint !== "object") return null;
+
+  const candidateSources = [
+    endpoint,
+    buildAddressOneOfPayload(endpoint),
+    ensureExclusiveAddressPayloadForWrite(endpoint, "structured"),
+    ensureExclusiveAddressPayloadForWrite(endpoint, "unnormalized"),
+  ];
+
+  for (const candidate of candidateSources) {
+    if (!candidate || typeof candidate !== "object") continue;
+
+    const structuredCandidate = ensureExclusiveAddressPayloadForWrite(
+      candidate,
+      "structured",
+    );
+    if (structuredCandidate && isAddressOneOfCompliant(structuredCandidate)) {
+      return structuredCandidate;
+    }
+
+    const unnormalizedCandidate = ensureExclusiveAddressPayloadForWrite(
+      candidate,
+      "unnormalized",
+    );
+    if (
+      unnormalizedCandidate &&
+      isAddressOneOfCompliant(unnormalizedCandidate)
+    ) {
+      return unnormalizedCandidate;
+    }
+
+    if (isAddressOneOfCompliant(candidate)) {
+      return ensureExclusiveAddressPayloadForWrite(candidate, "structured") ??
+        ensureExclusiveAddressPayloadForWrite(candidate, "unnormalized") ??
+        candidate;
+    }
+  }
+
+  const fallbackNormalized = makeOneOfCompliantAddress(endpoint, {
+    fallbackUnnormalized:
+      endpoint?.unnormalized_address ?? endpoint?.full_address ?? null,
+    preferStructured: addressHasStructuredValues(endpoint),
+  });
+
+  if (fallbackNormalized && typeof fallbackNormalized === "object") {
+    const preferStructured = addressHasStructuredValues(fallbackNormalized);
+    const exclusivePreferred = ensureExclusiveAddressPayloadForWrite(
+      fallbackNormalized,
+      preferStructured ? "structured" : "unnormalized",
+    );
+    if (exclusivePreferred && isAddressOneOfCompliant(exclusivePreferred)) {
+      return exclusivePreferred;
+    }
+    const exclusiveOpposite = ensureExclusiveAddressPayloadForWrite(
+      fallbackNormalized,
+      preferStructured ? "unnormalized" : "structured",
+    );
+    if (exclusiveOpposite && isAddressOneOfCompliant(exclusiveOpposite)) {
+      return exclusiveOpposite;
+    }
+  }
+
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    endpoint?.unnormalized_address ?? endpoint?.full_address ?? null,
+  );
+  if (normalizedUnnormalized) {
+    const payload = { unnormalized_address: normalizedUnnormalized };
+    if (isAddressOneOfCompliant(payload)) return payload;
+  }
+
+  return null;
+}
+
+function sanitizePersonEndpointPayload(endpoint) {
+  if (!endpoint || typeof endpoint !== "object") return null;
+
+  const fallbackApplied = ensurePersonNameFallback(endpoint);
+  const sanitized = sanitizePersonForSchemaOutput(fallbackApplied);
+  if (!sanitized) return null;
+
+  const enforced = enforcePersonNamePatterns(sanitized);
+  if (!enforced) return null;
+
+  const harmonized = ensurePersonNameFallback(enforced);
+  const final = sanitizePersonForSchemaOutput(harmonized);
+  if (!final) return null;
+
+  if (
+    !PERSON_NAME_PATTERN.test(final.first_name || "") ||
+    !PERSON_NAME_PATTERN.test(final.last_name || "")
+  ) {
+    return null;
+  }
+
+  if (
+    final.middle_name != null &&
+    !PERSON_MIDDLE_NAME_PATTERN.test(final.middle_name)
+  ) {
+    final.middle_name = null;
+  }
+
+  return {
+    ...final,
+    middle_name: final.middle_name ?? null,
+  };
+}
+
+async function createOrReuseAddressEntity(
+  endpoint,
+  entityMap,
+  existingFiles,
+  autoEntityCounters,
+) {
+  const sanitized = sanitizeAddressEndpointPayload(endpoint);
+  if (!sanitized) return null;
+
+  const canonical = canonicalStringify(sanitized);
+  if (canonical && entityMap.has(canonical)) {
+    const refs = entityMap.get(canonical);
+    if (Array.isArray(refs) && refs.length > 0) {
+      return { "/": refs[0] };
+    }
+  }
+
+  if (!canonical) return null;
+
+  const fileName = nextAutoEntityFileName(
+    "address",
+    existingFiles,
+    autoEntityCounters,
+  );
+  const filePath = path.join("data", fileName);
+  await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+
+  const ref = `./${fileName}`;
+  registerEntityCanonical(entityMap, canonical, ref);
+  return { "/": ref };
+}
+
+async function createOrReusePersonEntity(
+  endpoint,
+  entityMap,
+  existingFiles,
+  autoEntityCounters,
+) {
+  const sanitized = sanitizePersonEndpointPayload(endpoint);
+  if (!sanitized) return null;
+
+  const canonical = canonicalStringify(sanitized);
+  if (canonical && entityMap.has(canonical)) {
+    const refs = entityMap.get(canonical);
+    if (Array.isArray(refs) && refs.length > 0) {
+      return { "/": refs[0] };
+    }
+  }
+
+  if (!canonical) return null;
+
+  const fileName = nextAutoEntityFileName(
+    "person",
+    existingFiles,
+    autoEntityCounters,
+  );
+  const filePath = path.join("data", fileName);
+  await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+
+  const ref = `./${fileName}`;
+  registerEntityCanonical(entityMap, canonical, ref);
+  return { "/": ref };
+}
+
+async function resolveRelationshipEndpointWithFallback(
+  endpoint,
+  entityMap,
+  existingFiles,
+  autoEntityCounters,
+) {
+  const normalized = normalizeRelationshipEndpoint(endpoint, entityMap);
+  if (normalized) return normalized;
+
+  const kind = detectRelationshipEndpointKind(endpoint);
+  if (kind === "address") {
+    return await createOrReuseAddressEntity(
+      endpoint,
+      entityMap,
+      existingFiles,
+      autoEntityCounters,
+    );
+  }
+  if (kind === "person") {
+    return await createOrReusePersonEntity(
+      endpoint,
+      entityMap,
+      existingFiles,
+      autoEntityCounters,
+    );
+  }
+  return null;
+}
+
 async function sanitizeRelationshipFiles() {
   let entries;
   try {
@@ -313,6 +565,8 @@ async function sanitizeRelationshipFiles() {
 
   const relationshipPattern = /^relationship_.*\.json$/i;
   const entityMap = new Map();
+  const existingFiles = new Set(entries);
+  const autoEntityCounters = { address: 0, person: 0 };
 
   for (const fileName of entries) {
     if (relationshipPattern.test(fileName)) continue;
@@ -327,10 +581,25 @@ async function sanitizeRelationshipFiles() {
     const canonical = canonicalStringify(payload);
     if (!canonical) continue;
     const ref = `./${fileName}`;
-    if (!entityMap.has(canonical)) {
-      entityMap.set(canonical, []);
+    registerEntityCanonical(entityMap, canonical, ref);
+
+    const addressMatch = fileName.match(
+      /^address_relationship_(\d+)\.json$/i,
+    );
+    if (addressMatch) {
+      const idx = parseInt(addressMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.address = Math.max(autoEntityCounters.address, idx);
+      }
     }
-    entityMap.get(canonical).push(ref);
+
+    const personMatch = fileName.match(/^person_relationship_(\d+)\.json$/i);
+    if (personMatch) {
+      const idx = parseInt(personMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.person = Math.max(autoEntityCounters.person, idx);
+      }
+    }
   }
 
   for (const fileName of entries) {
@@ -348,11 +617,18 @@ async function sanitizeRelationshipFiles() {
       continue;
     }
 
-    const normalizedFrom = normalizeRelationshipEndpoint(
+    const normalizedFrom = await resolveRelationshipEndpointWithFallback(
       payload.from,
       entityMap,
+      existingFiles,
+      autoEntityCounters,
     );
-    const normalizedTo = normalizeRelationshipEndpoint(payload.to, entityMap);
+    const normalizedTo = await resolveRelationshipEndpointWithFallback(
+      payload.to,
+      entityMap,
+      existingFiles,
+      autoEntityCounters,
+    );
 
     if (!normalizedFrom || !normalizedTo) {
       await fsp.unlink(filePath).catch(() => {});
