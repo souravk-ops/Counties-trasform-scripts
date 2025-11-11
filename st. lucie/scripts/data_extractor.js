@@ -5025,6 +5025,45 @@ async function enforceStrictAddressOutputs() {
   }
 }
 
+async function enforceAddressCanonicalOutputs() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const canonical =
+      sanitizeAddressRecordForOneOf(payload, true) ||
+      sanitizeAddressRecordForOneOf(payload, false);
+    if (!canonical) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const strict = coerceAddressToStrictOneOfPayload(canonical);
+    if (!strict || !isAddressOneOfCompliant(strict)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(strict, null, 2));
+  }
+}
+
 async function harmonizeAddressFileForSchema(
   fileName,
   {
@@ -12089,6 +12128,7 @@ async function main() {
   await enforcePreferredAddressRecords();
   await enforceFinalAddressOneOfCompliance();
   await enforceStrictAddressOutputs();
+  await enforceAddressCanonicalOutputs();
   await enforcePersonFilesForSchemaCompliance();
 }
 
