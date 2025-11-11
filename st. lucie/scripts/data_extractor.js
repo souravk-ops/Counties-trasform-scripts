@@ -11185,33 +11185,20 @@ async function main() {
     unnormalizedAddressCandidate,
   );
 
-  const bestAddressForLocation =
-    unnormalizedAddressCandidate ??
-    baseRequestData?.unnormalized_address ??
-    baseRequestData?.full_address ??
-    propertySeedData?.unnormalized_address ??
-    propertySeedData?.full_address ??
-    unnormalizedAddressData?.unnormalized_address ??
-    unnormalizedAddressData?.full_address ??
-    null;
-
-  const derivedStructuredAddress = deriveStructuredAddressFromStrings(
-    siteAddress,
-    bestAddressForLocation,
-  );
-
   const requestIdentifierValue =
     propertySeedData?.request_identifier ??
     baseRequestData?.request_identifier ??
     unnormalizedAddressData?.request_identifier ??
     null;
 
-  const structuredAddressSources = [
-    derivedStructuredAddress,
+  const normalizedStructuredSources = [
     structuredAddressSource,
     baseRequestData?.normalized_address,
     propertySeedData?.normalized_address,
+    unnormalizedAddressData?.normalized_address,
   ].filter((candidate) => candidate && typeof candidate === "object");
+
+  const structuredAddressSources = [...normalizedStructuredSources];
 
   const unnormalizedAddressCandidates = [
     normalizedUnnormalized,
@@ -11289,10 +11276,7 @@ async function main() {
     );
 
   const hasAuthoritativeStructuredSource =
-    Boolean(structuredAddressSource) ||
-    Boolean(baseRequestData?.normalized_address) ||
-    Boolean(propertySeedData?.normalized_address) ||
-    Boolean(unnormalizedAddressData?.normalized_address);
+    normalizedStructuredSources.length > 0;
 
   const fallbackFromStructured = sanitizedStructuredCandidate
     ? normalizeUnnormalizedAddressValue(
