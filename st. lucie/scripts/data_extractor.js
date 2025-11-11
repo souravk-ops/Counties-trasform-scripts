@@ -442,11 +442,22 @@ function sanitizePersonEndpointPayload(endpoint) {
   const final = sanitizePersonForSchemaOutput(harmonized);
   if (!final) return null;
 
-  if (
-    !PERSON_NAME_PATTERN.test(final.first_name || "") ||
-    !PERSON_NAME_PATTERN.test(final.last_name || "")
-  ) {
-    return null;
+  const fallbackName =
+    normalizeNameToPattern("Unknown", PERSON_NAME_PATTERN) || "Unknown";
+
+  if (!PERSON_NAME_PATTERN.test(final.first_name || "")) {
+    const coercedFirst = normalizeNameToPattern(
+      final.first_name,
+      PERSON_NAME_PATTERN,
+    );
+    final.first_name = coercedFirst || fallbackName;
+  }
+  if (!PERSON_NAME_PATTERN.test(final.last_name || "")) {
+    const coercedLast = normalizeNameToPattern(
+      final.last_name,
+      PERSON_NAME_PATTERN,
+    );
+    final.last_name = coercedLast || fallbackName;
   }
 
   if (
@@ -456,16 +467,19 @@ function sanitizePersonEndpointPayload(endpoint) {
     final.middle_name = null;
   }
 
-  const normalizedFirst = normalizeNameToPattern(
+  let normalizedFirst = normalizeNameToPattern(
     final.first_name,
     PERSON_NAME_PATTERN,
   );
-  const normalizedLast = normalizeNameToPattern(
+  let normalizedLast = normalizeNameToPattern(
     final.last_name,
     PERSON_NAME_PATTERN,
   );
-  if (!normalizedFirst || !normalizedLast) {
-    return null;
+  if (!normalizedFirst) {
+    normalizedFirst = fallbackName;
+  }
+  if (!normalizedLast) {
+    normalizedLast = fallbackName;
   }
   final.first_name = normalizedFirst;
   final.last_name = normalizedLast;
