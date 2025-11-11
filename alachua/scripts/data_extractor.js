@@ -85,91 +85,6 @@ const COMPANY_KEYWORDS =
 const SUFFIXES_IGNORE =
   /^(jr|sr|ii|iii|iv|v|vi|vii|viii|ix|x|md|phd|esq|esquire)$/i;
 
-const PROPERTY_IMPROVEMENT_ACTIONS = new Set([
-  "New",
-  "Replacement",
-  "Repair",
-  "Alteration",
-  "Addition",
-  "Remove",
-  "Other",
-]);
-
-const PROPERTY_IMPROVEMENT_TYPES = new Set([
-  "GeneralBuilding",
-  "ResidentialConstruction",
-  "CommercialConstruction",
-  "BuildingAddition",
-  "StructureMove",
-  "Demolition",
-  "PoolSpaInstallation",
-  "Electrical",
-  "MechanicalHVAC",
-  "GasInstallation",
-  "Roofing",
-  "Fencing",
-  "DockAndShore",
-  "FireProtectionSystem",
-  "Plumbing",
-  "ExteriorOpeningsAndFinishes",
-  "MobileHomeRV",
-  "LandscapeIrrigation",
-  "ScreenEnclosure",
-  "ShutterAwning",
-  "SiteDevelopment",
-  "CodeViolation",
-  "Complaint",
-  "ContractorLicense",
-  "Sponsorship",
-  "StateLicenseRegistration",
-  "AdministrativeApproval",
-  "AdministrativeAppeal",
-  "BlueSheetHearing",
-  "PlannedDevelopment",
-  "DevelopmentOfRegionalImpact",
-  "Rezoning",
-  "SpecialExceptionZoning",
-  "Variance",
-  "ZoningExtension",
-  "ZoningVerificationLetter",
-  "RequestForRelief",
-  "WaiverRequest",
-  "InformalMeeting",
-  "EnvironmentalMonitoring",
-  "Vacation",
-  "VegetationRemoval",
-  "ComprehensivePlanAmendment",
-  "MinimumUseDetermination",
-  "TransferDevelopmentRightsDetermination",
-  "MapBoundaryDetermination",
-  "TransferDevelopmentRightsCertificate",
-  "UniformCommunityDevelopment",
-  "SpecialCertificateOfAppropriateness",
-  "CertificateToDig",
-  "HistoricDesignation",
-  "PlanningAdministrativeAppeal",
-  "WellPermit",
-  "Solar",
-  "TestBoring",
-  "ExistingWellInspection",
-  "NaturalResourcesComplaint",
-  "NaturalResourcesViolation",
-  "LetterWaterSewer",
-  "UtilitiesConnection",
-  "DrivewayPermit",
-  "RightOfWayPermit",
-]);
-
-const PROPERTY_IMPROVEMENT_CONTRACTOR_TYPES = new Set([
-  "GeneralContractor",
-  "Specialist",
-  "DIY",
-  "PropertyManager",
-  "Builder",
-  "HandymanService",
-  "Unknown",
-]);
-
 function isCompanyName(txt) {
   if (!txt) return false;
   return COMPANY_KEYWORDS.test(txt);
@@ -1090,48 +1005,26 @@ function findSectionByTitle($, title) {
 function mapPermitImprovementType(typeText) {
   const txt = (typeText || "").toUpperCase();
   if (!txt) return null;
-  if (txt.includes("ROOF")) return "Roofing";
-  if (txt.includes("POOL")) return "PoolSpaInstallation";
+  if (txt.includes("ROOF")) return "Roof";
+  if (txt.includes("POOL")) return "Pool";
   if (txt.includes("SCREEN")) return "ScreenEnclosure";
-  if (txt.includes("FENCE")) return "Fencing";
-  if (txt.includes("REMODEL") || txt.includes("RENOV") || txt.includes("INTERIOR")) {
-    return "GeneralBuilding";
+  if (txt.includes("FENCE")) return "Fence";
+  if (txt.includes("REMODEL") || txt.includes("RENOV")) {
+    return "InteriorRenovation";
   }
-  if (txt.includes("WINDOW") || txt.includes("DOOR") || txt.includes("GLAZ")) {
-    return "ExteriorOpeningsAndFinishes";
-  }
+  if (txt.includes("WINDOW") || txt.includes("DOOR")) return "WindowsDoors";
   if (txt.includes("HVAC") || txt.includes("A/C") || txt.includes("AIR")) {
-    return "MechanicalHVAC";
+    return "HVAC";
   }
   if (txt.includes("ELECTR")) return "Electrical";
   if (txt.includes("PLUMB")) return "Plumbing";
-  if (txt.includes("PAVE") || txt.includes("DRIVE")) return "DrivewayPermit";
+  if (txt.includes("PAVE")) return "Paving";
   if (txt.includes("DOCK") || txt.includes("SHORE")) return "DockAndShore";
-  if (txt.includes("DECK")) return "BuildingAddition";
-  if (txt.includes("SIGN")) return "CommercialConstruction";
+  if (txt.includes("DECK")) return "Deck";
+  if (txt.includes("SIGN")) return "Signage";
   if (txt.includes("DEMOL")) return "Demolition";
-  if (txt.includes("IRRIG")) return "LandscapeIrrigation";
+  if (txt.includes("IRRIG")) return "Irrigation";
   if (txt.includes("SOLAR")) return "Solar";
-  if (txt.includes("GAS")) return "GasInstallation";
-  if (txt.includes("WELL")) return "WellPermit";
-  if (txt.includes("LANDSCAP")) return "LandscapeIrrigation";
-  if (txt.includes("RIGHT OF WAY") || txt.includes("ROW")) return "RightOfWayPermit";
-  if (txt.includes("UTILITY") || txt.includes("UTIL")) return "UtilitiesConnection";
-  if (txt.includes("VARIANCE")) return "Variance";
-  return "GeneralBuilding";
-}
-
-function mapPermitImprovementAction(typeText) {
-  const txt = (typeText || "").toUpperCase();
-  if (!txt) return null;
-  if (txt.includes("NEW") || txt.includes("INSTALL")) return "New";
-  if (txt.includes("REPLACE") || txt.includes("REROOF") || txt.includes("R&R")) {
-    return "Replacement";
-  }
-  if (txt.includes("REPAIR") || txt.includes("MAINT")) return "Repair";
-  if (txt.includes("ALTER")) return "Alteration";
-  if (txt.includes("ADD") || txt.includes("EXPANS")) return "Addition";
-  if (txt.includes("REMOVE") || txt.includes("DEMOL")) return "Remove";
   return "Other";
 }
 
@@ -1827,9 +1720,7 @@ function main() {
   const propertyImprovementOutputs = [];
   const permitEntries = parsePermitTable($);
   permitEntries.forEach((permit, idx) => {
-    const improvementTypeRaw = mapPermitImprovementType(permit.type);
-    const improvementType =
-      improvementTypeRaw || (permit.type ? "GeneralBuilding" : null);
+    const improvementType = mapPermitImprovementType(permit.type);
     const improvementStatus = mapPermitImprovementStatus(permit.active);
     const permitIssueDate = toISOFromMDY(permit.issueDate);
     const estimatedCostAmount = moneyToNumber(permit.value);
@@ -1837,7 +1728,8 @@ function main() {
       permit.permitNumber && permit.permitNumber.length
         ? permit.permitNumber
         : null;
-    const improvementAction = mapPermitImprovementAction(permit.type);
+    const improvementAction =
+      permit.type && permit.type.length ? permit.type : null;
 
     const baseRequestId =
       requestIdentifier || permitNumber || parcelId || propId || "permit";
@@ -1845,41 +1737,23 @@ function main() {
       ? `${baseRequestId}-${permitNumber}`
       : `${baseRequestId}-permit-${idx + 1}`;
 
-    const normalizedImprovementType =
-      improvementType && PROPERTY_IMPROVEMENT_TYPES.has(improvementType)
-        ? improvementType
-        : improvementType
-        ? "GeneralBuilding"
-        : null;
-    const normalizedImprovementAction =
-      improvementAction && PROPERTY_IMPROVEMENT_ACTIONS.has(improvementAction)
-        ? improvementAction
-        : null;
-
     const improvement = {
-      improvement_type: normalizedImprovementType,
+      improvement_type: improvementType || "Other",
       improvement_status: improvementStatus || null,
-      improvement_action: normalizedImprovementAction,
+      improvement_action: improvementAction,
       permit_number: permitNumber,
       permit_issue_date: permitIssueDate,
       completion_date: null,
       permit_required: permitNumber ? true : null,
-      contractor_type: "Unknown",
-      fee:
+      estimated_cost_amount:
         typeof estimatedCostAmount === "number" ? estimatedCostAmount : null,
       request_identifier: improvementRequestId,
     };
 
     const cleanedImprovement = {};
-    const alwaysIncludeKeys = new Set(["completion_date", "contractor_type"]);
     Object.keys(improvement).forEach((key) => {
       const value = improvement[key];
-      if (value === null || value === undefined) {
-        if (alwaysIncludeKeys.has(key)) {
-          cleanedImprovement[key] = null;
-        }
-        return;
-      }
+      if (value === null || value === undefined) return;
       if (typeof value === "string") {
         const trimmed = value.trim();
         if (trimmed) cleanedImprovement[key] = trimmed;
@@ -1888,34 +1762,11 @@ function main() {
       }
     });
 
-    if (!("completion_date" in cleanedImprovement)) {
-      cleanedImprovement.completion_date = null;
-    }
-    if (
-      !("contractor_type" in cleanedImprovement) ||
-      !PROPERTY_IMPROVEMENT_CONTRACTOR_TYPES.has(cleanedImprovement.contractor_type)
-    ) {
-      cleanedImprovement.contractor_type = "Unknown";
-    }
-    if (
-      cleanedImprovement.improvement_action &&
-      !PROPERTY_IMPROVEMENT_ACTIONS.has(cleanedImprovement.improvement_action)
-    ) {
-      cleanedImprovement.improvement_action = null;
-    }
-    if (
-      cleanedImprovement.improvement_type &&
-      !PROPERTY_IMPROVEMENT_TYPES.has(cleanedImprovement.improvement_type)
-    ) {
-      cleanedImprovement.improvement_type = "GeneralBuilding";
-    }
-    delete cleanedImprovement.estimated_cost_amount;
-
     if (!cleanedImprovement.improvement_type && !cleanedImprovement.permit_number) {
       return;
     }
     if (!cleanedImprovement.improvement_type) {
-      cleanedImprovement.improvement_type = "GeneralBuilding";
+      cleanedImprovement.improvement_type = "Other";
     }
 
     const filename = `property_improvement_${propertyImprovementOutputs.length + 1}.json`;
