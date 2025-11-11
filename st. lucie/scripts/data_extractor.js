@@ -575,6 +575,28 @@ async function createOrReuseAddressEntity(
     return null;
   }
 
+  const preferredFinalMode = addressHasStructuredValues(finalAddressPayload)
+    ? "structured"
+    : "unnormalized";
+  const sanitizedFinalAddress =
+    enforcePreferredAddressMode(finalAddressPayload, preferredFinalMode) ||
+    enforcePreferredAddressMode(
+      finalAddressPayload,
+      preferredFinalMode === "structured" ? "unnormalized" : "structured",
+    ) ||
+    ensureExclusiveAddressPayloadForWrite(
+      finalAddressPayload,
+      preferredFinalMode,
+    );
+  if (
+    sanitizedFinalAddress &&
+    isAddressOneOfCompliant(sanitizedFinalAddress)
+  ) {
+    finalAddressPayload = sanitizedFinalAddress;
+  } else if (!isAddressOneOfCompliant(finalAddressPayload)) {
+    return null;
+  }
+
   const canonical = canonicalStringify(finalAddressPayload);
   if (canonical && entityMap.has(canonical)) {
     const refs = entityMap.get(canonical);
@@ -10413,11 +10435,55 @@ async function main() {
   }
 
   if (resolvedAddress) {
-    await fsp.writeFile(
-      addressFilePath,
-      JSON.stringify(resolvedAddress, null, 2),
-    );
-    addressFileRef = `./${addressFileName}`;
+    const preferredModeForWrite = usingStructuredOutput
+      ? "structured"
+      : "unnormalized";
+    const alternateModeForWrite =
+      preferredModeForWrite === "structured"
+        ? "unnormalized"
+        : "structured";
+
+    const sanitizers = [
+      () => enforcePreferredAddressMode(resolvedAddress, preferredModeForWrite),
+      () => enforcePreferredAddressMode(resolvedAddress, alternateModeForWrite),
+      () =>
+        ensureExclusiveAddressPayloadForWrite(
+          resolvedAddress,
+          preferredModeForWrite,
+        ),
+      () =>
+        ensureExclusiveAddressPayloadForWrite(
+          resolvedAddress,
+          alternateModeForWrite,
+        ),
+      () => buildStrictAddressPayload(resolvedAddress),
+    ];
+
+    let finalAddressPayload = null;
+    for (const getCandidate of sanitizers) {
+      let candidate = null;
+      try {
+        candidate = getCandidate();
+      } catch {
+        candidate = null;
+      }
+      if (!candidate) continue;
+      if (isAddressOneOfCompliant(candidate)) {
+        finalAddressPayload = candidate;
+        break;
+      }
+    }
+
+    if (!finalAddressPayload) {
+      await fsp.unlink(addressFilePath).catch(() => {});
+      addressFileRef = null;
+    } else {
+      await fsp.writeFile(
+        addressFilePath,
+        JSON.stringify(finalAddressPayload, null, 2),
+      );
+      addressFileRef = `./${addressFileName}`;
+    }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
     addressFileRef = null;
