@@ -490,10 +490,92 @@ async function createOrReuseAddressEntity(
   existingFiles,
   autoEntityCounters,
 ) {
-  const sanitized = sanitizeAddressEndpointPayload(endpoint);
-  if (!sanitized) return null;
+  const sanitizedEndpoint = sanitizeAddressEndpointPayload(endpoint);
+  if (!sanitizedEndpoint) return null;
 
-  const canonical = canonicalStringify(sanitized);
+  const preferUnnormalized = addressHasUnnormalizedValue(sanitizedEndpoint);
+  const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+    endpoint?.unnormalized_address ?? endpoint?.full_address ?? null,
+  );
+
+  const addressCandidates = [
+    prepareAddressForWrite(sanitizedEndpoint, {
+      preferMode: preferUnnormalized ? "unnormalized" : "structured",
+      fallbackUnnormalized,
+    }),
+    prepareAddressForWrite(sanitizedEndpoint, {
+      preferMode: "unnormalized",
+      fallbackUnnormalized,
+    }),
+    prepareAddressForWrite(sanitizedEndpoint, {
+      preferMode: "structured",
+      fallbackUnnormalized,
+    }),
+    ensureExclusiveAddressPayloadForWrite(
+      sanitizedEndpoint,
+      preferUnnormalized ? "unnormalized" : "structured",
+    ),
+    ensureExclusiveAddressPayloadForWrite(
+      sanitizedEndpoint,
+      preferUnnormalized ? "structured" : "unnormalized",
+    ),
+    coerceAddressPayloadToOneOf(sanitizedEndpoint),
+  ].filter((candidate) => candidate && typeof candidate === "object");
+
+  let finalAddressPayload = null;
+  for (const candidate of addressCandidates) {
+    const preferredMode = addressHasUnnormalizedValue(candidate)
+      ? "unnormalized"
+      : addressHasStructuredValues(candidate)
+        ? "structured"
+        : preferUnnormalized
+          ? "unnormalized"
+          : "structured";
+
+    const exclusivePreferred = ensureExclusiveAddressPayloadForWrite(
+      candidate,
+      preferredMode,
+    );
+    if (
+      exclusivePreferred &&
+      isAddressOneOfCompliant(exclusivePreferred)
+    ) {
+      finalAddressPayload =
+        sanitizeAddressForSchema(exclusivePreferred, preferredMode) ||
+        exclusivePreferred;
+      if (finalAddressPayload && isAddressOneOfCompliant(finalAddressPayload)) {
+        break;
+      }
+    }
+
+    const alternateMode = preferredMode === "structured"
+      ? "unnormalized"
+      : "structured";
+    const exclusiveAlternate = ensureExclusiveAddressPayloadForWrite(
+      candidate,
+      alternateMode,
+    );
+    if (
+      exclusiveAlternate &&
+      isAddressOneOfCompliant(exclusiveAlternate)
+    ) {
+      finalAddressPayload =
+        sanitizeAddressForSchema(exclusiveAlternate, alternateMode) ||
+        exclusiveAlternate;
+      if (finalAddressPayload && isAddressOneOfCompliant(finalAddressPayload)) {
+        break;
+      }
+    }
+  }
+
+  if (
+    !finalAddressPayload ||
+    !isAddressOneOfCompliant(finalAddressPayload)
+  ) {
+    return null;
+  }
+
+  const canonical = canonicalStringify(finalAddressPayload);
   if (canonical && entityMap.has(canonical)) {
     const refs = entityMap.get(canonical);
     if (Array.isArray(refs) && refs.length > 0) {
@@ -509,7 +591,10 @@ async function createOrReuseAddressEntity(
     autoEntityCounters,
   );
   const filePath = path.join("data", fileName);
-  await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  await fsp.writeFile(
+    filePath,
+    JSON.stringify(finalAddressPayload, null, 2),
+  );
 
   const ref = `./${fileName}`;
   registerEntityCanonical(entityMap, canonical, ref);
