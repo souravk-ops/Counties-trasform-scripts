@@ -811,9 +811,17 @@ async function sanitizeRelationshipFiles() {
       continue;
     }
 
+    const fromRef = normalizeRelationshipRef(normalizedFrom);
+    const toRef = normalizeRelationshipRef(normalizedTo);
+
+    if (!fromRef || !toRef) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
     const sanitized = {
-      from: normalizedFrom,
-      to: normalizedTo,
+      from: { "/": fromRef },
+      to: { "/": toRef },
     };
 
     if (Object.prototype.hasOwnProperty.call(payload, "type")) {
