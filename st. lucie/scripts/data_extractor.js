@@ -9584,121 +9584,65 @@ async function main() {
     }
   }
 
-  const preferStructuredForFinal = preferredAddressMode === "structured";
-  let finalAddressForWrite = addressCandidateForFinal
-    ? buildFinalAddressRecord(
-        addressCandidateForFinal,
-        preferStructuredForFinal,
-      )
-    : null;
-  if (finalAddressForWrite) {
-    finalAddressForWrite =
-      coerceAddressToStrictOneOfPayload(finalAddressForWrite);
-  }
-  if (finalAddressForWrite) {
-    const exclusive =
-      ensureExclusiveAddressMode(
-        finalAddressForWrite,
-        preferredAddressMode || "unnormalized",
-      ) || finalAddressForWrite;
-    finalAddressForWrite = exclusive;
-  }
+  const addressOutputSource = {
+    ...baseAddressPayload,
+    ...(addressCandidateForFinal && typeof addressCandidateForFinal === "object"
+      ? addressCandidateForFinal
+      : {}),
+  };
 
-  if (finalAddressForWrite) {
-    await fsp.writeFile(
-      addressFilePath,
-      JSON.stringify(finalAddressForWrite, null, 2),
-    );
-
-    const preferredModeForFinalize =
-      preferredAddressMode ||
-      (hasStructuredForOutput ? "structured" : "unnormalized");
-    let finalizedAddress =
-      (await finalizeAddressFileForOneOf(
-        addressFileName,
-        preferredModeForFinalize,
-      )) || null;
-    if (finalizedAddress) {
-      finalizedAddress =
-        coerceAddressToStrictOneOfPayload(finalizedAddress);
-    }
-
-    if (finalizedAddress && isAddressOneOfCompliant(finalizedAddress)) {
-      await fsp.writeFile(
-        addressFilePath,
-        JSON.stringify(finalizedAddress, null, 2),
-      );
-      addressFileRef = `./${addressFileName}`;
-    } else if (
-      isAddressOneOfCompliant(finalAddressForWrite)
-    ) {
-      await fsp.writeFile(
-        addressFilePath,
-        JSON.stringify(finalAddressForWrite, null, 2),
-      );
-      addressFileRef = `./${addressFileName}`;
-    } else {
-      await fsp.unlink(addressFilePath).catch(() => {});
-      addressFileRef = null;
-
-      if (
-        preferredAddressMode === "structured" &&
-        typeof fallbackUnnormalizedValue === "string" &&
-        fallbackUnnormalizedValue.length > 0
-      ) {
-        const fallbackPayload = {
-          ...baseAddressPayload,
-          unnormalized_address: fallbackUnnormalizedValue,
-        };
-        let fallbackFinal = buildFinalAddressRecord(
-          fallbackPayload,
-          false,
-        );
-        if (fallbackFinal) {
-          fallbackFinal =
-            coerceAddressToStrictOneOfPayload(fallbackFinal);
-        }
-        if (fallbackFinal) {
-          fallbackFinal =
-            ensureExclusiveAddressMode(fallbackFinal, "unnormalized") ||
-            fallbackFinal;
-        }
-        if (fallbackFinal && isAddressOneOfCompliant(fallbackFinal)) {
-          await fsp.writeFile(
-            addressFilePath,
-            JSON.stringify(fallbackFinal, null, 2),
-          );
-          let finalizedFallback =
-            (await finalizeAddressFileForOneOf(
-              addressFileName,
-              "unnormalized",
-            )) || fallbackFinal;
-          if (finalizedFallback) {
-            finalizedFallback =
-              coerceAddressToStrictOneOfPayload(finalizedFallback);
-          }
-          if (finalizedFallback) {
-            finalizedFallback =
-              ensureExclusiveAddressMode(
-                finalizedFallback,
-                "unnormalized",
-              ) || finalizedFallback;
-          }
-          if (
-            finalizedFallback &&
-            isAddressOneOfCompliant(finalizedFallback)
-          ) {
-            await fsp.writeFile(
-              addressFilePath,
-              JSON.stringify(finalizedFallback, null, 2),
-            );
-            addressFileRef = `./${addressFileName}`;
-          } else {
-            await fsp.unlink(addressFilePath).catch(() => {});
-          }
-        }
+  if (sanitizedStructuredCandidate) {
+    for (const [key, value] of Object.entries(sanitizedStructuredCandidate)) {
+      if (value != null) {
+        addressOutputSource[key] = value;
       }
     }
+  }
+
+  const prioritizedUnnormalized =
+    (typeof normalizedPrimaryUnnormalized === "string" &&
+      normalizedPrimaryUnnormalized.length > 0
+      ? normalizedPrimaryUnnormalized
+      : null) ||
+    (typeof normalizedSourceUnnormalizedValue === "string" &&
+      normalizedSourceUnnormalizedValue.length > 0
+      ? normalizedSourceUnnormalizedValue
+      : null);
+
+  if (
+    prioritizedUnnormalized &&
+    !Object.prototype.hasOwnProperty.call(
+      addressOutputSource,
+      "unnormalized_address",
+    )
+  ) {
+    addressOutputSource.unnormalized_address = prioritizedUnnormalized;
+  }
+
+  if (
+    typeof fallbackUnnormalizedValue === "string" &&
+    fallbackUnnormalizedValue.length > 0 &&
+    !Object.prototype.hasOwnProperty.call(addressOutputSource, "full_address")
+  ) {
+    addressOutputSource.full_address = fallbackUnnormalizedValue;
+  }
+
+  const resolvedAddress =
+    buildAddressOneOfPayload(addressOutputSource) ||
+    (typeof fallbackUnnormalizedValue === "string" &&
+    fallbackUnnormalizedValue.length > 0
+      ? buildAddressOneOfPayload({
+          ...baseAddressPayload,
+          unnormalized_address: fallbackUnnormalizedValue,
+        })
+      : null);
+
+  if (resolvedAddress && isAddressOneOfCompliant(resolvedAddress)) {
+    await fsp.writeFile(
+      addressFilePath,
+      JSON.stringify(resolvedAddress, null, 2),
+    );
+    addressFileRef = `./${addressFileName}`;
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
     addressFileRef = null;
@@ -9817,19 +9761,6 @@ async function main() {
     // Ensure we emit the property_has_address relationship so downstream
     // consumers receive a proper reference payload instead of an embedded
     // address object that violates the relationship schema.
-    if (propertyOut && addressFileRef) {
-      const createdAddressRel = await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
-      if (!createdAddressRel) {
-        console.warn(
-          "Skipped property_has_address relationship due to unresolved reference.",
-        );
-      }
-    }
-
     // Lot data
     const lotOut = {
       request_identifier: baseRequestData.request_identifier || null,
