@@ -6779,7 +6779,8 @@ async function enforcePersonFilesForSchemaCompliance() {
   }
 
   for (const fileName of entries) {
-    if (!/^person_\d+\.json$/.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+    if (!/person/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
     let payload;
@@ -6878,8 +6879,8 @@ async function enforcePersonRecordNamePatterns() {
   }
 
   for (const fileName of entries) {
-    if (!/^person.*\.json$/i.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
+    if (!/person/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
     let payload;
@@ -7098,6 +7099,163 @@ function coerceAddressToPreferredOneOf(payload) {
   }
 
   return null;
+}
+
+function looksLikeAddressPayload(candidate) {
+  if (!candidate || typeof candidate !== "object") return false;
+  if (addressHasUnnormalizedValue(candidate)) return true;
+  return STRUCTURED_ADDRESS_FIELDS.some((key) =>
+    Object.prototype.hasOwnProperty.call(candidate, key),
+  );
+}
+
+function finalizeLooseAddressPayload(candidate) {
+  if (!looksLikeAddressPayload(candidate)) return null;
+
+  const preferStructured = addressHasStructuredValues(candidate);
+  const preferMode = preferStructured ? "structured" : "unnormalized";
+  const alternateMode = preferMode === "structured" ? "unnormalized" : "structured";
+
+  const candidateGenerators = [
+    () => enforcePreferredAddressMode(candidate, preferMode),
+    () => ensureExclusiveAddressPayloadForWrite(candidate, preferMode),
+    () => buildStrictAddressPayload(candidate),
+    () => enforcePreferredAddressMode(candidate, alternateMode),
+    () => ensureExclusiveAddressPayloadForWrite(candidate, alternateMode),
+    () => buildAddressOneOfPayload(candidate),
+    () => simplifyAddressPayloadForOutput(candidate),
+  ];
+
+  for (const getCandidate of candidateGenerators) {
+    let current = null;
+    try {
+      current = getCandidate();
+    } catch {
+      current = null;
+    }
+    if (!current || typeof current !== "object") continue;
+
+    const attempts = [
+      current,
+      simplifyAddressPayloadForOutput(current),
+      ensureExclusiveAddressPayloadForWrite(current, preferMode),
+      ensureExclusiveAddressPayloadForWrite(current, alternateMode),
+      enforcePreferredAddressMode(current, preferMode),
+      enforcePreferredAddressMode(current, alternateMode),
+    ];
+
+    for (const attempt of attempts) {
+      if (!attempt || typeof attempt !== "object") continue;
+      const simplified = simplifyAddressPayloadForOutput(attempt) || attempt;
+      if (simplified && isAddressOneOfCompliant(simplified)) {
+        return simplified;
+      }
+    }
+  }
+
+  const metadata = {};
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
+    const value = candidate[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (cleaned) metadata[key] = cleaned;
+    } else {
+      metadata[key] = value;
+    }
+  }
+
+  const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+    candidate.unnormalized_address ??
+      candidate.full_address ??
+      candidate.address ??
+      candidate.site_address ??
+      candidate.mailing_address ??
+      null,
+  );
+
+  if (fallbackUnnormalized) {
+    return {
+      ...metadata,
+      unnormalized_address: fallbackUnnormalized,
+    };
+  }
+
+  return null;
+}
+
+async function enforceGlobalAddressOneOfCompliance() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!fileName.toLowerCase().endsWith(".json")) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    if (!looksLikeAddressPayload(payload)) continue;
+
+    const sanitized =
+      finalizeLooseAddressPayload(payload) ??
+      finalizeLooseAddressPayload(buildStrictAddressPayload(payload) || {}) ??
+      null;
+
+    if (!sanitized || !isAddressOneOfCompliant(sanitized)) {
+      const fallback = finalizeLooseAddressPayload(
+        simplifyAddressPayloadForOutput(payload) || payload,
+      );
+      if (fallback && isAddressOneOfCompliant(fallback)) {
+        await fsp.writeFile(filePath, JSON.stringify(fallback, null, 2));
+        continue;
+      }
+
+      const metadata = {};
+      for (const key of ADDRESS_METADATA_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+        const value = payload[key];
+        if (value == null) continue;
+        if (typeof value === "string") {
+          const cleaned = textClean(value);
+          if (cleaned) metadata[key] = cleaned;
+        } else {
+          metadata[key] = value;
+        }
+      }
+
+      const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+        payload?.unnormalized_address ??
+          payload?.full_address ??
+          payload?.address ??
+          payload?.site_address ??
+          payload?.mailing_address ??
+          null,
+      );
+
+      if (fallbackUnnormalized) {
+        const minimal = {
+          ...metadata,
+          unnormalized_address: fallbackUnnormalized,
+        };
+        await fsp.writeFile(filePath, JSON.stringify(minimal, null, 2));
+      }
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
 }
 
 async function enforceAddressAllowedKeys() {
@@ -9614,6 +9772,7 @@ async function finalizeEntityOutputs() {
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
 
+  await enforceGlobalAddressOneOfCompliance();
   await enforceAddressAllowedKeys();
   await enforceAddressPreferredOneOfFiles();
   await enforceAddressFilesForSchemaCompliance();
