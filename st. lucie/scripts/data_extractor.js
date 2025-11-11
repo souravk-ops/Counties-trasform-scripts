@@ -5333,6 +5333,93 @@ async function enforceAddressPreferredOutputModes() {
   }
 }
 
+async function enforceAddressExclusiveModeRecords() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const hasStructured = STRUCTURED_ADDRESS_FIELDS.some((key) => {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) return false;
+      const value = payload[key];
+      if (value == null) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      return true;
+    });
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+        ? payload.unnormalized_address
+        : null,
+    );
+    const hasUnnormalized =
+      typeof normalizedUnnormalized === "string" &&
+      normalizedUnnormalized.length > 0;
+
+    if (hasStructured && hasUnnormalized) {
+      const hasRequiredStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+        (key) => {
+          if (!Object.prototype.hasOwnProperty.call(payload, key)) return false;
+          const value = payload[key];
+          if (typeof value === "string") {
+            return value.trim().length > 0;
+          }
+          return value != null;
+        },
+      );
+      if (hasRequiredStructured) {
+        delete payload.unnormalized_address;
+      } else {
+        for (const key of STRUCTURED_ADDRESS_FIELDS) {
+          if (Object.prototype.hasOwnProperty.call(payload, key)) {
+            delete payload[key];
+          }
+        }
+        if (hasUnnormalized) {
+          payload.unnormalized_address = normalizedUnnormalized;
+        }
+      }
+    } else if (hasUnnormalized) {
+      payload.unnormalized_address = normalizedUnnormalized;
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+          delete payload[key];
+        }
+      }
+    }
+
+    const strictPayload = coerceAddressToStrictOneOfPayload(payload);
+    if (!strictPayload || !isAddressOneOfCompliant(strictPayload)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(
+      filePath,
+      JSON.stringify(strictPayload, null, 2),
+    );
+  }
+}
+
 async function harmonizeAddressFileForSchema(
   fileName,
   {
@@ -12399,6 +12486,7 @@ async function main() {
   await enforceStrictAddressOutputs();
   await enforceAddressCanonicalOutputs();
   await enforceAddressPreferredOutputModes();
+  await enforceAddressExclusiveModeRecords();
   await enforceDeterministicAddressOneOfCompliance();
   await enforcePersonFilesForSchemaCompliance();
 }
