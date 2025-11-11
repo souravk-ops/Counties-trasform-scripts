@@ -1042,6 +1042,53 @@ async function dropRelationshipsWithNonReferenceEndpoints() {
   }
 }
 
+async function resetEmbeddedRelationshipsToNull() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const relationshipFilePattern = /^relationship_.*\.json$/i;
+
+  for (const fileName of entries) {
+    if (relationshipFilePattern.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") continue;
+    if (!payload.relationships || typeof payload.relationships !== "object") {
+      continue;
+    }
+
+    const relationships = payload.relationships;
+    let mutated = false;
+
+    for (const key of Object.keys(relationships)) {
+      if (relationships[key] !== null) {
+        relationships[key] = null;
+        mutated = true;
+      }
+    }
+
+    if (mutated) {
+      await fsp.writeFile(
+        filePath,
+        JSON.stringify(payload, null, 2),
+      );
+    }
+  }
+}
+
 async function enforceAddressSingleModeOutputs() {
   let entries;
   try {
@@ -10033,6 +10080,7 @@ async function finalizeEntityOutputs() {
   await enforceRelationshipReferenceEndpoints();
   await enforceStrictRelationshipEndpoints();
   await dropRelationshipsWithNonReferenceEndpoints();
+  await resetEmbeddedRelationshipsToNull();
 }
 
 const propertyTypeMapping = [
