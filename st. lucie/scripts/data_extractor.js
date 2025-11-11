@@ -11074,15 +11074,17 @@ async function main() {
   const canPreferStructuredOutput =
     hasStructuredForOutput && hasAuthoritativeStructuredSource;
 
-  if (canPreferStructuredOutput) {
-    preferredAddressMode = "structured";
-  } else if (hasSourceUnnormalized) {
+  if (hasSourceUnnormalized) {
     preferredAddressMode = "unnormalized";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
   ) {
     preferredAddressMode = "unnormalized";
+  } else if (canPreferStructuredOutput) {
+    preferredAddressMode = "structured";
+  } else if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
   }
   const usingStructuredOutput = preferredAddressMode === "structured";
 
