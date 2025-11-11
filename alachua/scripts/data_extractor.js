@@ -1005,27 +1005,29 @@ function findSectionByTitle($, title) {
 function mapPermitImprovementType(typeText) {
   const txt = (typeText || "").toUpperCase();
   if (!txt) return null;
-  if (txt.includes("ROOF")) return "Roof";
-  if (txt.includes("POOL")) return "Pool";
+  if (txt.includes("ROOF")) return "Roofing";
+  if (txt.includes("POOL")) return "PoolSpaInstallation";
   if (txt.includes("SCREEN")) return "ScreenEnclosure";
-  if (txt.includes("FENCE")) return "Fence";
+  if (txt.includes("FENCE")) return "Fencing";
   if (txt.includes("REMODEL") || txt.includes("RENOV")) {
-    return "InteriorRenovation";
+    return "GeneralBuilding";
   }
-  if (txt.includes("WINDOW") || txt.includes("DOOR")) return "WindowsDoors";
+  if (txt.includes("WINDOW") || txt.includes("DOOR")) {
+    return "ExteriorOpeningsAndFinishes";
+  }
   if (txt.includes("HVAC") || txt.includes("A/C") || txt.includes("AIR")) {
-    return "HVAC";
+    return "MechanicalHVAC";
   }
   if (txt.includes("ELECTR")) return "Electrical";
   if (txt.includes("PLUMB")) return "Plumbing";
-  if (txt.includes("PAVE")) return "Paving";
+  if (txt.includes("PAVE")) return "SiteDevelopment";
   if (txt.includes("DOCK") || txt.includes("SHORE")) return "DockAndShore";
-  if (txt.includes("DECK")) return "Deck";
-  if (txt.includes("SIGN")) return "Signage";
+  if (txt.includes("DECK")) return "BuildingAddition";
+  if (txt.includes("SIGN")) return "GeneralBuilding";
   if (txt.includes("DEMOL")) return "Demolition";
-  if (txt.includes("IRRIG")) return "Irrigation";
+  if (txt.includes("IRRIG")) return "LandscapeIrrigation";
   if (txt.includes("SOLAR")) return "Solar";
-  return "Other";
+  return "GeneralBuilding";
 }
 
 function mapPermitImprovementStatus(activeText) {
@@ -1034,6 +1036,18 @@ function mapPermitImprovementStatus(activeText) {
   if (normalized === "yes" || normalized === "y") return "Active";
   if (normalized === "no" || normalized === "n") return "Completed";
   return null;
+}
+
+function mapPermitImprovementAction(typeText) {
+  const txt = (typeText || "").toUpperCase();
+  if (!txt) return null;
+  if (txt.includes("NEW")) return "New";
+  if (txt.includes("REPLAC")) return "Replacement";
+  if (txt.includes("REPAIR")) return "Repair";
+  if (txt.includes("ALTER")) return "Alteration";
+  if (txt.includes("ADDITION") || txt.includes("ADD")) return "Addition";
+  if (txt.includes("REMOVE") || txt.includes("DEMOL")) return "Remove";
+  return "Other";
 }
 
 function parsePermitTable($) {
@@ -1723,33 +1737,24 @@ function main() {
     const improvementType = mapPermitImprovementType(permit.type);
     const improvementStatus = mapPermitImprovementStatus(permit.active);
     const permitIssueDate = toISOFromMDY(permit.issueDate);
-    const estimatedCostAmount = moneyToNumber(permit.value);
     const permitNumber =
       permit.permitNumber && permit.permitNumber.length
         ? permit.permitNumber
         : null;
-    const improvementAction =
-      permit.type && permit.type.length ? permit.type : null;
-
-    const baseRequestId =
-      requestIdentifier || permitNumber || parcelId || propId || "permit";
-    const improvementRequestId = permitNumber
-      ? `${baseRequestId}-${permitNumber}`
-      : `${baseRequestId}-permit-${idx + 1}`;
+    const improvementAction = mapPermitImprovementAction(permit.type);
 
     const improvement = {
-      improvement_type: improvementType || "Other",
+      improvement_type: improvementType || "GeneralBuilding",
       improvement_status: improvementStatus || null,
       improvement_action: improvementAction,
+      contractor_type: "Unknown",
       permit_number: permitNumber,
       permit_issue_date: permitIssueDate,
       completion_date: null,
       permit_required: permitNumber ? true : null,
-      estimated_cost_amount:
-        typeof estimatedCostAmount === "number" ? estimatedCostAmount : null,
-      request_identifier: improvementRequestId,
     };
 
+    const preserveNullKeys = new Set(["completion_date", "contractor_type"]);
     const cleanedImprovement = {};
     Object.keys(improvement).forEach((key) => {
       const value = improvement[key];
@@ -1762,11 +1767,17 @@ function main() {
       }
     });
 
+    preserveNullKeys.forEach((key) => {
+      if (!(key in cleanedImprovement) && improvement[key] === null) {
+        cleanedImprovement[key] = null;
+      }
+    });
+
     if (!cleanedImprovement.improvement_type && !cleanedImprovement.permit_number) {
       return;
     }
     if (!cleanedImprovement.improvement_type) {
-      cleanedImprovement.improvement_type = "Other";
+      cleanedImprovement.improvement_type = "GeneralBuilding";
     }
 
     const filename = `property_improvement_${propertyImprovementOutputs.length + 1}.json`;
