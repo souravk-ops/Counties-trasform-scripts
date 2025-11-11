@@ -704,6 +704,65 @@ async function sanitizeRelationshipFiles() {
   }
 }
 
+async function enforceRelationshipReferenceEndpoints() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+  const normalizeEndpoint = (endpoint) => {
+    const ref = normalizeRelationshipRef(endpoint);
+    return ref ? { "/": ref } : null;
+  };
+
+  for (const fileName of entries) {
+    if (!relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const normalizedFrom = normalizeEndpoint(payload.from);
+    const normalizedTo = normalizeEndpoint(payload.to);
+    if (!normalizedFrom || !normalizedTo) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = {
+      from: normalizedFrom,
+      to: normalizedTo,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "type")) {
+      const rawType = payload.type;
+      if (rawType == null) {
+        sanitized.type = null;
+      } else if (typeof rawType === "string") {
+        const trimmed = rawType.trim();
+        if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+          sanitized.type = trimmed;
+        }
+      }
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 function textClean(s) {
   // Improved textClean to remove HTML comments and non-breaking spaces more aggressively
   return (s || "")
@@ -13119,6 +13178,7 @@ async function main() {
   await enforceDeterministicAddressOneOfCompliance();
   await enforcePersonFilesForSchemaCompliance();
   await sanitizeRelationshipFiles();
+  await enforceRelationshipReferenceEndpoints();
 }
 
 }
