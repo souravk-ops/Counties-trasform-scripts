@@ -9755,12 +9755,20 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    // The downstream loader now links properties to addresses automatically.
-    // Avoid emitting the relationship file here so we do not generate stale URs.
-    if (addressFileRef) {
-      try {
-        await fsp.access(path.join("data", addressFileName));
-      } catch {}
+    // Ensure we emit the property_has_address relationship so downstream
+    // consumers receive a proper reference payload instead of an embedded
+    // address object that violates the relationship schema.
+    if (propertyOut && addressFileRef) {
+      const createdAddressRel = await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
+      if (!createdAddressRel) {
+        console.warn(
+          "Skipped property_has_address relationship due to unresolved reference.",
+        );
+      }
     }
 
     // Lot data
