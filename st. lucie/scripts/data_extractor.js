@@ -5849,18 +5849,6 @@ function buildPreferredAddressRecord(payload) {
         : null,
   );
 
-  const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
-  if (structuredCandidate) {
-    const record = {
-      ...metadata,
-      ...structuredCandidate,
-    };
-    if (requestIdentifier != null) {
-      record.request_identifier = requestIdentifier;
-    }
-    return record;
-  }
-
   const fallbackCandidates = [
     payload.unnormalized_address,
     payload.full_address,
@@ -5875,6 +5863,18 @@ function buildPreferredAddressRecord(payload) {
     const record = {
       ...metadata,
       unnormalized_address: normalized,
+    };
+    if (requestIdentifier != null) {
+      record.request_identifier = requestIdentifier;
+    }
+    return record;
+  }
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
+  if (structuredCandidate) {
+    const record = {
+      ...metadata,
+      ...structuredCandidate,
     };
     if (requestIdentifier != null) {
       record.request_identifier = requestIdentifier;
@@ -10295,14 +10295,17 @@ async function main() {
     normalizeUnnormalizedAddressValue(fallbackFromStructured);
 
   let addressCandidateForFinal = null;
-  const preferredAddressMode = hasStructuredForOutput
-    ? "structured"
-    : hasSourceUnnormalized
-      ? "unnormalized"
-      : typeof fallbackUnnormalizedValue === "string" &&
-          fallbackUnnormalizedValue.length > 0
-        ? "unnormalized"
-        : null;
+  let preferredAddressMode = null;
+  if (hasSourceUnnormalized) {
+    preferredAddressMode = "unnormalized";
+  } else if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
+  } else if (
+    typeof fallbackUnnormalizedValue === "string" &&
+    fallbackUnnormalizedValue.length > 0
+  ) {
+    preferredAddressMode = "unnormalized";
+  }
   const usingStructuredOutput = preferredAddressMode === "structured";
 
   if (preferredAddressMode === "structured") {
