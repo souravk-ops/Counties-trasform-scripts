@@ -173,6 +173,31 @@ function normalizeRelationshipEndpoint(endpoint, entityMap) {
   }
 
   if (endpoint && typeof endpoint === "object") {
+    const endpointKeys = Object.keys(endpoint);
+    const addressIndicativeKeys = new Set([
+      "unnormalized_address",
+      "street_number",
+      "street_name",
+      "street_post_directional_text",
+      "street_pre_directional_text",
+      "street_suffix_type",
+      "city_name",
+      "state_code",
+      "postal_code",
+      "plus_four_postal_code",
+    ]);
+    const personIndicativeKeys = new Set([
+      "first_name",
+      "last_name",
+      "middle_name",
+    ]);
+    const looksLikeAddress = endpointKeys.some((key) =>
+      addressIndicativeKeys.has(key),
+    );
+    const looksLikePerson = endpointKeys.some((key) =>
+      personIndicativeKeys.has(key),
+    );
+
     for (const key of ["/", "path", "ref", "href"]) {
       if (typeof endpoint[key] === "string") {
         const normalized = normalizeRelationshipRef(endpoint[key]);
@@ -185,6 +210,92 @@ function normalizeRelationshipEndpoint(endpoint, entityMap) {
       const refs = entityMap.get(canonical);
       if (Array.isArray(refs) && refs.length > 0) {
         return wrapRef(refs[0]);
+      }
+    }
+
+    const addressCandidates = [];
+    if (looksLikeAddress) {
+      const exclusiveUnnormalized = ensureExclusiveAddressPayloadForWrite(
+        endpoint,
+        "unnormalized",
+      );
+      const exclusiveStructured = ensureExclusiveAddressPayloadForWrite(
+        endpoint,
+        "structured",
+      );
+      if (exclusiveUnnormalized) addressCandidates.push(exclusiveUnnormalized);
+      if (
+        exclusiveStructured &&
+        (!exclusiveUnnormalized ||
+          canonicalStringify(exclusiveStructured) !==
+            canonicalStringify(exclusiveUnnormalized))
+      ) {
+        addressCandidates.push(exclusiveStructured);
+      }
+    }
+
+    for (const candidate of addressCandidates) {
+      if (!candidate) continue;
+      const candidateCanonical = canonicalStringify(candidate);
+      if (candidateCanonical && entityMap.has(candidateCanonical)) {
+        const refs = entityMap.get(candidateCanonical);
+        if (Array.isArray(refs) && refs.length > 0) {
+          return wrapRef(refs[0]);
+        }
+      }
+    }
+
+    if (looksLikePerson) {
+      const sanitizedPerson = sanitizePersonForSchemaOutput(endpoint);
+      if (sanitizedPerson) {
+        const personCanonical = canonicalStringify(sanitizedPerson);
+        if (personCanonical && entityMap.has(personCanonical)) {
+          const refs = entityMap.get(personCanonical);
+          if (Array.isArray(refs) && refs.length > 0) {
+            return wrapRef(refs[0]);
+          }
+        }
+      }
+    }
+
+    const requestIdentifier =
+      endpoint.request_identifier ?? endpoint.requestIdentifier ?? null;
+    if (requestIdentifier != null) {
+      for (const [entryCanonical, refs] of entityMap.entries()) {
+        if (!Array.isArray(refs) || refs.length === 0) continue;
+        let parsed;
+        try {
+          parsed = JSON.parse(entryCanonical);
+        } catch {
+          continue;
+        }
+        if (!parsed || typeof parsed !== "object") continue;
+        if (
+          parsed.request_identifier === requestIdentifier ||
+          parsed.requestIdentifier === requestIdentifier
+        ) {
+          if (looksLikeAddress) {
+            const hasAddressHints = STRUCTURED_ADDRESS_FIELDS.some((key) =>
+              Object.prototype.hasOwnProperty.call(parsed, key),
+            );
+            if (
+              hasAddressHints ||
+              Object.prototype.hasOwnProperty.call(
+                parsed,
+                "unnormalized_address",
+              )
+            ) {
+              return wrapRef(refs[0]);
+            }
+          } else if (looksLikePerson) {
+            if (
+              Object.prototype.hasOwnProperty.call(parsed, "first_name") ||
+              Object.prototype.hasOwnProperty.call(parsed, "last_name")
+            ) {
+              return wrapRef(refs[0]);
+            }
+          }
+        }
       }
     }
   }
@@ -9751,17 +9862,68 @@ async function main() {
     addressOutputSource.full_address = fallbackUnnormalizedValue;
   }
 
-  const resolvedAddress =
-    buildAddressOneOfPayload(addressOutputSource) ||
-    (typeof fallbackUnnormalizedValue === "string" &&
-    fallbackUnnormalizedValue.length > 0
-      ? buildAddressOneOfPayload({
-          ...baseAddressPayload,
-          unnormalized_address: fallbackUnnormalizedValue,
-        })
-      : null);
+  const addressCandidateMap = new Map();
+  const registerAddressCandidate = (candidate) => {
+    if (!candidate || typeof candidate !== "object") return;
+    const canonical = canonicalStringify(candidate);
+    if (!canonical) return;
+    if (!addressCandidateMap.has(canonical)) {
+      addressCandidateMap.set(canonical, candidate);
+    }
+  };
 
-  if (resolvedAddress && isAddressOneOfCompliant(resolvedAddress)) {
+  const exclusivePreferred = ensureExclusiveAddressPayloadForWrite(
+    addressOutputSource,
+    usingStructuredOutput ? "structured" : "unnormalized",
+  );
+  registerAddressCandidate(exclusivePreferred);
+
+  const exclusiveOpposite = ensureExclusiveAddressPayloadForWrite(
+    addressOutputSource,
+    usingStructuredOutput ? "unnormalized" : "structured",
+  );
+  registerAddressCandidate(exclusiveOpposite);
+
+  registerAddressCandidate(buildAddressOneOfPayload(addressOutputSource));
+
+  if (
+    typeof fallbackUnnormalizedValue === "string" &&
+    fallbackUnnormalizedValue.length > 0
+  ) {
+    registerAddressCandidate(
+      buildAddressOneOfPayload({
+        ...baseAddressPayload,
+        unnormalized_address: fallbackUnnormalizedValue,
+      }),
+    );
+  }
+
+  let resolvedAddress = null;
+  for (const candidate of addressCandidateMap.values()) {
+    if (candidate && isAddressOneOfCompliant(candidate)) {
+      resolvedAddress = candidate;
+      break;
+    }
+  }
+
+  if (!resolvedAddress) {
+    const strictFallback = ensureExclusiveAddressPayloadForWrite(
+      {
+        ...baseAddressPayload,
+        unnormalized_address:
+          typeof fallbackUnnormalizedValue === "string" &&
+          fallbackUnnormalizedValue.length > 0
+            ? fallbackUnnormalizedValue
+            : prioritizedUnnormalized ?? null,
+      },
+      "unnormalized",
+    );
+    if (strictFallback && isAddressOneOfCompliant(strictFallback)) {
+      resolvedAddress = strictFallback;
+    }
+  }
+
+  if (resolvedAddress) {
     await fsp.writeFile(
       addressFilePath,
       JSON.stringify(resolvedAddress, null, 2),
