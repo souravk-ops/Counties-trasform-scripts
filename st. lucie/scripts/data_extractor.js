@@ -11047,6 +11047,12 @@ async function main() {
         structuredForOutput[key].trim().length > 0,
     );
 
+  const hasAuthoritativeStructuredSource =
+    Boolean(structuredAddressSource) ||
+    Boolean(baseRequestData?.normalized_address) ||
+    Boolean(propertySeedData?.normalized_address) ||
+    Boolean(unnormalizedAddressData?.normalized_address);
+
   const fallbackFromStructured = sanitizedStructuredCandidate
     ? normalizeUnnormalizedAddressValue(
         buildFallbackUnnormalizedAddress(sanitizedStructuredCandidate),
@@ -11065,10 +11071,13 @@ async function main() {
 
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
-  if (hasSourceUnnormalized) {
-    preferredAddressMode = "unnormalized";
-  } else if (hasStructuredForOutput) {
+  const canPreferStructuredOutput =
+    hasStructuredForOutput && hasAuthoritativeStructuredSource;
+
+  if (canPreferStructuredOutput) {
     preferredAddressMode = "structured";
+  } else if (hasSourceUnnormalized) {
+    preferredAddressMode = "unnormalized";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
