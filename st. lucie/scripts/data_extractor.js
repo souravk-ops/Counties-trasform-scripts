@@ -507,44 +507,57 @@ async function createOrReuseAddressEntity(
   const sanitizedEndpoint = sanitizeAddressEndpointPayload(endpoint);
   if (!sanitizedEndpoint) return null;
 
-  const preferUnnormalized = addressHasUnnormalizedValue(sanitizedEndpoint);
+  const hasStructuredEndpoint = addressHasStructuredValues(sanitizedEndpoint);
+  const hasUnnormalizedEndpoint =
+    addressHasUnnormalizedValue(sanitizedEndpoint);
   const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
     endpoint?.unnormalized_address ?? endpoint?.full_address ?? null,
   );
 
-  const addressCandidates = [
-    prepareAddressForWrite(sanitizedEndpoint, {
-      preferMode: preferUnnormalized ? "unnormalized" : "structured",
+  const preferredModes = hasStructuredEndpoint
+    ? ["structured", hasUnnormalizedEndpoint ? "unnormalized" : "structured"]
+    : [hasUnnormalizedEndpoint ? "unnormalized" : "structured", "structured"];
+
+  const modeQueue = [...new Set(preferredModes)];
+  const candidatePayloads = [];
+
+  for (const mode of modeQueue) {
+    const prepared = prepareAddressForWrite(sanitizedEndpoint, {
+      preferMode: mode,
       fallbackUnnormalized,
-    }),
-    prepareAddressForWrite(sanitizedEndpoint, {
-      preferMode: "unnormalized",
-      fallbackUnnormalized,
-    }),
-    prepareAddressForWrite(sanitizedEndpoint, {
-      preferMode: "structured",
-      fallbackUnnormalized,
-    }),
+    });
+    if (prepared && typeof prepared === "object") {
+      candidatePayloads.push(prepared);
+    }
+  }
+
+  candidatePayloads.push(
     ensureExclusiveAddressPayloadForWrite(
       sanitizedEndpoint,
-      preferUnnormalized ? "unnormalized" : "structured",
+      hasStructuredEndpoint ? "structured" : "unnormalized",
     ),
     ensureExclusiveAddressPayloadForWrite(
       sanitizedEndpoint,
-      preferUnnormalized ? "structured" : "unnormalized",
+      hasStructuredEndpoint && hasUnnormalizedEndpoint
+        ? "unnormalized"
+        : "structured",
     ),
     coerceAddressPayloadToOneOf(sanitizedEndpoint),
-  ].filter((candidate) => candidate && typeof candidate === "object");
+  );
+
+  const addressCandidates = candidatePayloads.filter(
+    (candidate) => candidate && typeof candidate === "object",
+  );
 
   let finalAddressPayload = null;
   for (const candidate of addressCandidates) {
-    const preferredMode = addressHasUnnormalizedValue(candidate)
-      ? "unnormalized"
-      : addressHasStructuredValues(candidate)
-        ? "structured"
-        : preferUnnormalized
-          ? "unnormalized"
-          : "structured";
+    const preferredMode = addressHasStructuredValues(candidate)
+      ? "structured"
+      : addressHasUnnormalizedValue(candidate)
+        ? "unnormalized"
+        : hasStructuredEndpoint
+          ? "structured"
+          : "unnormalized";
 
     const exclusivePreferred = ensureExclusiveAddressPayloadForWrite(
       candidate,
@@ -11228,20 +11241,16 @@ async function main() {
 
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
-  const canPreferStructuredOutput =
-    hasStructuredForOutput && hasAuthoritativeStructuredSource;
 
-  if (hasSourceUnnormalized) {
+  if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
+  } else if (hasSourceUnnormalized) {
     preferredAddressMode = "unnormalized";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
   ) {
     preferredAddressMode = "unnormalized";
-  } else if (canPreferStructuredOutput) {
-    preferredAddressMode = "structured";
-  } else if (hasStructuredForOutput) {
-    preferredAddressMode = "structured";
   }
   const usingStructuredOutput = preferredAddressMode === "structured";
 
