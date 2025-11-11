@@ -9784,10 +9784,10 @@ async function main() {
     normalizeUnnormalizedAddressValue(fallbackFromStructured);
 
   let addressCandidateForFinal = null;
-  const preferredAddressMode = hasStructuredForOutput
-    ? "structured"
-    : hasSourceUnnormalized
-      ? "unnormalized"
+  const preferredAddressMode = hasSourceUnnormalized
+    ? "unnormalized"
+    : hasStructuredForOutput
+      ? "structured"
       : typeof fallbackUnnormalizedValue === "string" &&
           fallbackUnnormalizedValue.length > 0
         ? "unnormalized"
