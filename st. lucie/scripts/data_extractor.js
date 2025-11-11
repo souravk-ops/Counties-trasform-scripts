@@ -4924,6 +4924,65 @@ async function enforceAddressFilesForSchemaCompliance() {
   }
 }
 
+async function enforceAddressUnnormalizedDominance() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!fileName.endsWith(".json")) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") continue;
+    if (!Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")) {
+      continue;
+    }
+
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      payload.unnormalized_address,
+    );
+    if (!normalizedUnnormalized) continue;
+
+    const hasStructuredField = STRUCTURED_ADDRESS_FIELDS.some((key) =>
+      Object.prototype.hasOwnProperty.call(payload, key),
+    );
+
+    const trimmedUnnormalized =
+      typeof payload.unnormalized_address === "string"
+        ? payload.unnormalized_address.trim()
+        : payload.unnormalized_address;
+
+    if (!hasStructuredField && trimmedUnnormalized === normalizedUnnormalized) {
+      continue;
+    }
+
+    const sanitized = { ...payload, unnormalized_address: normalizedUnnormalized };
+    let modified = trimmedUnnormalized !== normalizedUnnormalized;
+
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+        delete sanitized[key];
+        modified = true;
+      }
+    }
+
+    if (!modified) continue;
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 async function enforceFinalAddressOneOfCompliance() {
   let entries;
   try {
@@ -12489,6 +12548,7 @@ async function main() {
 
   await enforceAddressPreferredOneOfFiles();
   await enforceAddressFilesForSchemaCompliance();
+  await enforceAddressUnnormalizedDominance();
   await enforcePreferredAddressRecords();
   await enforceFinalAddressOneOfCompliance();
   await enforceStrictAddressOutputs();
