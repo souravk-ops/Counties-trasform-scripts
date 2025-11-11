@@ -1048,11 +1048,9 @@ async function enforceAddressSingleModeOutputs() {
     return;
   }
 
-  const addressFilePattern =
-    /^(?:address(?:_relationship_\d+)?|mailing_address)\.json$/i;
-
   for (const fileName of entries) {
-    if (!addressFilePattern.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
     let payload;
@@ -1527,6 +1525,9 @@ const ADDRESS_ALLOWED_PROPERTIES = new Set([
   "unnormalized_address",
 ]);
 
+const ADDRESS_FILE_PATTERN =
+  /^(?:address(?:_relationship_\d+)?|.*_address(?:_\d+)?)\.json$/i;
+
 function normalizeUnnormalizedAddressValue(value) {
   if (value == null) return null;
   if (typeof value === "string") {
@@ -1907,7 +1908,7 @@ async function enforceDeterministicAddressOneOfCompliance() {
   }
 
   for (const fileName of entries) {
-    if (!/address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -6123,7 +6124,7 @@ async function enforceAddressFilesForSchemaCompliance() {
   }
 
   for (const fileName of entries) {
-    if (!/address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -6259,7 +6260,7 @@ async function enforceFinalAddressOneOfCompliance() {
   }
 
   for (const fileName of entries) {
-    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -6470,7 +6471,7 @@ async function enforceStrictAddressOutputs() {
   }
 
   for (const fileName of entries) {
-    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -6501,7 +6502,7 @@ async function enforceAddressCanonicalOutputs() {
   }
 
   for (const fileName of entries) {
-    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -6540,7 +6541,7 @@ async function enforceAddressPreferredOutputModes() {
   }
 
   for (const fileName of entries) {
-    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -6668,7 +6669,7 @@ async function enforceAddressExclusiveModeRecords() {
   }
 
   for (const fileName of entries) {
-    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -7507,7 +7508,7 @@ async function enforceAddressAllowedKeys() {
   }
 
   for (const fileName of entries) {
-    if (!/^address.*\.json$/i.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
@@ -7794,10 +7795,8 @@ async function enforceFinalAddressRecordsStrictOneOf() {
     return;
   }
 
-  const addressFilePattern = /(^address.*\.json$|_address\.json$)/i;
-
   for (const fileName of entries) {
-    if (!addressFilePattern.test(fileName)) continue;
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
     if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
