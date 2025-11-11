@@ -148,6 +148,127 @@ async function writeRelationshipFile(fileName, fromPath, toPath, extras = {}) {
   return true;
 }
 
+function canonicalStringify(value) {
+  if (value === null || value === undefined) return "null";
+  if (typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalStringify(item)).join(",")}]`;
+  }
+  const keys = Object.keys(value).sort();
+  const entries = keys.map(
+    (key) => `${JSON.stringify(key)}:${canonicalStringify(value[key])}`,
+  );
+  return `{${entries.join(",")}}`;
+}
+
+function normalizeRelationshipEndpoint(endpoint, entityMap) {
+  if (endpoint == null) return null;
+
+  const wrapRef = (ref) => (ref ? { "/": ref } : null);
+
+  if (typeof endpoint === "string") {
+    return wrapRef(normalizeRelationshipRef(endpoint));
+  }
+
+  if (endpoint && typeof endpoint === "object") {
+    for (const key of ["/", "path", "ref", "href"]) {
+      if (typeof endpoint[key] === "string") {
+        const normalized = normalizeRelationshipRef(endpoint[key]);
+        if (normalized) return wrapRef(normalized);
+      }
+    }
+
+    const canonical = canonicalStringify(endpoint);
+    if (canonical && entityMap.has(canonical)) {
+      const refs = entityMap.get(canonical);
+      if (Array.isArray(refs) && refs.length > 0) {
+        return wrapRef(refs[0]);
+      }
+    }
+  }
+
+  return null;
+}
+
+async function sanitizeRelationshipFiles() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+  const entityMap = new Map();
+
+  for (const fileName of entries) {
+    if (relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!payload || typeof payload !== "object") continue;
+    const canonical = canonicalStringify(payload);
+    if (!canonical) continue;
+    const ref = `./${fileName}`;
+    if (!entityMap.has(canonical)) {
+      entityMap.set(canonical, []);
+    }
+    entityMap.get(canonical).push(ref);
+  }
+
+  for (const fileName of entries) {
+    if (!relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const normalizedFrom = normalizeRelationshipEndpoint(
+      payload.from,
+      entityMap,
+    );
+    const normalizedTo = normalizeRelationshipEndpoint(payload.to, entityMap);
+
+    if (!normalizedFrom || !normalizedTo) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = {
+      from: normalizedFrom,
+      to: normalizedTo,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "type")) {
+      const rawType = payload.type;
+      if (rawType == null) {
+        sanitized.type = null;
+      } else if (typeof rawType === "string") {
+        const trimmed = rawType.trim();
+        if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+          sanitized.type = trimmed;
+        }
+      }
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 function textClean(s) {
   // Improved textClean to remove HTML comments and non-breaking spaces more aggressively
   return (s || "")
@@ -12502,6 +12623,7 @@ async function main() {
   await enforceAddressExclusiveModeRecords();
   await enforceDeterministicAddressOneOfCompliance();
   await enforcePersonFilesForSchemaCompliance();
+  await sanitizeRelationshipFiles();
 }
 
 }
