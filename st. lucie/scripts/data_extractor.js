@@ -980,6 +980,66 @@ async function enforceStrictRelationshipEndpoints() {
   }
 }
 
+async function dropRelationshipsWithNonReferenceEndpoints() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+  const toReferenceEndpoint = (endpoint) => {
+    const normalized = normalizeRelationshipRef(endpoint);
+    return normalized ? { "/": normalized } : null;
+  };
+
+  for (const fileName of entries) {
+    if (!relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const normalizedFrom = toReferenceEndpoint(payload.from);
+    const normalizedTo = toReferenceEndpoint(payload.to);
+
+    if (!normalizedFrom || !normalizedTo) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = {
+      from: normalizedFrom,
+      to: normalizedTo,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "type")) {
+      const rawType = payload.type;
+      if (rawType == null) {
+        sanitized.type = null;
+      } else if (typeof rawType === "string") {
+        const trimmed = rawType.trim();
+        if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+          sanitized.type = trimmed;
+        }
+      }
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 async function enforceAddressSingleModeOutputs() {
   let entries;
   try {
@@ -9971,6 +10031,7 @@ async function finalizeEntityOutputs() {
   await sanitizeRelationshipFiles();
   await enforceRelationshipReferenceEndpoints();
   await enforceStrictRelationshipEndpoints();
+  await dropRelationshipsWithNonReferenceEndpoints();
 }
 
 const propertyTypeMapping = [
