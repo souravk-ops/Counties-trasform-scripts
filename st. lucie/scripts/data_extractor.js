@@ -5064,6 +5064,134 @@ async function enforceAddressCanonicalOutputs() {
   }
 }
 
+async function enforceAddressPreferredOutputModes() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/(^|_)address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    let strictPayload = coerceAddressToStrictOneOfPayload(payload);
+    if (!strictPayload || typeof strictPayload !== "object") {
+      const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+        Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+          ? payload.unnormalized_address
+          : null,
+      );
+      if (normalizedUnnormalized) {
+        const metadata = {};
+        for (const key of ADDRESS_METADATA_KEYS) {
+          if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+          const value = payload[key];
+          if (value == null) continue;
+          if (typeof value === "string") {
+            const cleaned = textClean(value);
+            if (!cleaned) continue;
+            metadata[key] = cleaned;
+          } else {
+            metadata[key] = value;
+          }
+        }
+        strictPayload = coerceAddressToStrictOneOfPayload({
+          ...metadata,
+          unnormalized_address: normalizedUnnormalized,
+          request_identifier: payload.request_identifier ?? null,
+        });
+      } else {
+        const sanitizedStructured = sanitizeStructuredAddressCandidate(payload);
+        if (sanitizedStructured) {
+          const metadata = {};
+          for (const key of ADDRESS_METADATA_KEYS) {
+            if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+            const value = payload[key];
+            if (value == null) continue;
+            if (typeof value === "string") {
+              const cleaned = textClean(value);
+              if (!cleaned) continue;
+              metadata[key] = cleaned;
+            } else {
+              metadata[key] = value;
+            }
+          }
+          strictPayload = coerceAddressToStrictOneOfPayload({
+            ...metadata,
+            ...sanitizedStructured,
+            request_identifier: payload.request_identifier ?? null,
+          });
+        }
+      }
+    }
+
+    if (!strictPayload || typeof strictPayload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const preferMode = hasUnnormalizedAddressValue(strictPayload)
+      ? "unnormalized"
+      : "structured";
+    const exclusive =
+      ensureExclusiveAddressMode(strictPayload, preferMode) || strictPayload;
+
+    if (!exclusive || !isAddressOneOfCompliant(exclusive)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(exclusive, "request_identifier")) {
+      const requestId = exclusive.request_identifier;
+      if (requestId == null) {
+        delete exclusive.request_identifier;
+      } else if (typeof requestId === "string") {
+        const trimmed = requestId.trim();
+        if (trimmed) {
+          exclusive.request_identifier = trimmed;
+        } else {
+          delete exclusive.request_identifier;
+        }
+      }
+    }
+
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(exclusive, key)) continue;
+      const value = exclusive[key];
+      if (value == null) {
+        delete exclusive[key];
+        continue;
+      }
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (cleaned) {
+          exclusive[key] = cleaned;
+        } else {
+          delete exclusive[key];
+        }
+      }
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(exclusive, null, 2));
+  }
+}
+
 async function harmonizeAddressFileForSchema(
   fileName,
   {
@@ -12129,6 +12257,7 @@ async function main() {
   await enforceFinalAddressOneOfCompliance();
   await enforceStrictAddressOutputs();
   await enforceAddressCanonicalOutputs();
+  await enforceAddressPreferredOutputModes();
   await enforcePersonFilesForSchemaCompliance();
 }
 
