@@ -7086,9 +7086,20 @@ async function enforcePersonRecordNamePatterns() {
       }
     }
 
-    sanitized.first_name = normalizedFirst;
-    sanitized.last_name = normalizedLast;
-    sanitized.middle_name = normalizedMiddle;
+    const finalFirstName = PERSON_NAME_PATTERN.test(normalizedFirst)
+      ? normalizedFirst
+      : fallbackName;
+    const finalLastName = PERSON_NAME_PATTERN.test(normalizedLast)
+      ? normalizedLast
+      : fallbackName;
+    const finalMiddleName =
+      normalizedMiddle && PERSON_MIDDLE_NAME_PATTERN.test(normalizedMiddle)
+        ? normalizedMiddle
+        : null;
+
+    sanitized.first_name = finalFirstName;
+    sanitized.last_name = finalLastName;
+    sanitized.middle_name = finalMiddleName;
 
     await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
   }
@@ -11438,11 +11449,29 @@ async function main() {
           await fsp.unlink(addressFilePath).catch(() => {});
           addressFileRef = null;
         } else {
-          await fsp.writeFile(
-            addressFilePath,
-            JSON.stringify(simplifiedFinalAddress, null, 2),
-          );
-          addressFileRef = `./${addressFileName}`;
+          const exclusiveFinalAddress =
+            ensureExclusiveAddressPayloadForWrite(
+              simplifiedFinalAddress,
+              preferredModeForWrite,
+            ) ||
+            ensureExclusiveAddressPayloadForWrite(
+              simplifiedFinalAddress,
+              alternateModeForWrite,
+            );
+
+          if (
+            !exclusiveFinalAddress ||
+            !isAddressOneOfCompliant(exclusiveFinalAddress)
+          ) {
+            await fsp.unlink(addressFilePath).catch(() => {});
+            addressFileRef = null;
+          } else {
+            await fsp.writeFile(
+              addressFilePath,
+              JSON.stringify(exclusiveFinalAddress, null, 2),
+            );
+            addressFileRef = `./${addressFileName}`;
+          }
         }
       }
     }
