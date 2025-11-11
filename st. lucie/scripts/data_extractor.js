@@ -9681,6 +9681,7 @@ async function main() {
           fallbackUnnormalizedValue.length > 0
         ? "unnormalized"
         : null;
+  const usingStructuredOutput = preferredAddressMode === "structured";
 
   if (preferredAddressMode === "structured") {
     addressCandidateForFinal = {
@@ -9712,7 +9713,7 @@ async function main() {
       : {}),
   };
 
-  if (sanitizedStructuredCandidate) {
+  if (usingStructuredOutput && sanitizedStructuredCandidate) {
     for (const [key, value] of Object.entries(sanitizedStructuredCandidate)) {
       if (value != null) {
         addressOutputSource[key] = value;
@@ -9731,6 +9732,7 @@ async function main() {
       : null);
 
   if (
+    !usingStructuredOutput &&
     prioritizedUnnormalized &&
     !Object.prototype.hasOwnProperty.call(
       addressOutputSource,
@@ -9741,6 +9743,7 @@ async function main() {
   }
 
   if (
+    !usingStructuredOutput &&
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0 &&
     !Object.prototype.hasOwnProperty.call(addressOutputSource, "full_address")
@@ -9770,9 +9773,15 @@ async function main() {
   }
 
   if (addressFileRef) {
+    const strictModePreference =
+      preferredAddressMode === "structured"
+        ? "structured"
+        : preferredAddressMode === "unnormalized"
+          ? "unnormalized"
+          : null;
     const strictlyOneOfAddress = await enforceAddressFileStrictOneOf(
       addressFileName,
-      preferredAddressMode === "structured",
+      strictModePreference ?? "unnormalized",
     );
     if (!strictlyOneOfAddress) {
       addressFileRef = null;
