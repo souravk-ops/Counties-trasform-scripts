@@ -16,6 +16,11 @@ function cleanCandidateString(raw) {
   return norm(decoded);
 }
 
+function stripDiacritics(value) {
+  if (!value || typeof value.normalize !== "function") return value;
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 // Utility: detect if a string looks like an address line (contains digits or zip or comma + state)
 const looksLikeAddress = (s) => {
   const str = (s || "").toLowerCase();
@@ -36,6 +41,7 @@ const MIDDLE_NAME_PATTERN = /^[A-Z][a-zA-Z\s\-',.]*$/;
 function normalizeNameToken(token) {
   if (!token) return null;
   let cleaned = token.replace(/[()]/g, "");
+  cleaned = stripDiacritics(cleaned);
   cleaned = cleaned.replace(/^[^A-Za-z0-9]+/, "");
   cleaned = cleaned.replace(/[^A-Za-z0-9'\-.,]+$/g, "");
   cleaned = cleaned.trim();
@@ -57,7 +63,10 @@ function normalizeNameTokens(rawTokens) {
 
 function titleCaseNamePart(value) {
   if (!value) return null;
-  const cleaned = value.replace(/\s+/g, " ").trim();
+  let cleaned = stripDiacritics(value || "");
+  cleaned = cleaned.replace(/[()]/g, " ");
+  cleaned = cleaned.replace(/[^A-Za-z \-',.]/g, " ");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
   let result = "";
   let shouldCapitalize = true;

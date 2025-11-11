@@ -719,6 +719,147 @@ function buildFallbackUnnormalizedAddress(structuredValues) {
   return fallback.length > 0 ? fallback : null;
 }
 
+function sanitizeAddressMetadataValue(value) {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const cleaned = textClean(value);
+    return cleaned ? cleaned : null;
+  }
+  return null;
+}
+
+function sanitizeStructuredAddressField(key, value) {
+  if (value == null) return null;
+  const asString =
+    typeof value === "string" ? value : String(value ?? "").trim();
+  let cleaned = textClean(asString);
+  if (!cleaned) return null;
+
+  if (key === "city_name") {
+    cleaned = cleaned.replace(/\s+/g, " ").toUpperCase();
+  } else if (key === "state_code") {
+    cleaned = cleaned.toUpperCase();
+  } else if (key === "postal_code" || key === "plus_four_postal_code") {
+    cleaned = cleaned.replace(/\s+/g, "");
+  } else if (
+    key === "street_pre_directional_text" ||
+    key === "street_post_directional_text"
+  ) {
+    cleaned = cleaned.toUpperCase();
+  } else if (key === "street_name") {
+    cleaned = cleaned.replace(/\s+/g, " ").trim();
+  } else {
+    cleaned = cleaned.trim();
+  }
+
+  return cleaned || null;
+}
+
+function rebuildAddressOneOfPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const base = {};
+  const requestIdentifier = coerceRequestIdentifier(
+    Object.prototype.hasOwnProperty.call(payload, "request_identifier")
+      ? payload.request_identifier
+      : Object.prototype.hasOwnProperty.call(payload, "requestIdentifier")
+        ? payload.requestIdentifier
+        : null,
+  );
+  if (requestIdentifier != null) {
+    base.request_identifier = requestIdentifier;
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const sanitized = sanitizeAddressMetadataValue(payload[key]);
+    if (sanitized != null) {
+      base[key] = sanitized;
+    }
+  }
+
+  const structured = {};
+  for (const key of STRUCTURED_ADDRESS_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    const sanitized = sanitizeStructuredAddressField(key, payload[key]);
+    if (sanitized != null) {
+      structured[key] = sanitized;
+    }
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = structured[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+
+  const normalizedUnnormalized =
+    normalizeUnnormalizedAddressValue(payload.unnormalized_address) ||
+    normalizeUnnormalizedAddressValue(payload.full_address) ||
+    normalizeUnnormalizedAddressValue(payload.address) ||
+    normalizeUnnormalizedAddressValue(payload.site_address) ||
+    normalizeUnnormalizedAddressValue(payload.mailing_address);
+
+  if (hasStructured) {
+    return { ...base, ...structured };
+  }
+
+  if (normalizedUnnormalized) {
+    return {
+      ...base,
+      unnormalized_address: normalizedUnnormalized,
+    };
+  }
+
+  if (Object.keys(structured).length > 0) {
+    const fallback = normalizeUnnormalizedAddressValue(
+      buildFallbackUnnormalizedAddress(structured),
+    );
+    if (fallback) {
+      return {
+        ...base,
+        unnormalized_address: fallback,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function enforceDeterministicAddressOneOfCompliance() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/address\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const rebuilt = rebuildAddressOneOfPayload(payload);
+    if (!rebuilt || !isAddressOneOfCompliant(rebuilt)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(rebuilt, null, 2));
+  }
+}
+
 function hasStructuredAddressFields(address) {
   if (!address || typeof address !== "object") return false;
   return STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
@@ -12258,6 +12399,7 @@ async function main() {
   await enforceStrictAddressOutputs();
   await enforceAddressCanonicalOutputs();
   await enforceAddressPreferredOutputModes();
+  await enforceDeterministicAddressOneOfCompliance();
   await enforcePersonFilesForSchemaCompliance();
 }
 
