@@ -11239,13 +11239,18 @@ async function main() {
     normalizedSourceUnnormalizedValue ||
     normalizeUnnormalizedAddressValue(fallbackFromStructured);
 
+  const shouldUseAuthoritativeStructured =
+    hasStructuredForOutput && hasAuthoritativeStructuredSource;
+
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
 
-  if (hasStructuredForOutput) {
+  if (shouldUseAuthoritativeStructured) {
     preferredAddressMode = "structured";
   } else if (hasSourceUnnormalized) {
     preferredAddressMode = "unnormalized";
+  } else if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
