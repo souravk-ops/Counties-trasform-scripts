@@ -8996,6 +8996,27 @@ async function removeExisting(pattern) {
   } catch {}
 }
 
+async function finalizeEntityOutputs() {
+  // Relationships generated upstream occasionally embed raw entities; rerun the
+  // reference normalization pass unconditionally so multi-request runs stay in sync.
+  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
+  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
+
+  await enforceAddressPreferredOneOfFiles();
+  await enforceAddressFilesForSchemaCompliance();
+  await enforceAddressUnnormalizedDominance();
+  await enforcePreferredAddressRecords();
+  await enforceFinalAddressOneOfCompliance();
+  await enforceStrictAddressOutputs();
+  await enforceAddressCanonicalOutputs();
+  await enforceAddressPreferredOutputModes();
+  await enforceAddressExclusiveModeRecords();
+  await enforceDeterministicAddressOneOfCompliance();
+  await enforcePersonFilesForSchemaCompliance();
+  await sanitizeRelationshipFiles();
+  await enforceRelationshipReferenceEndpoints();
+}
+
 const propertyTypeMapping = [
   {
     "st_lucie_property_type": "0000 - Vac Residential",
@@ -13248,24 +13269,9 @@ async function main() {
     }
   }
 
-  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
-  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
-
-  await enforceAddressPreferredOneOfFiles();
-  await enforceAddressFilesForSchemaCompliance();
-  await enforceAddressUnnormalizedDominance();
-  await enforcePreferredAddressRecords();
-  await enforceFinalAddressOneOfCompliance();
-  await enforceStrictAddressOutputs();
-  await enforceAddressCanonicalOutputs();
-  await enforceAddressPreferredOutputModes();
-  await enforceAddressExclusiveModeRecords();
-  await enforceDeterministicAddressOneOfCompliance();
-  await enforcePersonFilesForSchemaCompliance();
-  await sanitizeRelationshipFiles();
-  await enforceRelationshipReferenceEndpoints();
 }
 
+  await finalizeEntityOutputs();
 }
 
 main().catch(async (err) => {
