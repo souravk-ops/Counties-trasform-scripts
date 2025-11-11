@@ -9761,6 +9761,20 @@ async function main() {
     // Ensure we emit the property_has_address relationship so downstream
     // consumers receive a proper reference payload instead of an embedded
     // address object that violates the relationship schema.
+    if (addressFileRef) {
+      const relationshipFile = "relationship_property_has_address_1.json";
+      const wroteRelationship = await writeRelationshipFile(
+        relationshipFile,
+        propertyRef,
+        addressFileRef,
+      );
+      if (!wroteRelationship) {
+        console.warn(
+          `Skipped ${relationshipFile} because either property or address reference was unavailable.`,
+        );
+      }
+    }
+
     // Lot data
     const lotOut = {
       request_identifier: baseRequestData.request_identifier || null,
