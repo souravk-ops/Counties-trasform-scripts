@@ -1371,6 +1371,53 @@ function buildSimpleAddressRecord(source, fallbackRequestIdentifier = null) {
     : null;
 }
 
+function sanitizeAddressRecordToStrictOneOf(source) {
+  const record = buildSimpleAddressRecord(source);
+  if (!record || typeof record !== "object") return null;
+
+  if (
+    Object.prototype.hasOwnProperty.call(record, "unnormalized_address") &&
+    record.unnormalized_address == null
+  ) {
+    delete record.unnormalized_address;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(record, "unnormalized_address")
+  ) {
+    stripStructuredAddressFields(record);
+    const normalized = normalizeUnnormalizedAddressValue(
+      record.unnormalized_address,
+    );
+    if (!normalized) {
+      delete record.unnormalized_address;
+    } else {
+      record.unnormalized_address = normalized;
+    }
+  } else {
+    delete record.unnormalized_address;
+  }
+
+  const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+    const value = record[key];
+    if (typeof value !== "string") return false;
+    return value.trim().length > 0;
+  });
+  const hasUnnormalized =
+    typeof record.unnormalized_address === "string" &&
+    record.unnormalized_address.trim().length > 0;
+
+  if (!hasStructured && !hasUnnormalized) {
+    return null;
+  }
+
+  if (hasStructured && hasUnnormalized) {
+    stripStructuredAddressFields(record);
+  }
+
+  return record;
+}
+
 function buildFallbackUnnormalizedAddress(structuredValues) {
   if (!structuredValues || typeof structuredValues !== "object") return null;
 
@@ -6519,6 +6566,60 @@ async function enforcePersonFilesForSchemaCompliance() {
   }
 }
 
+async function enforcePersonRecordNamePatterns() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/^person_\d+\.json$/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    let sanitized = sanitizePersonRecordStrict(payload);
+    if (!sanitized) {
+      const fallbackName = "Unknown";
+      sanitized = sanitizePersonRecordStrict({
+        birth_date: null,
+        first_name: fallbackName,
+        last_name: fallbackName,
+        middle_name: null,
+        prefix_name: null,
+        suffix_name: null,
+        us_citizenship_status: null,
+        veteran_status: null,
+        request_identifier:
+          typeof payload.request_identifier === "string"
+            ? payload.request_identifier.trim() || null
+            : payload.request_identifier ?? null,
+      });
+    }
+
+    if (!sanitized) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 function sanitizeAddressForSchema(address, preferMode = "unnormalized") {
   if (!address || typeof address !== "object") return null;
 
@@ -6900,6 +7001,45 @@ async function enforceAddressFileStrictOneOf(fileName, preferStructured = false)
 
   await fsp.writeFile(filePath, JSON.stringify(finalPayload, null, 2));
   return finalPayload;
+}
+
+async function enforceFinalAddressRecordsStrictOneOf() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const addressFilePattern = /(^address.*\.json$|_address\.json$)/i;
+
+  for (const fileName of entries) {
+    if (!addressFilePattern.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = sanitizeAddressRecordToStrictOneOf(payload);
+    if (!sanitized) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
 }
 
 function sanitizeAddressRecordForSchemaOutput(record) {
@@ -8801,6 +8941,14 @@ function sanitizePersonForSchemaOutput(person) {
   return sanitized;
 }
 
+function sanitizePersonRecordStrict(person) {
+  const sanitized = sanitizePersonForSchemaOutput(person);
+  if (!sanitized) return null;
+  const enforced = enforcePersonNamePatterns(sanitized);
+  if (!enforced) return null;
+  return sanitizePersonForSchemaOutput(enforced);
+}
+
 async function loadValidatedPersonRecord(fileName) {
   if (!fileName || typeof fileName !== "string") return null;
   const normalizedName = fileName.startsWith("./")
@@ -9035,6 +9183,8 @@ async function finalizeEntityOutputs() {
   await enforceAddressExclusiveModeRecords();
   await enforceDeterministicAddressOneOfCompliance();
   await enforcePersonFilesForSchemaCompliance();
+  await enforceFinalAddressRecordsStrictOneOf();
+  await enforcePersonRecordNamePatterns();
   await sanitizeRelationshipFiles();
   await enforceRelationshipReferenceEndpoints();
 }
