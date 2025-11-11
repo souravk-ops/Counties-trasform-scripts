@@ -1858,6 +1858,72 @@ function stripStructuredAddressFields(address) {
   }
 }
 
+function enforceFinalAddressOneOf(payload, preferredMode = "unnormalized") {
+  if (!payload || typeof payload !== "object") return null;
+
+  const working = deepClone(payload);
+  if (!working || typeof working !== "object") return null;
+
+  const preferStructured = preferredMode === "structured";
+
+  const hasRequiredStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+    (key) =>
+      typeof working[key] === "string" && working[key].trim().length > 0,
+  );
+  const hasAnyStructured = STRUCTURED_ADDRESS_FIELDS.some(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(working, key) &&
+      working[key] != null &&
+      String(working[key]).trim().length > 0,
+  );
+  const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+    working.unnormalized_address,
+  );
+  const hasUnnormalized = typeof normalizedUnnormalized === "string";
+
+  if (!hasRequiredStructured && hasAnyStructured) {
+    if (hasUnnormalized) {
+      stripStructuredAddressFields(working);
+    } else {
+      const fallback = buildFallbackUnnormalizedAddress(working);
+      stripStructuredAddressFields(working);
+      const normalizedFallback = normalizeUnnormalizedAddressValue(fallback);
+      if (normalizedFallback) {
+        working.unnormalized_address = normalizedFallback;
+      } else {
+        delete working.unnormalized_address;
+      }
+    }
+  }
+
+  const finalHasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+    (key) =>
+      typeof working[key] === "string" && working[key].trim().length > 0,
+  );
+  const finalHasUnnormalized =
+    typeof working.unnormalized_address === "string" &&
+    working.unnormalized_address.trim().length > 0;
+
+  if (finalHasStructured && finalHasUnnormalized) {
+    if (preferStructured) {
+      delete working.unnormalized_address;
+    } else {
+      stripStructuredAddressFields(working);
+    }
+  } else if (!finalHasStructured && !finalHasUnnormalized) {
+    return null;
+  } else if (!finalHasStructured && finalHasUnnormalized) {
+    stripStructuredAddressFields(working);
+    working.unnormalized_address = normalizeUnnormalizedAddressValue(
+      working.unnormalized_address,
+    );
+  } else if (finalHasStructured && !finalHasUnnormalized) {
+    delete working.unnormalized_address;
+  }
+
+  return working;
+}
+
 function coerceAddressToStrictOneOfPayload(address) {
   if (!address || typeof address !== "object") return null;
   const clone = deepClone(address);
@@ -10593,10 +10659,10 @@ async function main() {
 
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
-  if (hasStructuredForOutput) {
-    preferredAddressMode = "structured";
-  } else if (hasSourceUnnormalized) {
+  if (hasSourceUnnormalized) {
     preferredAddressMode = "unnormalized";
+  } else if (hasStructuredForOutput) {
+    preferredAddressMode = "structured";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
@@ -10778,11 +10844,21 @@ async function main() {
       await fsp.unlink(addressFilePath).catch(() => {});
       addressFileRef = null;
     } else {
-      await fsp.writeFile(
-        addressFilePath,
-        JSON.stringify(finalAddressPayload, null, 2),
-      );
-      addressFileRef = `./${addressFileName}`;
+      const strictFinalAddress =
+        enforceFinalAddressOneOf(
+          finalAddressPayload,
+          preferredModeForWrite,
+        ) || null;
+      if (!strictFinalAddress || !isAddressOneOfCompliant(strictFinalAddress)) {
+        await fsp.unlink(addressFilePath).catch(() => {});
+        addressFileRef = null;
+      } else {
+        await fsp.writeFile(
+          addressFilePath,
+          JSON.stringify(strictFinalAddress, null, 2),
+        );
+        addressFileRef = `./${addressFileName}`;
+      }
     }
   } else {
     await fsp.unlink(addressFilePath).catch(() => {});
@@ -10904,23 +10980,6 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
-
-    // Ensure we emit the property_has_address relationship so downstream
-    // consumers receive a proper reference payload instead of an embedded
-    // address object that violates the relationship schema.
-    if (addressFileRef) {
-      const relationshipFile = "relationship_property_has_address_1.json";
-      const wroteRelationship = await writeRelationshipFile(
-        relationshipFile,
-        propertyRef,
-        addressFileRef,
-      );
-      if (!wroteRelationship) {
-        console.warn(
-          `Skipped ${relationshipFile} because either property or address reference was unavailable.`,
-        );
-      }
-    }
 
     // Lot data
     const lotOut = {
