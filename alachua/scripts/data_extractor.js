@@ -85,6 +85,91 @@ const COMPANY_KEYWORDS =
 const SUFFIXES_IGNORE =
   /^(jr|sr|ii|iii|iv|v|vi|vii|viii|ix|x|md|phd|esq|esquire)$/i;
 
+const PROPERTY_IMPROVEMENT_ACTIONS = new Set([
+  "New",
+  "Replacement",
+  "Repair",
+  "Alteration",
+  "Addition",
+  "Remove",
+  "Other",
+]);
+
+const PROPERTY_IMPROVEMENT_TYPES = new Set([
+  "GeneralBuilding",
+  "ResidentialConstruction",
+  "CommercialConstruction",
+  "BuildingAddition",
+  "StructureMove",
+  "Demolition",
+  "PoolSpaInstallation",
+  "Electrical",
+  "MechanicalHVAC",
+  "GasInstallation",
+  "Roofing",
+  "Fencing",
+  "DockAndShore",
+  "FireProtectionSystem",
+  "Plumbing",
+  "ExteriorOpeningsAndFinishes",
+  "MobileHomeRV",
+  "LandscapeIrrigation",
+  "ScreenEnclosure",
+  "ShutterAwning",
+  "SiteDevelopment",
+  "CodeViolation",
+  "Complaint",
+  "ContractorLicense",
+  "Sponsorship",
+  "StateLicenseRegistration",
+  "AdministrativeApproval",
+  "AdministrativeAppeal",
+  "BlueSheetHearing",
+  "PlannedDevelopment",
+  "DevelopmentOfRegionalImpact",
+  "Rezoning",
+  "SpecialExceptionZoning",
+  "Variance",
+  "ZoningExtension",
+  "ZoningVerificationLetter",
+  "RequestForRelief",
+  "WaiverRequest",
+  "InformalMeeting",
+  "EnvironmentalMonitoring",
+  "Vacation",
+  "VegetationRemoval",
+  "ComprehensivePlanAmendment",
+  "MinimumUseDetermination",
+  "TransferDevelopmentRightsDetermination",
+  "MapBoundaryDetermination",
+  "TransferDevelopmentRightsCertificate",
+  "UniformCommunityDevelopment",
+  "SpecialCertificateOfAppropriateness",
+  "CertificateToDig",
+  "HistoricDesignation",
+  "PlanningAdministrativeAppeal",
+  "WellPermit",
+  "Solar",
+  "TestBoring",
+  "ExistingWellInspection",
+  "NaturalResourcesComplaint",
+  "NaturalResourcesViolation",
+  "LetterWaterSewer",
+  "UtilitiesConnection",
+  "DrivewayPermit",
+  "RightOfWayPermit",
+]);
+
+const PROPERTY_IMPROVEMENT_CONTRACTOR_TYPES = new Set([
+  "GeneralContractor",
+  "Specialist",
+  "DIY",
+  "PropertyManager",
+  "Builder",
+  "HandymanService",
+  "Unknown",
+]);
+
 function isCompanyName(txt) {
   if (!txt) return false;
   return COMPANY_KEYWORDS.test(txt);
@@ -1760,15 +1845,26 @@ function main() {
       ? `${baseRequestId}-${permitNumber}`
       : `${baseRequestId}-permit-${idx + 1}`;
 
+    const normalizedImprovementType =
+      improvementType && PROPERTY_IMPROVEMENT_TYPES.has(improvementType)
+        ? improvementType
+        : improvementType
+        ? "GeneralBuilding"
+        : null;
+    const normalizedImprovementAction =
+      improvementAction && PROPERTY_IMPROVEMENT_ACTIONS.has(improvementAction)
+        ? improvementAction
+        : null;
+
     const improvement = {
-      improvement_type: improvementType,
+      improvement_type: normalizedImprovementType,
       improvement_status: improvementStatus || null,
-      improvement_action: improvementAction,
+      improvement_action: normalizedImprovementAction,
       permit_number: permitNumber,
       permit_issue_date: permitIssueDate,
       completion_date: null,
       permit_required: permitNumber ? true : null,
-      contractor_type: null,
+      contractor_type: "Unknown",
       fee:
         typeof estimatedCostAmount === "number" ? estimatedCostAmount : null,
       request_identifier: improvementRequestId,
@@ -1791,6 +1887,29 @@ function main() {
         cleanedImprovement[key] = value;
       }
     });
+
+    if (!("completion_date" in cleanedImprovement)) {
+      cleanedImprovement.completion_date = null;
+    }
+    if (
+      !("contractor_type" in cleanedImprovement) ||
+      !PROPERTY_IMPROVEMENT_CONTRACTOR_TYPES.has(cleanedImprovement.contractor_type)
+    ) {
+      cleanedImprovement.contractor_type = "Unknown";
+    }
+    if (
+      cleanedImprovement.improvement_action &&
+      !PROPERTY_IMPROVEMENT_ACTIONS.has(cleanedImprovement.improvement_action)
+    ) {
+      cleanedImprovement.improvement_action = null;
+    }
+    if (
+      cleanedImprovement.improvement_type &&
+      !PROPERTY_IMPROVEMENT_TYPES.has(cleanedImprovement.improvement_type)
+    ) {
+      cleanedImprovement.improvement_type = "GeneralBuilding";
+    }
+    delete cleanedImprovement.estimated_cost_amount;
 
     if (!cleanedImprovement.improvement_type && !cleanedImprovement.permit_number) {
       return;

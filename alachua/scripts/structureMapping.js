@@ -6,6 +6,59 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
+const EXTERIOR_MATERIAL_ENUMS = [
+  "Brick",
+  "Natural Stone",
+  "Manufactured Stone",
+  "Stucco",
+  "Vinyl Siding",
+  "Wood Siding",
+  "Fiber Cement Siding",
+  "Metal Siding",
+  "Concrete Block",
+  "EIFS",
+  "Log",
+  "Adobe",
+  "Precast Concrete",
+  "Curtain Wall",
+];
+const EXTERIOR_ENUM_SET = new Set(EXTERIOR_MATERIAL_ENUMS);
+
+const FLOOR_PRIMARY_ENUMS = [
+  "Solid Hardwood",
+  "Engineered Hardwood",
+  "Laminate",
+  "Luxury Vinyl Plank",
+  "Sheet Vinyl",
+  "Ceramic Tile",
+  "Porcelain Tile",
+  "Natural Stone Tile",
+  "Carpet",
+  "Area Rugs",
+  "Polished Concrete",
+  "Bamboo",
+  "Cork",
+  "Linoleum",
+  "Terrazzo",
+  "Epoxy Coating",
+];
+const FLOOR_SECONDARY_ENUMS = [
+  "Solid Hardwood",
+  "Engineered Hardwood",
+  "Laminate",
+  "Luxury Vinyl Plank",
+  "Ceramic Tile",
+  "Carpet",
+  "Area Rugs",
+  "Transition Strips",
+];
+const FLOOR_PRIMARY_ENUM_SET = new Set(FLOOR_PRIMARY_ENUMS);
+const FLOOR_SECONDARY_ENUM_SET = new Set(FLOOR_SECONDARY_ENUMS);
+const FLOOR_ALL_ENUM_SET = new Set([
+  ...FLOOR_PRIMARY_ENUMS,
+  ...FLOOR_SECONDARY_ENUMS,
+]);
+
 function readHtml() {
   const p = path.resolve("input.html");
   if (!fs.existsSync(p)) {
@@ -90,22 +143,42 @@ function splitTokens(raw) {
 }
 
 function mapExteriorMaterial(token) {
+  if (!token) return null;
   const upper = token.toUpperCase();
-  if (upper.includes("ALUMIN")) return "Aluminum Siding";
   if (upper.includes("BRICK")) return "Brick";
-  if (upper.includes("STONE")) return "Stone";
-  if (upper.includes("CONCRETE BLOCK") || upper.startsWith("CB")) {
-    return "Concrete Block";
+  if (
+    upper.includes("MANUF") ||
+    upper.includes("VENEER") ||
+    upper.includes("CULTURED")
+  ) {
+    return "Manufactured Stone";
   }
+  if (upper.includes("STONE")) return "Natural Stone";
+  if (upper.includes("STUCCO")) return "Stucco";
+  if (upper.includes("VINYL")) return "Vinyl Siding";
   if (upper.includes("HARDI") || upper.includes("FIBER")) {
     return "Fiber Cement Siding";
   }
-  if (upper.includes("STUCCO")) return "Stucco";
-  if (upper.includes("WOOD") || upper.includes("SIDING")) {
+  if (upper.includes("ALUMIN") || upper.includes("METAL") || upper.includes("STEEL")) {
+    return "Metal Siding";
+  }
+  if (
+    upper.includes("CONCRETE BLOCK") ||
+    upper.includes("CONC BLOCK") ||
+    upper.startsWith("CB") ||
+    upper.includes("CMU") ||
+    upper.includes("MASONRY")
+  ) {
+    return "Concrete Block";
+  }
+  if (upper.includes("EIFS")) return "EIFS";
+  if (upper.includes("WOOD") || upper.includes("T-111") || upper.includes("T111")) {
     return "Wood Siding";
   }
-  if (upper.includes("PRECAST")) return "Precast Concrete Panel";
-  if (upper.includes("TILE")) return "Tile";
+  if (upper.includes("PRECAST")) return "Precast Concrete";
+  if (upper.includes("CURTAIN")) return "Curtain Wall";
+  if (upper.includes("LOG")) return "Log";
+  if (upper.includes("ADOBE")) return "Adobe";
   return null;
 }
 
@@ -150,15 +223,35 @@ function mapFrameMaterial(token) {
 }
 
 function mapFloorMaterial(token) {
+  if (!token) return null;
   const upper = token.toUpperCase();
   if (upper.includes("CARPET")) return "Carpet";
-  if (upper.includes("HARDWOOD") || upper.includes("PINE") || upper.includes("SOFT WOOD")) {
+  if (upper.includes("LUXURY") || upper.includes("LVP") || upper.includes("VINYL PLANK")) {
+    return "Luxury Vinyl Plank";
+  }
+  if (upper.includes("VINYL")) return "Sheet Vinyl";
+  if (upper.includes("ENGINEER")) return "Engineered Hardwood";
+  if (
+    upper.includes("HARDWOOD") ||
+    upper.includes("SOFT WOOD") ||
+    upper.includes("PINE")
+  ) {
     return "Solid Hardwood";
   }
-  if (upper.includes("VINYL")) return "Vinyl Sheet";
+  if (upper.includes("LAMINATE")) return "Laminate";
+  if (upper.includes("PORCELAIN")) return "Porcelain Tile";
+  if (upper.includes("STONE")) return "Natural Stone Tile";
+  if (upper.includes("CERAMIC") || upper.includes("CLAY TILE")) return "Ceramic Tile";
   if (upper.includes("TERRAZZO")) return "Terrazzo";
-  if (upper.includes("CONCRETE")) return "Concrete";
-  if (upper.includes("CLAY") || upper.includes("TILE")) return "Ceramic Tile";
+  if (upper.includes("POLISHED") || upper.includes("CONCRETE")) {
+    return "Polished Concrete";
+  }
+  if (upper.includes("BAMBOO")) return "Bamboo";
+  if (upper.includes("CORK")) return "Cork";
+  if (upper.includes("LINO")) return "Linoleum";
+  if (upper.includes("EPOXY")) return "Epoxy Coating";
+  if (upper.includes("RUG")) return "Area Rugs";
+  if (upper.includes("TRANSITION")) return "Transition Strips";
   return null;
 }
 
@@ -206,14 +299,24 @@ function buildStructureForBuilding(building, requestIdentifier) {
   const { left, right } = building;
 
   const exteriorVals = dedupe(
-    splitTokens(left["exterior walls"]).map(mapExteriorMaterial),
+    splitTokens(left["exterior walls"])
+      .map(mapExteriorMaterial)
+      .filter((val) => val && EXTERIOR_ENUM_SET.has(val)),
   );
   const interiorVals = dedupe(
     splitTokens(left["interior walls"]).map(mapInteriorMaterial),
   );
-  const floorVals = dedupe(
-    splitTokens(left["floor cover"]).map(mapFloorMaterial),
+  const floorCandidates = dedupe(
+    splitTokens(left["floor cover"])
+      .map(mapFloorMaterial)
+      .filter((val) => val && FLOOR_ALL_ENUM_SET.has(val)),
   );
+  const flooringPrimary =
+    floorCandidates.find((val) => FLOOR_PRIMARY_ENUM_SET.has(val)) || null;
+  const flooringSecondary =
+    floorCandidates
+      .filter((val) => val !== flooringPrimary && FLOOR_SECONDARY_ENUM_SET.has(val))
+      .find(Boolean) || null;
   const frameVals = dedupe(
     splitTokens(left["frame"]).map(mapFrameMaterial),
   );
@@ -231,11 +334,12 @@ function buildStructureForBuilding(building, requestIdentifier) {
 
   return {
     exterior_wall_material_primary: exteriorVals[0] || null,
-    exterior_wall_material_secondary: exteriorVals[1] || null,
+    exterior_wall_material_secondary:
+      exteriorVals.find((val) => val !== exteriorVals[0]) || null,
     interior_wall_surface_material_primary: interiorVals[0] || null,
     interior_wall_surface_material_secondary: interiorVals[1] || null,
-    flooring_material_primary: floorVals[0] || null,
-    flooring_material_secondary: floorVals[1] || null,
+    flooring_material_primary: flooringPrimary,
+    flooring_material_secondary: flooringSecondary,
     roof_covering_material: roofCover,
     roof_material_type: roofMaterialType,
     roof_design_type: roofDesign,
