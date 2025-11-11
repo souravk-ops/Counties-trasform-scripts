@@ -695,27 +695,8 @@ async function resolveRelationshipEndpointWithFallback(
   existingFiles,
   autoEntityCounters,
 ) {
-  const normalized = normalizeRelationshipEndpoint(endpoint, entityMap);
-  if (normalized) return normalized;
-
-  const kind = detectRelationshipEndpointKind(endpoint);
-  if (kind === "address") {
-    return await createOrReuseAddressEntity(
-      endpoint,
-      entityMap,
-      existingFiles,
-      autoEntityCounters,
-    );
-  }
-  if (kind === "person") {
-    return await createOrReusePersonEntity(
-      endpoint,
-      entityMap,
-      existingFiles,
-      autoEntityCounters,
-    );
-  }
-  return null;
+  // Do not auto-generate entities here; prefer dropping relationships with embedded payloads.
+  return normalizeRelationshipEndpoint(endpoint, entityMap) || null;
 }
 
 function relationshipEndpointIsReference(endpoint) {
