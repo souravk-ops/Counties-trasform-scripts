@@ -959,6 +959,130 @@ async function enforceStrictRelationshipEndpoints() {
   }
 }
 
+async function enforceAddressSingleModeOutputs() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const addressFilePattern =
+    /^(?:address(?:_relationship_\d+)?|mailing_address)\.json$/i;
+
+  for (const fileName of entries) {
+    if (!addressFilePattern.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const metadata = {};
+    const requestId = coerceRequestIdentifier(
+      Object.prototype.hasOwnProperty.call(payload, "request_identifier")
+        ? payload.request_identifier
+        : Object.prototype.hasOwnProperty.call(payload, "requestIdentifier")
+          ? payload.requestIdentifier
+          : null,
+    );
+    if (requestId != null) {
+      metadata.request_identifier = requestId;
+    }
+
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const rawValue = payload[key];
+      if (rawValue == null) continue;
+      if (typeof rawValue === "number") {
+        if (Number.isFinite(rawValue)) {
+          metadata[key] = rawValue;
+        }
+        continue;
+      }
+      if (typeof rawValue === "string") {
+        const cleaned = textClean(rawValue);
+        if (!cleaned) continue;
+        metadata[key] = cleaned;
+        continue;
+      }
+      metadata[key] = rawValue;
+    }
+
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+        ? payload.unnormalized_address
+        : Object.prototype.hasOwnProperty.call(payload, "full_address")
+          ? payload.full_address
+          : null,
+    );
+
+    const structuredFields = {};
+    for (const key of STRUCTURED_ADDRESS_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const rawValue = payload[key];
+      if (rawValue == null) continue;
+      const stringValue =
+        typeof rawValue === "string"
+          ? rawValue.trim()
+          : String(rawValue ?? "").trim();
+      if (!stringValue) continue;
+      if (key === "city_name" || key === "state_code") {
+        structuredFields[key] = stringValue.toUpperCase();
+      } else if (key === "postal_code" || key === "plus_four_postal_code") {
+        structuredFields[key] = stringValue.replace(/\s+/g, "");
+      } else {
+        structuredFields[key] = stringValue;
+      }
+    }
+
+    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(structuredFields, key) &&
+        typeof structuredFields[key] === "string" &&
+        structuredFields[key].length > 0,
+    );
+
+    let nextPayload = null;
+    if (normalizedUnnormalized) {
+      nextPayload = {
+        ...metadata,
+        unnormalized_address: normalizedUnnormalized,
+      };
+    } else if (hasStructured) {
+      nextPayload = { ...metadata };
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (
+          Object.prototype.hasOwnProperty.call(structuredFields, key) &&
+          structuredFields[key] != null
+        ) {
+          nextPayload[key] = structuredFields[key];
+        }
+      }
+    } else {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!isAddressOneOfCompliant(nextPayload)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(nextPayload, null, 2));
+  }
+}
+
 function textClean(s) {
   // Improved textClean to remove HTML comments and non-breaking spaces more aggressively
   return (s || "")
@@ -6921,6 +7045,30 @@ async function enforcePersonRecordNamePatterns() {
       continue;
     }
 
+    const fallbackName = "Unknown";
+    const normalizedFirst =
+      enforceNamePattern(sanitized.first_name, PERSON_NAME_PATTERN) ||
+      normalizeNameToPattern(sanitized.first_name, PERSON_NAME_PATTERN) ||
+      fallbackName;
+    const normalizedLast =
+      enforceNamePattern(sanitized.last_name, PERSON_NAME_PATTERN) ||
+      normalizeNameToPattern(sanitized.last_name, PERSON_NAME_PATTERN) ||
+      fallbackName;
+    let normalizedMiddle = null;
+    if (sanitized.middle_name != null) {
+      const middleCandidate = normalizeNameToPattern(
+        sanitized.middle_name,
+        PERSON_MIDDLE_NAME_PATTERN,
+      );
+      if (middleCandidate && PERSON_MIDDLE_NAME_PATTERN.test(middleCandidate)) {
+        normalizedMiddle = middleCandidate;
+      }
+    }
+
+    sanitized.first_name = normalizedFirst;
+    sanitized.last_name = normalizedLast;
+    sanitized.middle_name = normalizedMiddle;
+
     await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
   }
 }
@@ -9784,6 +9932,7 @@ async function finalizeEntityOutputs() {
   await enforceAddressPreferredOutputModes();
   await enforceAddressExclusiveModeRecords();
   await enforceDeterministicAddressOneOfCompliance();
+  await enforceAddressSingleModeOutputs();
   await enforcePersonFilesForSchemaCompliance();
   await enforceFinalAddressRecordsStrictOneOf();
   await enforcePersonRecordNamePatterns();
