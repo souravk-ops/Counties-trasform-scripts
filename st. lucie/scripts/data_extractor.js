@@ -870,6 +870,74 @@ async function enforceRelationshipReferenceEndpoints() {
   }
 }
 
+async function enforceStrictRelationshipEndpoints() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+
+  for (const fileName of entries) {
+    if (!relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitizeEndpoint = (endpoint) => {
+      if (endpoint == null) return null;
+      if (typeof endpoint === "string") {
+        const ref = normalizeRelationshipRef(endpoint);
+        return ref ? { "/": ref } : null;
+      }
+      if (endpoint && typeof endpoint === "object") {
+        if (typeof endpoint["/"] === "string") {
+          const ref = normalizeRelationshipRef(endpoint["/"]);
+          if (ref) return { "/": ref };
+        }
+      }
+      return null;
+    };
+
+    const sanitizedFrom = sanitizeEndpoint(payload.from);
+    const sanitizedTo = sanitizeEndpoint(payload.to);
+
+    if (!sanitizedFrom || !sanitizedTo) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = { from: sanitizedFrom, to: sanitizedTo };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "type")) {
+      const rawType = payload.type;
+      if (rawType == null) {
+        sanitized.type = null;
+      } else if (typeof rawType === "string") {
+        const trimmed = rawType.trim();
+        if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+          sanitized.type = trimmed;
+        }
+      }
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 function textClean(s) {
   // Improved textClean to remove HTML comments and non-breaking spaces more aggressively
   return (s || "")
@@ -1225,6 +1293,13 @@ const ADDRESS_METADATA_KEYS = [
   "range",
   "section",
 ];
+
+const ADDRESS_ALLOWED_PROPERTIES = new Set([
+  "request_identifier",
+  ...ADDRESS_METADATA_KEYS,
+  ...STRUCTURED_ADDRESS_FIELDS,
+  "unnormalized_address",
+]);
 
 function normalizeUnnormalizedAddressValue(value) {
   if (value == null) return null;
@@ -6993,6 +7068,81 @@ function coerceAddressToPreferredOneOf(payload) {
   return null;
 }
 
+async function enforceAddressAllowedKeys() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!/^address.*\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = {};
+    for (const [key, value] of Object.entries(payload)) {
+      if (!ADDRESS_ALLOWED_PROPERTIES.has(key)) continue;
+      if (value == null) continue;
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) continue;
+        sanitized[key] = trimmed;
+      } else {
+        sanitized[key] = value;
+      }
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(sanitized, "unnormalized_address")) {
+      const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+        payload.unnormalized_address ?? payload.full_address ?? null,
+      );
+      if (fallbackUnnormalized) {
+        sanitized.unnormalized_address = fallbackUnnormalized;
+      }
+    }
+
+    const hasStructured = STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+      const value = sanitized[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+
+    const hasUnnormalized =
+      typeof sanitized.unnormalized_address === "string" &&
+      sanitized.unnormalized_address.trim().length > 0;
+
+    if (!hasStructured && hasUnnormalized) {
+      for (const key of STRUCTURED_ADDRESS_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+          delete sanitized[key];
+        }
+      }
+    } else if (hasStructured && hasUnnormalized) {
+      delete sanitized.unnormalized_address;
+    } else if (!hasStructured && !hasUnnormalized) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 async function enforceAddressPreferredOneOfFiles() {
   let entries;
   try {
@@ -9369,6 +9519,7 @@ async function finalizeEntityOutputs() {
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
 
+  await enforceAddressAllowedKeys();
   await enforceAddressPreferredOneOfFiles();
   await enforceAddressFilesForSchemaCompliance();
   await enforceAddressUnnormalizedDominance();
@@ -9384,6 +9535,7 @@ async function finalizeEntityOutputs() {
   await enforcePersonRecordNamePatterns();
   await sanitizeRelationshipFiles();
   await enforceRelationshipReferenceEndpoints();
+  await enforceStrictRelationshipEndpoints();
 }
 
 const propertyTypeMapping = [
@@ -10730,15 +10882,6 @@ async function main() {
     addressOutputSource.unnormalized_address = prioritizedUnnormalized;
   }
 
-  if (
-    !usingStructuredOutput &&
-    typeof fallbackUnnormalizedValue === "string" &&
-    fallbackUnnormalizedValue.length > 0 &&
-    !Object.prototype.hasOwnProperty.call(addressOutputSource, "full_address")
-  ) {
-    addressOutputSource.full_address = fallbackUnnormalizedValue;
-  }
-
   const addressCandidateMap = new Map();
   const registerAddressCandidate = (candidate) => {
     if (!candidate || typeof candidate !== "object") return;
@@ -10980,6 +11123,14 @@ async function main() {
       path.join("data", "property.json"),
       JSON.stringify(propertyOut, null, 2),
     );
+
+    if (addressFileRef) {
+      await writeRelationshipFile(
+        "relationship_property_has_address.json",
+        propertyRef,
+        addressFileRef,
+      );
+    }
 
     // Lot data
     const lotOut = {
