@@ -456,6 +456,28 @@ function sanitizePersonEndpointPayload(endpoint) {
     final.middle_name = null;
   }
 
+  const normalizedFirst = normalizeNameToPattern(
+    final.first_name,
+    PERSON_NAME_PATTERN,
+  );
+  const normalizedLast = normalizeNameToPattern(
+    final.last_name,
+    PERSON_NAME_PATTERN,
+  );
+  if (!normalizedFirst || !normalizedLast) {
+    return null;
+  }
+  final.first_name = normalizedFirst;
+  final.last_name = normalizedLast;
+
+  if (final.middle_name != null) {
+    const normalizedMiddle = normalizeNameToPattern(
+      final.middle_name,
+      PERSON_MIDDLE_NAME_PATTERN,
+    );
+    final.middle_name = normalizedMiddle || null;
+  }
+
   return {
     ...final,
     middle_name: final.middle_name ?? null,
@@ -555,6 +577,24 @@ async function resolveRelationshipEndpointWithFallback(
   return null;
 }
 
+function relationshipEndpointIsReference(endpoint) {
+  if (!endpoint || typeof endpoint !== "object") return false;
+  const raw =
+    typeof endpoint["/"] === "string"
+      ? endpoint["/"]
+      : typeof endpoint.path === "string"
+        ? endpoint.path
+        : typeof endpoint.ref === "string"
+          ? endpoint.ref
+          : null;
+  if (!raw) return false;
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  if (/^(?:https?:)?\/\//i.test(trimmed)) return false;
+  if (/^urn:/i.test(trimmed)) return false;
+  return true;
+}
+
 async function sanitizeRelationshipFiles() {
   let entries;
   try {
@@ -631,6 +671,14 @@ async function sanitizeRelationshipFiles() {
     );
 
     if (!normalizedFrom || !normalizedTo) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (
+      !relationshipEndpointIsReference(normalizedFrom) ||
+      !relationshipEndpointIsReference(normalizedTo)
+    ) {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
