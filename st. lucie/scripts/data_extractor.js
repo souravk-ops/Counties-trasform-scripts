@@ -3679,6 +3679,137 @@ function normalizeStreetSuffix(value) {
   return candidate && STREET_SUFFIX_ALLOWED.has(candidate) ? candidate : null;
 }
 
+function titleCaseWords(value) {
+  if (!value) return null;
+  const cleaned = textClean(String(value));
+  if (!cleaned) return null;
+  return cleaned
+    .split(/\s+/)
+    .map((part) =>
+      part
+        ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+        : part,
+    )
+    .join(" ");
+}
+
+function deriveCityStatePostalFromAddress(raw) {
+  if (!raw) return null;
+  const cleaned = textClean(String(raw));
+  if (!cleaned) return null;
+
+  const stateZipMatch = cleaned.match(
+    /\b([A-Z]{2})\s+(\d{5})(?:[-\s]*(\d{4}))?\b/,
+  );
+  if (!stateZipMatch) return null;
+
+  const stateCode = stateZipMatch[1].toUpperCase();
+  const postalCode = stateZipMatch[2];
+  const plusFourRaw = stateZipMatch[3] || null;
+  const plusFour =
+    plusFourRaw && /^\d{4}$/.test(plusFourRaw) ? plusFourRaw : null;
+
+  const beforeState = cleaned.slice(0, stateZipMatch.index).trim();
+  let cityCandidate = null;
+  if (beforeState) {
+    const segments = beforeState
+      .split(/,+/)
+      .map((segment) => textClean(segment))
+      .filter(Boolean);
+    if (segments.length > 0) {
+      cityCandidate = segments[segments.length - 1];
+    }
+  }
+
+  if (!cityCandidate) return null;
+
+  const cityName = cityCandidate.toUpperCase();
+  if (!cityName || /\d/.test(cityName)) return null;
+
+  return {
+    city_name: cityName,
+    state_code: stateCode,
+    postal_code: postalCode,
+    plus_four_postal_code: plusFour,
+  };
+}
+
+function deriveStructuredAddressFromStrings(siteAddress, fallbackAddress) {
+  if (!siteAddress) return null;
+  const cleanedSite = textClean(String(siteAddress));
+  if (!cleanedSite) return null;
+
+  const numberMatch = cleanedSite.match(/^(\d+)\s+(.*)$/);
+  if (!numberMatch) return null;
+
+  const streetNumber = numberMatch[1].trim();
+  let remainder = numberMatch[2].trim();
+  if (!streetNumber || !remainder) return null;
+
+  let unitIdentifier = null;
+  const unitMatch = remainder.match(
+    /\b(?:APT|APARTMENT|UNIT|STE|SUITE|#)\s*([A-Za-z0-9-]+)\b$/i,
+  );
+  if (unitMatch) {
+    unitIdentifier = unitMatch[1].toUpperCase();
+    remainder = remainder.slice(0, unitMatch.index).trim();
+  }
+
+  let tokens = remainder.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  let streetSuffix = null;
+  if (tokens.length > 0) {
+    const maybeSuffix = tokens[tokens.length - 1];
+    const normalizedSuffix = normalizeStreetSuffix(maybeSuffix);
+    if (normalizedSuffix) {
+      streetSuffix = normalizedSuffix;
+      tokens.pop();
+    }
+  }
+
+  let streetPostDirectional = null;
+  if (tokens.length > 0) {
+    const maybePost = tokens[tokens.length - 1];
+    const normalizedPost = normalizeStreetDirectional(maybePost);
+    if (normalizedPost) {
+      streetPostDirectional = normalizedPost;
+      tokens.pop();
+    }
+  }
+
+  let streetPreDirectional = null;
+  if (tokens.length > 0) {
+    const maybePre = tokens[0];
+    const normalizedPre = normalizeStreetDirectional(maybePre);
+    if (normalizedPre) {
+      streetPreDirectional = normalizedPre;
+      tokens.shift();
+    }
+  }
+
+  const streetName = titleCaseWords(tokens.join(" "));
+  if (!streetName) return null;
+
+  const locationInfo =
+    deriveCityStatePostalFromAddress(fallbackAddress) ||
+    deriveCityStatePostalFromAddress(cleanedSite);
+  if (!locationInfo) return null;
+
+  return {
+    street_number: streetNumber,
+    street_name: streetName,
+    street_pre_directional_text: streetPreDirectional || null,
+    street_post_directional_text: streetPostDirectional || null,
+    street_suffix_type: streetSuffix || null,
+    unit_identifier: unitIdentifier || null,
+    city_name: locationInfo.city_name,
+    state_code: locationInfo.state_code,
+    postal_code: locationInfo.postal_code,
+    plus_four_postal_code: locationInfo.plus_four_postal_code || null,
+  };
+}
+
 function sanitizeStructuredAddressCandidate(candidate) {
   if (!candidate || typeof candidate !== "object") return null;
 
@@ -10341,6 +10472,21 @@ async function main() {
     unnormalizedAddressCandidate,
   );
 
+  const bestAddressForLocation =
+    unnormalizedAddressCandidate ??
+    baseRequestData?.unnormalized_address ??
+    baseRequestData?.full_address ??
+    propertySeedData?.unnormalized_address ??
+    propertySeedData?.full_address ??
+    unnormalizedAddressData?.unnormalized_address ??
+    unnormalizedAddressData?.full_address ??
+    null;
+
+  const derivedStructuredAddress = deriveStructuredAddressFromStrings(
+    siteAddress,
+    bestAddressForLocation,
+  );
+
   const requestIdentifierValue =
     propertySeedData?.request_identifier ??
     baseRequestData?.request_identifier ??
@@ -10348,6 +10494,7 @@ async function main() {
     null;
 
   const structuredAddressSources = [
+    derivedStructuredAddress,
     structuredAddressSource,
     baseRequestData?.normalized_address,
     propertySeedData?.normalized_address,
@@ -10446,10 +10593,10 @@ async function main() {
 
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
-  if (hasSourceUnnormalized) {
-    preferredAddressMode = "unnormalized";
-  } else if (hasStructuredForOutput) {
+  if (hasStructuredForOutput) {
     preferredAddressMode = "structured";
+  } else if (hasSourceUnnormalized) {
+    preferredAddressMode = "unnormalized";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
