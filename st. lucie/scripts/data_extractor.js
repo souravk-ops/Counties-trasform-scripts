@@ -597,6 +597,13 @@ async function createOrReuseAddressEntity(
     return null;
   }
 
+  const simplifiedAddressPayload =
+    simplifyAddressPayloadForOutput(finalAddressPayload);
+  if (!simplifiedAddressPayload) {
+    return null;
+  }
+  finalAddressPayload = simplifiedAddressPayload;
+
   const canonical = canonicalStringify(finalAddressPayload);
   if (canonical && entityMap.has(canonical)) {
     const refs = entityMap.get(canonical);
@@ -6531,6 +6538,7 @@ async function harmonizeAddressFileForSchema(
 ) {
   if (!fileName || typeof fileName !== "string") return null;
 
+  const filePath = path.join("data", fileName);
   const preferMode = preferStructured ? "structured" : "unnormalized";
   const steps = [
     () => enforceAddressFileOneOf(fileName, preferMode),
@@ -6578,11 +6586,14 @@ async function harmonizeAddressFileForSchema(
   }
 
   const exclusive = ensureExclusiveAddressMode(latest) || latest;
-  await fsp.writeFile(
-    path.join("data", fileName),
-    JSON.stringify(exclusive, null, 2),
-  );
-  return exclusive;
+  const simplified = simplifyAddressPayloadForOutput(exclusive);
+  if (!simplified) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(simplified, null, 2));
+  return simplified;
 }
 
 async function finalizeAddressFileForOneOf(
@@ -6635,8 +6646,14 @@ async function finalizeAddressFileForOneOf(
     return null;
   }
 
-  await fsp.writeFile(filePath, JSON.stringify(strictPayload, null, 2));
-  return strictPayload;
+  const simplified = simplifyAddressPayloadForOutput(strictPayload);
+  if (!simplified) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(simplified, null, 2));
+  return simplified;
 }
 
 async function normalizePersonFileForSchema(fileName) {
@@ -6847,7 +6864,8 @@ async function enforcePersonRecordNamePatterns() {
   }
 
   for (const fileName of entries) {
-    if (!/^person_\d+\.json$/i.test(fileName)) continue;
+    if (!/^person.*\.json$/i.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
 
     const filePath = path.join("data", fileName);
     let payload;
@@ -7346,8 +7364,14 @@ async function enforceAddressFileStrictOneOf(fileName, preferStructured = false)
     delete finalPayload.unnormalized_address;
   }
 
-  await fsp.writeFile(filePath, JSON.stringify(finalPayload, null, 2));
-  return finalPayload;
+  const simplified = simplifyAddressPayloadForOutput(finalPayload);
+  if (!simplified) {
+    await fsp.unlink(filePath).catch(() => {});
+    return null;
+  }
+
+  await fsp.writeFile(filePath, JSON.stringify(simplified, null, 2));
+  return simplified;
 }
 
 async function enforceFinalAddressRecordsStrictOneOf() {
@@ -7572,6 +7596,63 @@ function buildStrictAddressPayload(address) {
   }
 
   return null;
+}
+
+function simplifyAddressPayloadForOutput(address) {
+  if (!address || typeof address !== "object") return null;
+
+  const strictPayload = buildStrictAddressPayload(address);
+  if (!strictPayload || typeof strictPayload !== "object") return null;
+
+  const result = {};
+  const requestIdentifier = coerceRequestIdentifier(
+    Object.prototype.hasOwnProperty.call(strictPayload, "request_identifier")
+      ? strictPayload.request_identifier
+      : Object.prototype.hasOwnProperty.call(strictPayload, "requestIdentifier")
+        ? strictPayload.requestIdentifier
+        : null,
+  );
+  if (requestIdentifier != null) {
+    result.request_identifier = requestIdentifier;
+  }
+
+  for (const key of ADDRESS_METADATA_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(strictPayload, key)) continue;
+    const value = strictPayload[key];
+    if (value == null) continue;
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) {
+        result[key] = value;
+      }
+      continue;
+    }
+    if (typeof value === "string") {
+      const cleaned = textClean(value);
+      if (cleaned) {
+        result[key] = cleaned;
+      }
+      continue;
+    }
+    result[key] = value;
+  }
+
+  if (hasUnnormalizedAddressValue(strictPayload)) {
+    const normalized = normalizeUnnormalizedAddressValue(
+      strictPayload.unnormalized_address,
+    );
+    if (!normalized) return null;
+    result.unnormalized_address = normalized;
+    return isAddressOneOfCompliant(result) ? result : null;
+  }
+
+  const structuredCandidate = sanitizeStructuredAddressCandidate(strictPayload);
+  if (!structuredCandidate) return null;
+
+  for (const [key, value] of Object.entries(structuredCandidate)) {
+    result[key] = value;
+  }
+
+  return isAddressOneOfCompliant(result) ? result : null;
 }
 
 function finalizeAddressRecordForSchema(payload, preferMode = null) {
@@ -10996,11 +11077,18 @@ async function main() {
         await fsp.unlink(addressFilePath).catch(() => {});
         addressFileRef = null;
       } else {
-        await fsp.writeFile(
-          addressFilePath,
-          JSON.stringify(strictFinalAddress, null, 2),
-        );
-        addressFileRef = `./${addressFileName}`;
+        const simplifiedFinalAddress =
+          simplifyAddressPayloadForOutput(strictFinalAddress);
+        if (!simplifiedFinalAddress) {
+          await fsp.unlink(addressFilePath).catch(() => {});
+          addressFileRef = null;
+        } else {
+          await fsp.writeFile(
+            addressFilePath,
+            JSON.stringify(simplifiedFinalAddress, null, 2),
+          );
+          addressFileRef = `./${addressFileName}`;
+        }
       }
     }
   } else {
