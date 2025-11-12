@@ -68,6 +68,58 @@ async function removeRelationshipDirectories(typeNames = []) {
   }
 }
 
+async function listRelationshipJsonFiles() {
+  const results = [];
+  const baseDir = "data";
+  let rootEntries;
+  try {
+    rootEntries = await fsp.readdir(baseDir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+
+  const collectNested = async (dirPath) => {
+    let dirEntries;
+    try {
+      dirEntries = await fsp.readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of dirEntries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        await collectNested(fullPath);
+      } else if (
+        entry.isFile() &&
+        entry.name.toLowerCase().endsWith(".json")
+      ) {
+        results.push({
+          filePath: fullPath,
+          fileName: entry.name,
+          relativePath: path.relative(baseDir, fullPath),
+        });
+      }
+    }
+  };
+
+  for (const entry of rootEntries) {
+    const fullPath = path.join(baseDir, entry.name);
+    if (entry.isFile() && relationshipPattern.test(entry.name)) {
+      results.push({
+        filePath: fullPath,
+        fileName: entry.name,
+        relativePath: entry.name,
+      });
+    } else if (entry.isDirectory() && entry.name === "relationships") {
+      await collectNested(fullPath);
+    }
+  }
+
+  return results;
+}
+
 function assignIfValue(target, key, value) {
   if (value === null || value === undefined) return;
   if (typeof value === "string") {
@@ -787,21 +839,31 @@ function relationshipEndpointIsReference(endpoint) {
 }
 
 async function sanitizeRelationshipFiles() {
-  let entries;
+  let dirEntries;
   try {
-    entries = await fsp.readdir("data");
+    dirEntries = await fsp.readdir("data", { withFileTypes: true });
   } catch {
+    return;
+  }
+
+  const relationshipFiles = await listRelationshipJsonFiles();
+  if (
+    (!dirEntries || dirEntries.length === 0) &&
+    relationshipFiles.length === 0
+  ) {
     return;
   }
 
   const relationshipPattern = /^relationship_.*\.json$/i;
   const entityMap = new Map();
-  const existingFiles = new Set(entries);
+  const existingFiles = new Set();
   const autoEntityCounters = { address: 0, person: 0 };
 
-  for (const fileName of entries) {
-    if (relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
+  for (const entry of dirEntries) {
+    if (!entry.isFile()) continue;
+    existingFiles.add(entry.name);
+    if (relationshipPattern.test(entry.name)) continue;
+    const filePath = path.join("data", entry.name);
     let payload;
     try {
       payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
@@ -811,31 +873,40 @@ async function sanitizeRelationshipFiles() {
     if (!payload || typeof payload !== "object") continue;
     const canonical = canonicalStringify(payload);
     if (!canonical) continue;
-    const ref = `./${fileName}`;
+    const ref = `./${entry.name}`;
     registerEntityCanonical(entityMap, canonical, ref);
 
-    const addressMatch = fileName.match(
+    const addressMatch = entry.name.match(
       /^address_relationship_(\d+)\.json$/i,
     );
     if (addressMatch) {
       const idx = parseInt(addressMatch[1], 10);
       if (!Number.isNaN(idx)) {
-        autoEntityCounters.address = Math.max(autoEntityCounters.address, idx);
+        autoEntityCounters.address = Math.max(
+          autoEntityCounters.address,
+          idx,
+        );
       }
     }
 
-    const personMatch = fileName.match(/^person_relationship_(\d+)\.json$/i);
+    const personMatch = entry.name.match(/^person_relationship_(\d+)\.json$/i);
     if (personMatch) {
       const idx = parseInt(personMatch[1], 10);
       if (!Number.isNaN(idx)) {
-        autoEntityCounters.person = Math.max(autoEntityCounters.person, idx);
+        autoEntityCounters.person = Math.max(
+          autoEntityCounters.person,
+          idx,
+        );
       }
     }
   }
 
-  for (const fileName of entries) {
-    if (!relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
+  for (const info of relationshipFiles) {
+    existingFiles.add(path.basename(info.filePath));
+  }
+
+  for (const info of relationshipFiles) {
+    const filePath = info.filePath;
     let payload;
     try {
       payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
@@ -904,23 +975,15 @@ async function sanitizeRelationshipFiles() {
 }
 
 async function enforceRelationshipReferenceEndpoints() {
-  let entries;
-  try {
-    entries = await fsp.readdir("data");
-  } catch {
-    return;
-  }
+  const relationshipFiles = await listRelationshipJsonFiles();
+  if (!relationshipFiles.length) return;
 
-  const relationshipPattern = /^relationship_.*\.json$/i;
   const normalizeEndpoint = (endpoint) => {
     const ref = normalizeRelationshipRef(endpoint);
     return ref ? { "/": ref } : null;
   };
 
-  for (const fileName of entries) {
-    if (!relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
-
+  for (const { filePath } of relationshipFiles) {
     let payload;
     try {
       payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
@@ -963,19 +1026,31 @@ async function enforceRelationshipReferenceEndpoints() {
 }
 
 async function enforceStrictRelationshipEndpoints() {
-  let entries;
-  try {
-    entries = await fsp.readdir("data");
-  } catch {
-    return;
-  }
+  const relationshipFiles = await listRelationshipJsonFiles();
+  if (!relationshipFiles.length) return;
 
-  const relationshipPattern = /^relationship_.*\.json$/i;
+  const sanitizeEndpoint = (endpoint) => {
+    if (endpoint == null) return null;
+    if (typeof endpoint === "string") {
+      const ref = normalizeRelationshipRef(endpoint);
+      return ref ? { "/": ref } : null;
+    }
+    if (endpoint && typeof endpoint === "object") {
+      if (typeof endpoint["/"] === "string") {
+        const ref = normalizeRelationshipRef(endpoint["/"]);
+        if (ref) return { "/": ref };
+      }
+      for (const key of ["path", "ref", "href"]) {
+        if (typeof endpoint[key] === "string") {
+          const ref = normalizeRelationshipRef(endpoint[key]);
+          if (ref) return { "/": ref };
+        }
+      }
+    }
+    return null;
+  };
 
-  for (const fileName of entries) {
-    if (!relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
-
+  for (const { filePath } of relationshipFiles) {
     let payload;
     try {
       payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
@@ -988,21 +1063,6 @@ async function enforceStrictRelationshipEndpoints() {
       await fsp.unlink(filePath).catch(() => {});
       continue;
     }
-
-    const sanitizeEndpoint = (endpoint) => {
-      if (endpoint == null) return null;
-      if (typeof endpoint === "string") {
-        const ref = normalizeRelationshipRef(endpoint);
-        return ref ? { "/": ref } : null;
-      }
-      if (endpoint && typeof endpoint === "object") {
-        if (typeof endpoint["/"] === "string") {
-          const ref = normalizeRelationshipRef(endpoint["/"]);
-          if (ref) return { "/": ref };
-        }
-      }
-      return null;
-    };
 
     const sanitizedFrom = sanitizeEndpoint(payload.from);
     const sanitizedTo = sanitizeEndpoint(payload.to);
@@ -1031,23 +1091,15 @@ async function enforceStrictRelationshipEndpoints() {
 }
 
 async function dropRelationshipsWithNonReferenceEndpoints() {
-  let entries;
-  try {
-    entries = await fsp.readdir("data");
-  } catch {
-    return;
-  }
+  const relationshipFiles = await listRelationshipJsonFiles();
+  if (!relationshipFiles.length) return;
 
-  const relationshipPattern = /^relationship_.*\.json$/i;
   const toReferenceEndpoint = (endpoint) => {
     const normalized = normalizeRelationshipRef(endpoint);
     return normalized ? { "/": normalized } : null;
   };
 
-  for (const fileName of entries) {
-    if (!relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
-
+  for (const { filePath } of relationshipFiles) {
     let payload;
     try {
       payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
@@ -1091,17 +1143,23 @@ async function dropRelationshipsWithNonReferenceEndpoints() {
 }
 
 async function enforceRelationshipEndpointsAsReferencesStrict() {
-  let entries;
+  let dirEntries;
   try {
-    entries = await fsp.readdir("data");
+    dirEntries = await fsp.readdir("data", { withFileTypes: true });
   } catch {
     return;
   }
 
-  if (!entries || entries.length === 0) return;
+  const relationshipFiles = await listRelationshipJsonFiles();
+  if (
+    (!dirEntries || dirEntries.length === 0) &&
+    relationshipFiles.length === 0
+  ) {
+    return;
+  }
 
   const relationshipPattern = /^relationship_.*\.json$/i;
-  const existingFiles = new Set(entries);
+  const existingFiles = new Set();
   const canonicalAddressRefs = new Map();
   const canonicalPersonRefs = new Map();
   const autoEntityCounters = { address: 0, person: 0 };
@@ -1120,9 +1178,14 @@ async function enforceRelationshipEndpointsAsReferencesStrict() {
     }
   };
 
-  for (const fileName of entries) {
-    if (relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
+  for (const entry of dirEntries) {
+    const name = entry.name;
+    if (entry.isFile()) {
+      existingFiles.add(name);
+    }
+    if (!entry.isFile() || relationshipPattern.test(name)) continue;
+
+    const filePath = path.join("data", name);
 
     let payload;
     try {
@@ -1148,7 +1211,7 @@ async function enforceRelationshipEndpointsAsReferencesStrict() {
         registerCanonicalRef(
           canonicalAddressRefs,
           canonicalSanitized,
-          `./${fileName}`,
+          `./${name}`,
         );
       }
     } else if (endpointLooksLikePerson(payload)) {
@@ -1167,27 +1230,41 @@ async function enforceRelationshipEndpointsAsReferencesStrict() {
         registerCanonicalRef(
           canonicalPersonRefs,
           canonicalSanitized,
-          `./${fileName}`,
+          `./${name}`,
+        );
+      }
+    }
+
+    const addressMatch =
+      name.match(/^address_relationship_(\d+)\.json$/i) ||
+      name.match(/^address_(\d+)\.json$/i) ||
+      (name.toLowerCase() === "address.json" ? ["", "0"] : null);
+    if (addressMatch) {
+      const idx = parseInt(addressMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.address = Math.max(
+          autoEntityCounters.address,
+          idx,
+        );
+      }
+    }
+
+    const personMatch =
+      name.match(/^person_relationship_(\d+)\.json$/i) ||
+      name.match(/^person_(\d+)\.json$/i);
+    if (personMatch) {
+      const idx = parseInt(personMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.person = Math.max(
+          autoEntityCounters.person,
+          idx,
         );
       }
     }
   }
 
-  for (const fileName of entries) {
-    const addressMatch = fileName.match(/^address_relationship_(\d+)\.json$/i);
-    if (addressMatch) {
-      const idx = parseInt(addressMatch[1], 10);
-      if (!Number.isNaN(idx)) {
-        autoEntityCounters.address = Math.max(autoEntityCounters.address, idx);
-      }
-    }
-    const personMatch = fileName.match(/^person_relationship_(\d+)\.json$/i);
-    if (personMatch) {
-      const idx = parseInt(personMatch[1], 10);
-      if (!Number.isNaN(idx)) {
-        autoEntityCounters.person = Math.max(autoEntityCounters.person, idx);
-      }
-    }
+  for (const info of relationshipFiles) {
+    existingFiles.add(path.basename(info.filePath));
   }
 
   const ensureAddressReference = async (endpoint) => {
@@ -1260,9 +1337,8 @@ async function enforceRelationshipEndpointsAsReferencesStrict() {
     return ref;
   };
 
-  for (const fileName of entries) {
-    if (!relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
+  for (const info of relationshipFiles) {
+    const filePath = info.filePath;
 
     let payload;
     try {
@@ -1416,23 +1492,34 @@ async function coerceRelationshipEndpointToReference(
 }
 
 async function enforceTerminalRelationshipReferences() {
-  let entries;
+  let dirEntries;
   try {
-    entries = await fsp.readdir("data");
+    dirEntries = await fsp.readdir("data", { withFileTypes: true });
   } catch {
     return;
   }
 
-  if (!entries || entries.length === 0) return;
+  const relationshipFiles = await listRelationshipJsonFiles();
+  if (
+    (!dirEntries || dirEntries.length === 0) &&
+    relationshipFiles.length === 0
+  ) {
+    return;
+  }
 
   const relationshipPattern = /^relationship_.*\.json$/i;
   const entityMap = new Map();
-  const existingFiles = new Set(entries);
+  const existingFiles = new Set();
   const autoEntityCounters = { address: 0, person: 0 };
 
-  for (const fileName of entries) {
-    if (relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
+  for (const entry of dirEntries) {
+    const name = entry.name;
+    if (entry.isFile()) {
+      existingFiles.add(name);
+    }
+    if (!entry.isFile() || relationshipPattern.test(name)) continue;
+
+    const filePath = path.join("data", name);
     let payload;
     try {
       const raw = await fsp.readFile(filePath, "utf8");
@@ -1443,35 +1530,42 @@ async function enforceTerminalRelationshipReferences() {
     if (!payload || typeof payload !== "object") continue;
 
     const canonical = canonicalStringify(payload);
-    if (canonical) registerEntityCanonical(entityMap, canonical, `./${fileName}`);
+    if (canonical) registerEntityCanonical(entityMap, canonical, `./${name}`);
 
     const addressMatch =
-      fileName.match(/^address_relationship_(\d+)\.json$/i) ||
-      fileName.match(/^address_(\d+)\.json$/i) ||
-      (fileName.toLowerCase() === "address.json"
-        ? ["", "0"]
-        : null);
+      name.match(/^address_relationship_(\d+)\.json$/i) ||
+      name.match(/^address_(\d+)\.json$/i) ||
+      (name.toLowerCase() === "address.json" ? ["", "0"] : null);
     if (addressMatch) {
       const idx = parseInt(addressMatch[1], 10);
       if (!Number.isNaN(idx)) {
-        autoEntityCounters.address = Math.max(autoEntityCounters.address, idx);
+        autoEntityCounters.address = Math.max(
+          autoEntityCounters.address,
+          idx,
+        );
       }
     }
 
     const personMatch =
-      fileName.match(/^person_relationship_(\d+)\.json$/i) ||
-      fileName.match(/^person_(\d+)\.json$/i);
+      name.match(/^person_relationship_(\d+)\.json$/i) ||
+      name.match(/^person_(\d+)\.json$/i);
     if (personMatch) {
       const idx = parseInt(personMatch[1], 10);
       if (!Number.isNaN(idx)) {
-        autoEntityCounters.person = Math.max(autoEntityCounters.person, idx);
+        autoEntityCounters.person = Math.max(
+          autoEntityCounters.person,
+          idx,
+        );
       }
     }
   }
 
-  for (const fileName of entries) {
-    if (!relationshipPattern.test(fileName)) continue;
-    const filePath = path.join("data", fileName);
+  for (const info of relationshipFiles) {
+    existingFiles.add(path.basename(info.filePath));
+  }
+
+  for (const info of relationshipFiles) {
+    const filePath = info.filePath;
 
     let payload;
     try {
