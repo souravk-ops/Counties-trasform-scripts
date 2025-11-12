@@ -10448,8 +10448,9 @@ async function removeExisting(pattern) {
 async function finalizeEntityOutputs() {
   // Relationships generated upstream occasionally embed raw entities; rerun the
   // reference normalization pass unconditionally so multi-request runs stay in sync.
-  await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
-  await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
+  await removeExisting(/^(?:relationship_)?address_has_fact_sheet.*\.json$/);
+  await removeExisting(/^(?:relationship_)?person_.*_has_fact_sheet.*\.json$/);
+  await removeExisting(/^(?:relationship_)?property_has_address.*\.json$/);
 
   const enforcementSteps = [
     enforceGlobalAddressOneOfCompliance,
@@ -12096,13 +12097,8 @@ async function main() {
       JSON.stringify(propertyOut, null, 2),
     );
 
-    if (addressFileRef) {
-      await writeRelationshipFile(
-        "relationship_property_has_address.json",
-        propertyRef,
-        addressFileRef,
-      );
-    }
+    // Downstream orchestration populates property_has_address; avoid emitting it
+    // here to keep property.relationships.property_has_address null/valid.
 
     // Lot data
     const lotOut = {
