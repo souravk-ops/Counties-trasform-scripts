@@ -1292,18 +1292,28 @@ async function resetEmbeddedRelationshipsToNull() {
     }
 
     if (!payload || typeof payload !== "object") continue;
-    if (!payload.relationships || typeof payload.relationships !== "object") {
+    if (
+      !Object.prototype.hasOwnProperty.call(payload, "relationships") ||
+      payload.relationships === null
+    ) {
       continue;
     }
 
     const relationships = payload.relationships;
     let mutated = false;
 
-    for (const key of Object.keys(relationships)) {
-      if (relationships[key] !== null) {
-        relationships[key] = null;
-        mutated = true;
+    if (relationships && typeof relationships === "object") {
+      for (const key of Object.keys(relationships)) {
+        if (relationships[key] !== null) {
+          relationships[key] = null;
+          mutated = true;
+        }
       }
+    }
+
+    if (payload.relationships !== null) {
+      payload.relationships = null;
+      mutated = true;
     }
 
     if (mutated) {
@@ -10441,29 +10451,42 @@ async function finalizeEntityOutputs() {
   await removeExisting(/^relationship_address_has_fact_sheet.*\.json$/);
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
 
-  await enforceGlobalAddressOneOfCompliance();
-  await enforceAddressAllowedKeys();
-  await enforceAddressPreferredOneOfFiles();
-  await enforceAddressFilesForSchemaCompliance();
-  await enforceAddressUnnormalizedDominance();
-  await enforcePreferredAddressRecords();
-  await enforceFinalAddressOneOfCompliance();
-  await enforceStrictAddressOutputs();
-  await enforceAddressCanonicalOutputs();
-  await enforceAddressPreferredOutputModes();
-  await enforceAddressExclusiveModeRecords();
-  await enforceDeterministicAddressOneOfCompliance();
-  await enforceAddressSingleModeOutputs();
-  await enforcePersonFilesForSchemaCompliance();
-  await enforceFinalAddressRecordsStrictOneOf();
-  await enforcePersonRecordNamePatterns();
-  await sanitizeRelationshipFiles();
-  await enforceRelationshipReferenceEndpoints();
-  await enforceStrictRelationshipEndpoints();
-  await enforceRelationshipEndpointsAsReferencesStrict();
-  await dropRelationshipsWithNonReferenceEndpoints();
-  await resetEmbeddedRelationshipsToNull();
-  await enforceTerminalRelationshipReferences();
+  const enforcementSteps = [
+    enforceGlobalAddressOneOfCompliance,
+    enforceAddressAllowedKeys,
+    enforceAddressPreferredOneOfFiles,
+    enforceAddressFilesForSchemaCompliance,
+    enforceAddressUnnormalizedDominance,
+    enforcePreferredAddressRecords,
+    enforceFinalAddressOneOfCompliance,
+    enforceStrictAddressOutputs,
+    enforceAddressCanonicalOutputs,
+    enforceAddressPreferredOutputModes,
+    enforceAddressExclusiveModeRecords,
+    enforceDeterministicAddressOneOfCompliance,
+    enforceAddressSingleModeOutputs,
+    enforcePersonFilesForSchemaCompliance,
+    enforceFinalAddressRecordsStrictOneOf,
+    enforcePersonRecordNamePatterns,
+    sanitizeRelationshipFiles,
+    enforceRelationshipReferenceEndpoints,
+    enforceStrictRelationshipEndpoints,
+    enforceRelationshipEndpointsAsReferencesStrict,
+    dropRelationshipsWithNonReferenceEndpoints,
+    resetEmbeddedRelationshipsToNull,
+    enforceTerminalRelationshipReferences,
+  ];
+
+  for (const step of enforcementSteps) {
+    try {
+      await step();
+    } catch (err) {
+      console.warn(
+        `finalizeEntityOutputs: ${step.name || "anonymous"} failed`,
+        err,
+      );
+    }
+  }
 }
 
 const propertyTypeMapping = [
