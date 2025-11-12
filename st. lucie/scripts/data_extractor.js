@@ -38,6 +38,12 @@ const RELATIONSHIP_ALLOWED_TYPE_VALUES = new Set([
   null,
 ]);
 
+const RELATIONSHIP_TYPES_TO_DROP = new Set([
+  "address_has_fact_sheet",
+  "person_has_fact_sheet",
+  "property_has_address",
+]);
+
 async function readJson(p) {
   const s = await fsp.readFile(p, "utf8");
   return JSON.parse(s);
@@ -118,6 +124,53 @@ async function listRelationshipJsonFiles() {
   }
 
   return results;
+}
+
+async function dropUnsupportedRelationshipTypes() {
+  const relationshipFiles = await listRelationshipJsonFiles();
+  const disallowedTokens = Array.from(RELATIONSHIP_TYPES_TO_DROP).map((token) =>
+    typeof token === "string" ? token.toLowerCase() : "",
+  );
+
+  if (!relationshipFiles.length) {
+    await removeRelationshipDirectories(Array.from(RELATIONSHIP_TYPES_TO_DROP));
+    return;
+  }
+
+  for (const info of relationshipFiles) {
+    const lowerPath =
+      typeof info.relativePath === "string"
+        ? info.relativePath.toLowerCase()
+        : "";
+    let shouldDrop = disallowedTokens.some(
+      (token) => token && lowerPath.includes(token),
+    );
+
+    if (!shouldDrop) {
+      let payload;
+      try {
+        payload = JSON.parse(await fsp.readFile(info.filePath, "utf8"));
+      } catch {
+        await fsp.unlink(info.filePath).catch(() => {});
+        continue;
+      }
+
+      const rawType =
+        payload && typeof payload.type === "string"
+          ? payload.type.trim().toLowerCase()
+          : null;
+
+      if (rawType && RELATIONSHIP_TYPES_TO_DROP.has(rawType)) {
+        shouldDrop = true;
+      }
+    }
+
+    if (shouldDrop) {
+      await fsp.unlink(info.filePath).catch(() => {});
+    }
+  }
+
+  await removeRelationshipDirectories(Array.from(RELATIONSHIP_TYPES_TO_DROP));
 }
 
 function assignIfValue(target, key, value) {
@@ -10749,6 +10802,7 @@ async function finalizeEntityOutputs() {
     dropRelationshipsWithNonReferenceEndpoints,
     resetEmbeddedRelationshipsToNull,
     enforceTerminalRelationshipReferences,
+    dropUnsupportedRelationshipTypes,
   ];
 
   for (const step of enforcementSteps) {
@@ -12030,10 +12084,10 @@ async function performExtraction() {
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
 
-  if (hasSourceUnnormalized) {
-    preferredAddressMode = "unnormalized";
-  } else if (hasStructuredForOutput) {
+  if (hasStructuredForOutput) {
     preferredAddressMode = "structured";
+  } else if (hasSourceUnnormalized) {
+    preferredAddressMode = "unnormalized";
   } else if (
     typeof fallbackUnnormalizedValue === "string" &&
     fallbackUnnormalizedValue.length > 0
