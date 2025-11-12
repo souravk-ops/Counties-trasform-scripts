@@ -84,36 +84,59 @@ function extractTableMap($container) {
 function splitTokens(raw) {
   if (!raw) return [];
   return String(raw)
-    .split(/[;\/]/)
+    .split(/[;\/,]/)
     .map((part) => part.trim())
     .filter(Boolean);
 }
 
 function mapExteriorMaterial(token) {
+  if (!token) return null;
   const upper = token.toUpperCase();
-  if (upper.includes("ALUMIN")) return "Aluminum Siding";
   if (upper.includes("BRICK")) return "Brick";
-  if (upper.includes("STONE")) return "Stone";
-  if (upper.includes("CONCRETE BLOCK") || upper.startsWith("CB")) {
+  if (upper.includes("NATURAL STONE") || upper.includes("STONE")) {
+    return "Natural Stone";
+  }
+  if (upper.includes("STUCCO")) return "Stucco";
+  if (upper.includes("VINYL")) return "Vinyl Siding";
+  if (
+    upper.includes("CONCRETE BLOCK") ||
+    upper.includes("CBS") ||
+    upper.startsWith("CB")
+  ) {
     return "Concrete Block";
   }
   if (upper.includes("HARDI") || upper.includes("FIBER")) {
     return "Fiber Cement Siding";
   }
-  if (upper.includes("STUCCO")) return "Stucco";
+  if (upper.includes("EIFS")) return "EIFS";
+  if (upper.includes("LOG")) return "Log";
+  if (upper.includes("ALUMIN") || upper.includes("METAL")) {
+    return "Metal Siding";
+  }
+  if (upper.includes("PRECAST")) return "Precast Concrete";
   if (upper.includes("WOOD") || upper.includes("SIDING")) {
     return "Wood Siding";
   }
-  if (upper.includes("PRECAST")) return "Precast Concrete Panel";
-  if (upper.includes("TILE")) return "Tile";
   return null;
 }
 
 function mapInteriorMaterial(token) {
+  if (!token) return null;
   const upper = token.toUpperCase();
   if (upper.includes("DRYWALL")) return "Drywall";
   if (upper.includes("PLASTER")) return "Plaster";
-  if (upper.includes("MASON")) return "Masonry";
+  if (upper.includes("WOOD") || upper.includes("PANEL")) {
+    return "Wood Paneling";
+  }
+  if (upper.includes("BRICK")) return "Exposed Brick";
+  if (upper.includes("BLOCK") || upper.includes("MASON")) {
+    return "Exposed Block";
+  }
+  if (upper.includes("STONE")) return "Stone Veneer";
+  if (upper.includes("TILE")) return "Tile";
+  if (upper.includes("METAL")) return "Metal Panels";
+  if (upper.includes("GLASS")) return "Glass Panels";
+  if (upper.includes("CONC")) return "Concrete";
   if (upper.includes("N/A") || upper.includes("NONE")) return null;
   return null;
 }
@@ -121,8 +144,15 @@ function mapInteriorMaterial(token) {
 function mapRoofCover(token) {
   if (!token) return null;
   const upper = token.toUpperCase();
-  if (upper.includes("ASPHALT")) return "Architectural Asphalt Shingle";
-  if (upper.includes("TAR") && upper.includes("GRAVEL")) return "Built-Up";
+  if (upper.includes("ASPHALT") || upper.includes("SHINGLE")) {
+    return "Architectural Asphalt Shingle";
+  }
+  if (upper.includes("TAR") && upper.includes("GRAVEL")) {
+    return "Built-Up Roof";
+  }
+  if (upper.includes("BUILT") && upper.includes("UP")) {
+    return "Built-Up Roof";
+  }
   if (upper.includes("MINIMUM") || upper.includes("N/A")) return null;
   return null;
 }
@@ -135,30 +165,54 @@ function mapRoofDesign(val) {
   if (upper.includes("GABLE")) return "Gable";
   if (upper.includes("HIP")) return "Hip";
   if (upper.includes("REINF")) return "Flat";
-  if (upper.includes("RIGID")) return "Other";
   if (upper.includes("N/A")) return null;
   return null;
 }
 
 function mapFrameMaterial(token) {
+  if (!token) return null;
   const upper = token.toUpperCase();
   if (upper.includes("WOOD")) return "Wood Frame";
+  if (upper.includes("STEEL")) return "Steel Frame";
+  if (
+    upper.includes("CONCRETE BLOCK") ||
+    upper.includes("CBS") ||
+    upper.includes("BLOCK")
+  ) {
+    return "Concrete Block";
+  }
+  if (upper.includes("REINFORCED") || upper.includes("POURED")) {
+    return "Poured Concrete";
+  }
   if (upper.includes("MASONRY")) return "Masonry";
-  if (upper.includes("REINFORCED")) return "Reinforced Concrete";
-  if (upper.includes("PRECAST")) return "Precast Concrete";
+  if (upper.includes("PRECAST")) return "Concrete Block";
   return null;
 }
 
 function mapFloorMaterial(token) {
+  if (!token) return null;
   const upper = token.toUpperCase();
   if (upper.includes("CARPET")) return "Carpet";
-  if (upper.includes("HARDWOOD") || upper.includes("PINE") || upper.includes("SOFT WOOD")) {
+  if (upper.includes("ENGINEERED") && upper.includes("HARDWOOD")) {
+    return "Engineered Hardwood";
+  }
+  if (upper.includes("SOLID") && upper.includes("HARDWOOD")) {
     return "Solid Hardwood";
   }
-  if (upper.includes("VINYL")) return "Vinyl Sheet";
+  if (upper.includes("HARDWOOD")) return "Solid Hardwood";
+  if (upper.includes("LAMINATE")) return "Laminate";
+  if (upper.includes("VINYL") && upper.includes("PLANK")) {
+    return "Luxury Vinyl Plank";
+  }
+  if (upper.includes("VINYL")) return "Sheet Vinyl";
+  if (upper.includes("CERAMIC")) return "Ceramic Tile";
+  if (upper.includes("PORCELAIN")) return "Porcelain Tile";
+  if (upper.includes("STONE")) return "Natural Stone Tile";
   if (upper.includes("TERRAZZO")) return "Terrazzo";
-  if (upper.includes("CONCRETE")) return "Concrete";
-  if (upper.includes("CLAY") || upper.includes("TILE")) return "Ceramic Tile";
+  if (upper.includes("CONCRETE") && upper.includes("POLISH")) {
+    return "Polished Concrete";
+  }
+  if (upper.includes("CONCRETE")) return "Polished Concrete";
   return null;
 }
 
@@ -221,8 +275,8 @@ function buildStructureForBuilding(building, requestIdentifier) {
   let roofMaterialType = null;
   if (roofCover === "Architectural Asphalt Shingle") {
     roofMaterialType = "Shingle";
-  } else if (roofCover === "Built-Up") {
-    roofMaterialType = "Built-Up";
+  } else if (roofCover === "Built-Up Roof") {
+    roofMaterialType = "Composition";
   }
   const roofDesign = mapRoofDesign(left["roof type"]);
 
@@ -243,10 +297,6 @@ function buildStructureForBuilding(building, requestIdentifier) {
     secondary_framing_material: frameVals[1] || null,
     number_of_stories: stories != null ? stories : null,
     finished_base_area: heatedArea,
-    source_http_request: {
-      method: "GET",
-      url: "https://qpublic.schneidercorp.com/Application.aspx",
-    },
     request_identifier: requestIdentifier || null,
   };
 }

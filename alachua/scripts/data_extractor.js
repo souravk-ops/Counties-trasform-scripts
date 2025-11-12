@@ -22,11 +22,6 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2));
 }
 
-function clone(obj) {
-  if (obj == null) return obj;
-  return JSON.parse(JSON.stringify(obj));
-}
-
 function moneyToNumber(str) {
   if (str == null) return null;
   const n = String(str).replace(/[^0-9.\-]/g, "");
@@ -1033,8 +1028,26 @@ function mapPermitImprovementType(typeText) {
 function mapPermitImprovementStatus(activeText) {
   const normalized = (activeText || "").trim().toLowerCase();
   if (!normalized) return null;
-  if (normalized === "yes" || normalized === "y") return "Active";
-  if (normalized === "no" || normalized === "n") return "Completed";
+  if (
+    normalized === "yes" ||
+    normalized === "y" ||
+    normalized.includes("active") ||
+    normalized.includes("open") ||
+    normalized.includes("issued") ||
+    normalized.includes("approve")
+  ) {
+    return "InProgress";
+  }
+  if (
+    normalized === "no" ||
+    normalized === "n" ||
+    normalized.includes("complete") ||
+    normalized.includes("closed")
+  ) {
+    return "Completed";
+  }
+  if (normalized.includes("hold")) return "OnHold";
+  if (normalized.includes("cancel")) return "Cancelled";
   return null;
 }
 
@@ -1313,12 +1326,6 @@ function main() {
 
   const unaddr = readJSON("unnormalized_address.json");
   const seed = readJSON("property_seed.json");
-  const defaultSourceHttpRequest =
-    (unaddr && unaddr.source_http_request) ||
-    (seed && seed.source_http_request) || {
-      method: "GET",
-      url: "https://qpublic.schneidercorp.com/Application.aspx",
-    };
 
   let ownersData = null,
     utilsData = null,
@@ -1506,7 +1513,6 @@ function main() {
     number_of_units: binfo.type === "DUPLEX" ? 2 :
                      binfo.type === "TRI/QUADRAPLEX" ? 3 : 1,
     historic_designation: false,
-    source_http_request: clone(defaultSourceHttpRequest),
     request_identifier: requestIdentifier,
   };
   if (property.property_type === "LandParcel") {
@@ -1571,29 +1577,34 @@ function main() {
     unfinished_base_area: null,
     unfinished_basement_area: null,
     unfinished_upper_story_area: null,
-    source_http_request: clone(defaultSourceHttpRequest),
     request_identifier: requestIdentifier,
   };
 
   const structureItems = (() => {
-    const wrap = (entry, buildingIndex = null) => ({
-      data: {
-        ...baseStructure,
-        ...entry,
-        source_http_request:
-          entry && entry.source_http_request != null
-            ? entry.source_http_request
-            : clone(defaultSourceHttpRequest),
-        request_identifier:
-          entry && entry.request_identifier != null
-            ? entry.request_identifier
-            : requestIdentifier,
-      },
-      buildingIndex:
-        Number.isFinite(parseIntSafe(buildingIndex)) ?
-          parseIntSafe(buildingIndex) :
-          null,
-    });
+    const wrap = (entry, buildingIndex = null) => {
+      const provided = entry && typeof entry === "object" ? { ...entry } : {};
+      if ("source_http_request" in provided) {
+        delete provided.source_http_request;
+      }
+      const providedRequestId =
+        provided.request_identifier != null
+          ? provided.request_identifier
+          : requestIdentifier;
+      if ("request_identifier" in provided) {
+        delete provided.request_identifier;
+      }
+      return {
+        data: {
+          ...baseStructure,
+          ...provided,
+          request_identifier: providedRequestId,
+        },
+        buildingIndex:
+          Number.isFinite(parseIntSafe(buildingIndex)) ?
+            parseIntSafe(buildingIndex) :
+            null,
+      };
+    };
 
     if (
       structureEntry &&
@@ -1656,23 +1667,29 @@ function main() {
   });
 
   const utilityItems = (() => {
-    const wrap = (entry, buildingIndex = null) => ({
-      data: {
-        ...entry,
-        source_http_request:
-          entry && entry.source_http_request != null
-            ? entry.source_http_request
-            : clone(defaultSourceHttpRequest),
-        request_identifier:
-          entry && entry.request_identifier != null
-            ? entry.request_identifier
-            : requestIdentifier,
-      },
-      buildingIndex:
-        Number.isFinite(parseIntSafe(buildingIndex)) ?
-          parseIntSafe(buildingIndex) :
-          null,
-    });
+    const wrap = (entry, buildingIndex = null) => {
+      const provided = entry && typeof entry === "object" ? { ...entry } : {};
+      if ("source_http_request" in provided) {
+        delete provided.source_http_request;
+      }
+      const providedRequestId =
+        provided.request_identifier != null
+          ? provided.request_identifier
+          : requestIdentifier;
+      if ("request_identifier" in provided) {
+        delete provided.request_identifier;
+      }
+      return {
+        data: {
+          ...provided,
+          request_identifier: providedRequestId,
+        },
+        buildingIndex:
+          Number.isFinite(parseIntSafe(buildingIndex)) ?
+            parseIntSafe(buildingIndex) :
+            null,
+      };
+    };
 
     if (
       utilitiesEntry &&
@@ -1785,9 +1802,113 @@ function main() {
     propertyImprovementOutputs.push({ filename, path: `./${filename}` });
   });
 
+  const VALID_LAYOUT_SPACE_TYPES = new Set([
+    "Building",
+    "Living Room",
+    "Family Room",
+    "Great Room",
+    "Dining Room",
+    "Kitchen",
+    "Breakfast Nook",
+    "Pantry",
+    "Primary Bedroom",
+    "Secondary Bedroom",
+    "Guest Bedroom",
+    "Bedroom",
+    "Full Bathroom",
+    "Half Bathroom / Powder Room",
+    "Three-Quarter Bathroom",
+    "En-Suite Bathroom",
+    "Primary Bathroom",
+    "Laundry Room",
+    "Mudroom",
+    "Closet",
+    "Walk-in Closet",
+    "Mechanical Room",
+    "Storage Room",
+    "Home Office",
+    "Library",
+    "Den",
+    "Study",
+    "Media Room / Home Theater",
+    "Game Room",
+    "Home Gym",
+    "Music Room",
+    "Craft Room / Hobby Room",
+    "Prayer Room / Meditation Room",
+    "Safe Room / Panic Room",
+    "Wine Cellar",
+    "Bar Area",
+    "Greenhouse",
+    "Attached Garage",
+    "Detached Garage",
+    "Carport",
+    "Attached Carport",
+    "Detached Carport",
+    "Workshop",
+    "Porch",
+    "Open Porch",
+    "Screened Porch",
+    "Sunroom",
+    "Deck",
+    "Patio",
+    "Pergola",
+    "Balcony",
+    "Terrace",
+    "Gazebo",
+    "Pool House",
+    "Outdoor Kitchen",
+    "Lobby / Entry Hall",
+    "Common Room",
+    "Utility Closet",
+    "Pool Area",
+    "Indoor Pool",
+    "Outdoor Pool",
+    "Hot Tub / Spa Area",
+    "Shed",
+    "Lanai",
+    "Enclosed Porch",
+    "Enclosed Cabana",
+    "Detached Utility Closet",
+    "Jacuzzi",
+    "Courtyard",
+    "Open Courtyard",
+    "Screen Porch (1-Story)",
+    "Screen Enclosure (2-Story)",
+    "Screen Enclosure (3-Story)",
+    "Screen Enclosure (Custom)",
+    "Lower Garage",
+    "Lower Screened Porch",
+    "Stoop",
+    "Floor",
+    "Basement",
+    "Sub-Basement",
+    "Living Area",
+    "Barn",
+  ]);
+
+  const normalizeLayoutSpaceType = (value, fallback = "Living Area") => {
+    if (value == null) return fallback;
+    const trimmed = String(value).trim();
+    if (!trimmed) return fallback;
+    if (trimmed.toLowerCase() === "interior space") {
+      return "Living Area";
+    }
+    for (const candidate of VALID_LAYOUT_SPACE_TYPES) {
+      if (candidate.toLowerCase() === trimmed.toLowerCase()) {
+        return candidate;
+      }
+    }
+    return fallback;
+  };
+
   const createLayoutRecord = (spaceType, overrides = {}) => {
+    const normalizedSpaceType = normalizeLayoutSpaceType(
+      spaceType,
+      "Living Area",
+    );
     const base = {
-      space_type: spaceType,
+      space_type: normalizedSpaceType,
       space_index: null,
       space_type_index: null,
       flooring_material_type: null,
@@ -1820,10 +1941,14 @@ function main() {
       pool_condition: null,
       pool_surface_type: null,
       pool_water_quality: null,
-      source_http_request: clone(defaultSourceHttpRequest),
       request_identifier: requestIdentifier,
     };
-    return { ...base, ...overrides };
+    const merged = { ...base, ...overrides };
+    merged.space_type = normalizeLayoutSpaceType(
+      merged.space_type,
+      normalizedSpaceType,
+    );
+    return merged;
   };
 
   const rawLayouts =
@@ -2333,7 +2458,6 @@ function main() {
       unaddr && typeof unaddr.latitude === "number" ? unaddr.latitude : null,
     longitude:
       unaddr && typeof unaddr.longitude === "number" ? unaddr.longitude : null,
-    source_http_request: clone(defaultSourceHttpRequest),
     request_identifier: requestIdentifier,
     county_name:
       (unaddr &&
@@ -2396,7 +2520,6 @@ function main() {
       unnormalized_address: addr,
       latitude: null,
       longitude: null,
-      source_http_request: clone(defaultSourceHttpRequest),
       request_identifier: requestIdentifier,
     };
     writeJSON(path.join(dataDir, fileName), mailingObj);

@@ -85,7 +85,7 @@ function mapCoolingType(hvac) {
   if (!hvac) return null;
   const upper = hvac.toUpperCase();
   if (upper.includes("NONE") || upper.includes("N/A")) return null;
-  if (upper.includes("ROOF TOP")) return "RooftopUnit";
+  if (upper.includes("ROOF TOP")) return "CentralAir";
   if (upper.includes("CENTRAL")) return "CentralAir";
   return null;
 }
@@ -143,10 +143,6 @@ function buildUtilityData($, requestIdentifier) {
         ...baseUtility,
         heating_system_type: heatingType,
         cooling_system_type: coolingType,
-        source_http_request: {
-          method: "GET",
-          url: "https://qpublic.schneidercorp.com/Application.aspx",
-        },
         request_identifier: requestIdentifier || null,
       },
     });
