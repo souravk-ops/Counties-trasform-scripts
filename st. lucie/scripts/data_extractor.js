@@ -1292,27 +1292,25 @@ async function resetEmbeddedRelationshipsToNull() {
     }
 
     if (!payload || typeof payload !== "object") continue;
-    if (
-      !Object.prototype.hasOwnProperty.call(payload, "relationships") ||
-      payload.relationships === null
-    ) {
-      continue;
-    }
-
-    const relationships = payload.relationships;
     let mutated = false;
 
-    if (relationships && typeof relationships === "object") {
-      for (const key of Object.keys(relationships)) {
-        if (relationships[key] !== null) {
-          relationships[key] = null;
-          mutated = true;
+    if (Object.prototype.hasOwnProperty.call(payload, "relationships")) {
+      const relationships = payload.relationships;
+      if (
+        relationships &&
+        typeof relationships === "object" &&
+        !Array.isArray(relationships)
+      ) {
+        for (const key of Object.keys(relationships)) {
+          if (relationships[key] != null) {
+            mutated = true;
+            break;
+          }
         }
+      } else if (relationships != null) {
+        mutated = true;
       }
-    }
-
-    if (payload.relationships !== null) {
-      payload.relationships = null;
+      delete payload.relationships;
       mutated = true;
     }
 
