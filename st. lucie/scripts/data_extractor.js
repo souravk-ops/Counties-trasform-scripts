@@ -1315,6 +1315,161 @@ async function resetEmbeddedRelationshipsToNull() {
   }
 }
 
+async function coerceRelationshipEndpointToReference(
+  endpoint,
+  entityMap,
+  existingFiles,
+  autoEntityCounters,
+) {
+  if (endpoint == null) return null;
+
+  const candidateStrings = [];
+  if (typeof endpoint === "string") {
+    candidateStrings.push(endpoint);
+  } else if (endpoint && typeof endpoint === "object") {
+    for (const key of ["/", "path", "ref", "href"]) {
+      if (typeof endpoint[key] === "string") {
+        candidateStrings.push(endpoint[key]);
+      }
+    }
+  }
+
+  for (const candidate of candidateStrings) {
+    const normalized = normalizeRelationshipRef(candidate);
+    if (normalized) return normalized;
+  }
+
+  if (endpoint && typeof endpoint === "object") {
+    const resolved = await resolveRelationshipEndpointWithFallback(
+      endpoint,
+      entityMap,
+      existingFiles,
+      autoEntityCounters,
+    );
+    if (
+      resolved &&
+      typeof resolved === "object" &&
+      typeof resolved["/"] === "string"
+    ) {
+      const normalized = normalizeRelationshipRef(resolved["/"]);
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+async function enforceTerminalRelationshipReferences() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  if (!entries || entries.length === 0) return;
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+  const entityMap = new Map();
+  const existingFiles = new Set(entries);
+  const autoEntityCounters = { address: 0, person: 0 };
+
+  for (const fileName of entries) {
+    if (relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!payload || typeof payload !== "object") continue;
+
+    const canonical = canonicalStringify(payload);
+    if (canonical) registerEntityCanonical(entityMap, canonical, `./${fileName}`);
+
+    const addressMatch =
+      fileName.match(/^address_relationship_(\d+)\.json$/i) ||
+      fileName.match(/^address_(\d+)\.json$/i) ||
+      (fileName.toLowerCase() === "address.json"
+        ? ["", "0"]
+        : null);
+    if (addressMatch) {
+      const idx = parseInt(addressMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.address = Math.max(autoEntityCounters.address, idx);
+      }
+    }
+
+    const personMatch =
+      fileName.match(/^person_relationship_(\d+)\.json$/i) ||
+      fileName.match(/^person_(\d+)\.json$/i);
+    if (personMatch) {
+      const idx = parseInt(personMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.person = Math.max(autoEntityCounters.person, idx);
+      }
+    }
+  }
+
+  for (const fileName of entries) {
+    if (!relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+
+    let payload;
+    try {
+      const raw = await fsp.readFile(filePath, "utf8");
+      payload = JSON.parse(raw);
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const fromRef = await coerceRelationshipEndpointToReference(
+      payload.from,
+      entityMap,
+      existingFiles,
+      autoEntityCounters,
+    );
+    const toRef = await coerceRelationshipEndpointToReference(
+      payload.to,
+      entityMap,
+      existingFiles,
+      autoEntityCounters,
+    );
+
+    if (!fromRef || !toRef) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitized = {
+      from: { "/": fromRef },
+      to: { "/": toRef },
+    };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "type")) {
+      const rawType = payload.type;
+      if (rawType == null) {
+        sanitized.type = null;
+      } else if (typeof rawType === "string") {
+        const trimmed = rawType.trim();
+        if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+          sanitized.type = trimmed;
+        }
+      }
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+  }
+}
+
 async function enforceAddressSingleModeOutputs() {
   let entries;
   try {
@@ -10308,6 +10463,7 @@ async function finalizeEntityOutputs() {
   await enforceRelationshipEndpointsAsReferencesStrict();
   await dropRelationshipsWithNonReferenceEndpoints();
   await resetEmbeddedRelationshipsToNull();
+  await enforceTerminalRelationshipReferences();
 }
 
 const propertyTypeMapping = [
