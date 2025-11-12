@@ -74,6 +74,49 @@ async function removeRelationshipDirectories(typeNames = []) {
   }
 }
 
+async function purgeUnsupportedRelationshipArtifacts() {
+  const tokens = Array.from(
+    RELATIONSHIP_TYPES_TO_DROP,
+    (value) =>
+      typeof value === "string" ? value.trim().toLowerCase() : null,
+  ).filter(Boolean);
+  if (!tokens.length) return;
+
+  const baseDir = "data";
+  const queue = [baseDir];
+
+  while (queue.length > 0) {
+    const currentDir = queue.pop();
+    let entries;
+    try {
+      entries = await fsp.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryNameLower = entry.name.toLowerCase();
+      const fullPath = path.join(currentDir, entry.name);
+      const matchesToken = tokens.some((token) =>
+        entryNameLower.includes(token),
+      );
+
+      if (matchesToken) {
+        if (entry.isDirectory()) {
+          await removeDirectoryRecursive(fullPath);
+        } else if (entry.isFile()) {
+          await fsp.unlink(fullPath).catch(() => {});
+        }
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        queue.push(fullPath);
+      }
+    }
+  }
+}
+
 async function listRelationshipJsonFiles() {
   const results = [];
   const baseDir = "data";
@@ -10776,6 +10819,7 @@ async function finalizeEntityOutputs() {
     "property_has_address",
     "sales_history_has_person",
   ]);
+  await purgeUnsupportedRelationshipArtifacts();
 
   const enforcementSteps = [
     enforceGlobalAddressOneOfCompliance,
@@ -10815,6 +10859,8 @@ async function finalizeEntityOutputs() {
       );
     }
   }
+
+  await purgeUnsupportedRelationshipArtifacts();
 }
 
 const propertyTypeMapping = [
@@ -11816,6 +11862,8 @@ function mapPropertyType(stLuciePropertyType) {
 async function performExtraction() {
   ensureDirSync("data");
   await removeExisting(/^error\.json$/);
+  await removeDirectoryRecursive(path.join("data", "relationships"));
+  await purgeUnsupportedRelationshipArtifacts();
 
   const inputHtmlRaw = await fsp.readFile("input.html", "utf8");
 
