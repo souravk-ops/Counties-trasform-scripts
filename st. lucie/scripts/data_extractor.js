@@ -47,6 +47,27 @@ function ensureDirSync(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+async function removeDirectoryRecursive(targetPath) {
+  if (!targetPath) return;
+  try {
+    if (typeof fsp.rm === "function") {
+      await fsp.rm(targetPath, { recursive: true, force: true });
+    } else {
+      await fsp.rmdir(targetPath, { recursive: true });
+    }
+  } catch {}
+}
+
+async function removeRelationshipDirectories(typeNames = []) {
+  if (!Array.isArray(typeNames) || typeNames.length === 0) return;
+  const baseDir = path.join("data", "relationships");
+  for (const typeName of typeNames) {
+    if (!typeName || typeof typeName !== "string") continue;
+    const targetDir = path.join(baseDir, typeName);
+    await removeDirectoryRecursive(targetDir);
+  }
+}
+
 function assignIfValue(target, key, value) {
   if (value === null || value === undefined) return;
   if (typeof value === "string") {
@@ -10602,6 +10623,12 @@ async function finalizeEntityOutputs() {
   await removeExisting(/^(?:relationship_)?address_has_fact_sheet.*\.json$/);
   await removeExisting(/^(?:relationship_)?person_.*_has_fact_sheet.*\.json$/);
   await removeExisting(/^(?:relationship_)?property_has_address.*\.json$/);
+  await removeRelationshipDirectories([
+    "address_has_fact_sheet",
+    "person_has_fact_sheet",
+    "property_has_address",
+    "sales_history_has_person",
+  ]);
 
   const enforcementSteps = [
     enforceGlobalAddressOneOfCompliance,
@@ -11684,6 +11711,12 @@ async function performExtraction() {
   await removeExisting(/^relationship_person_.*_has_fact_sheet.*\.json$/);
   await removeExisting(/^address\.json$/);
   await removeExisting(/^mailing_address\.json$/);
+  await removeRelationshipDirectories([
+    "address_has_fact_sheet",
+    "person_has_fact_sheet",
+    "property_has_address",
+    "sales_history_has_person",
+  ]);
   const propertyImprovementRecords = [];
 
 
