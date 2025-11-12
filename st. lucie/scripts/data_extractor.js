@@ -6,10 +6,16 @@ const cheerio = require("cheerio");
 
 const RELATIONSHIP_ALLOWED_TYPE_VALUES = new Set([
   "layout_has_appliance",
+  "layout_has_layout",
+  "layout_has_structure",
+  "layout_has_utility",
+  "deed_has_file",
   "person_has_mortgage",
+  "person_has_mailing_address",
   "person_has_property",
   "company_has_person",
   "person_owns_property",
+  "property_has_company",
   "property_appliance",
   "property_has_address",
   "property_has_file",
@@ -17,13 +23,18 @@ const RELATIONSHIP_ALLOWED_TYPE_VALUES = new Set([
   "property_has_lot",
   "property_has_mortgage",
   "property_has_nearby_locations",
+  "property_has_person",
   "property_has_sales_history",
   "property_has_structure",
+  "property_has_utility",
   "property_has_tax",
   "property_has_utilities",
   "property_has_environmental_risk",
   "property_seed",
   "property_flood_storm_information",
+  "sales_history_has_company",
+  "sales_history_has_deed",
+  "sales_history_has_person",
   null,
 ]);
 
@@ -514,9 +525,11 @@ async function createOrReuseAddressEntity(
     endpoint?.unnormalized_address ?? endpoint?.full_address ?? null,
   );
 
-  const preferredModes = hasStructuredEndpoint
-    ? ["structured", hasUnnormalizedEndpoint ? "unnormalized" : "structured"]
-    : [hasUnnormalizedEndpoint ? "unnormalized" : "structured", "structured"];
+  const preferredModes = hasUnnormalizedEndpoint
+    ? ["unnormalized", hasStructuredEndpoint ? "structured" : "unnormalized"]
+    : hasStructuredEndpoint
+      ? ["structured"]
+      : ["unnormalized", "structured"];
 
   const modeQueue = [...new Set(preferredModes)];
   const candidatePayloads = [];
@@ -622,6 +635,20 @@ async function createOrReuseAddressEntity(
     finalAddressPayload = sanitizedFinalAddress;
   } else if (!isAddressOneOfCompliant(finalAddressPayload)) {
     return null;
+  }
+
+  if (finalAddressPayload) {
+    const preferredModeForFinal = addressHasUnnormalizedValue(finalAddressPayload)
+      ? "unnormalized"
+      : "structured";
+    const exclusiveFinalPayload = ensureExclusiveAddressPayloadForWrite(
+      finalAddressPayload,
+      preferredModeForFinal,
+    );
+    if (!exclusiveFinalPayload || !isAddressOneOfCompliant(exclusiveFinalPayload)) {
+      return null;
+    }
+    finalAddressPayload = exclusiveFinalPayload;
   }
 
   const simplifiedAddressPayload =
@@ -6803,6 +6830,132 @@ async function enforceFinalAddressOneOfCompliance() {
   }
 }
 
+async function enforceAddressFinalSingleModeOutputs() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  for (const fileName of entries) {
+    if (!ADDRESS_FILE_PATTERN.test(fileName)) continue;
+    if (/^relationship_/i.test(fileName)) continue;
+
+    const filePath = path.join("data", fileName);
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const metadata = {};
+    for (const key of ADDRESS_METADATA_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+      const value = payload[key];
+      if (value == null) continue;
+      if (typeof value === "number") {
+        if (!Number.isFinite(value)) continue;
+        metadata[key] = value;
+        continue;
+      }
+      if (typeof value === "string") {
+        const cleaned = textClean(value);
+        if (!cleaned) continue;
+        metadata[key] = cleaned;
+        continue;
+      }
+      metadata[key] = value;
+    }
+
+    let requestIdentifier = null;
+    if (Object.prototype.hasOwnProperty.call(payload, "request_identifier")) {
+      const candidate = payload.request_identifier;
+      if (candidate != null) {
+        if (typeof candidate === "string") {
+          const trimmed = candidate.trim();
+          if (trimmed) {
+            requestIdentifier = trimmed;
+          }
+        } else {
+          const stringified = String(candidate).trim();
+          if (stringified) {
+            requestIdentifier = stringified;
+          }
+        }
+      }
+    }
+
+    const structuredCandidate = sanitizeStructuredAddressCandidate(payload);
+    const hasStructured =
+      structuredCandidate &&
+      STRUCTURED_ADDRESS_REQUIRED_KEYS.every((key) => {
+        if (!Object.prototype.hasOwnProperty.call(structuredCandidate, key)) {
+          return false;
+        }
+        const value = structuredCandidate[key];
+        if (typeof value === "string") {
+          return value.trim().length > 0;
+        }
+        return value != null;
+      });
+
+    const normalizedUnnormalized = normalizeUnnormalizedAddressValue(
+      Object.prototype.hasOwnProperty.call(payload, "unnormalized_address")
+        ? payload.unnormalized_address
+        : null,
+    );
+
+    let finalPayload = null;
+    if (normalizedUnnormalized) {
+      finalPayload = {
+        ...metadata,
+        unnormalized_address: normalizedUnnormalized,
+      };
+    } else if (hasStructured) {
+      finalPayload = { ...metadata };
+      for (const [key, value] of Object.entries(structuredCandidate)) {
+        if (value == null) continue;
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (!trimmed) continue;
+          finalPayload[key] = trimmed;
+        } else {
+          finalPayload[key] = value;
+        }
+      }
+    } else {
+      const fallbackUnnormalized = normalizeUnnormalizedAddressValue(
+        buildFallbackUnnormalizedAddress(payload),
+      );
+      if (fallbackUnnormalized) {
+        finalPayload = {
+          ...metadata,
+          unnormalized_address: fallbackUnnormalized,
+        };
+      }
+    }
+
+    if (!finalPayload || !isAddressOneOfCompliant(finalPayload)) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (requestIdentifier != null) {
+      finalPayload.request_identifier = requestIdentifier;
+    }
+
+    await fsp.writeFile(filePath, JSON.stringify(finalPayload, null, 2));
+  }
+}
+
 function buildPreferredAddressRecord(payload) {
   if (!payload || typeof payload !== "object") return null;
 
@@ -10466,6 +10619,7 @@ async function finalizeEntityOutputs() {
     enforceAddressSingleModeOutputs,
     enforcePersonFilesForSchemaCompliance,
     enforceFinalAddressRecordsStrictOneOf,
+    enforceAddressFinalSingleModeOutputs,
     enforcePersonRecordNamePatterns,
     sanitizeRelationshipFiles,
     enforceRelationshipReferenceEndpoints,
@@ -11484,7 +11638,7 @@ function mapPropertyType(stLuciePropertyType) {
   return normalizePropertyMapping(mapping);
 }
 
-async function main() {
+async function performExtraction() {
   ensureDirSync("data");
   await removeExisting(/^error\.json$/);
 
@@ -11730,9 +11884,6 @@ async function main() {
         structuredForOutput[key].trim().length > 0,
     );
 
-  const hasAuthoritativeStructuredSource =
-    normalizedStructuredSources.length > 0;
-
   const fallbackFromStructured = sanitizedStructuredCandidate
     ? normalizeUnnormalizedAddressValue(
         buildFallbackUnnormalizedAddress(sanitizedStructuredCandidate),
@@ -11749,15 +11900,10 @@ async function main() {
     normalizedSourceUnnormalizedValue ||
     normalizeUnnormalizedAddressValue(fallbackFromStructured);
 
-  const shouldUseAuthoritativeStructured =
-    hasStructuredForOutput && hasAuthoritativeStructuredSource;
-
   let addressCandidateForFinal = null;
   let preferredAddressMode = null;
 
-  if (shouldUseAuthoritativeStructured) {
-    preferredAddressMode = "structured";
-  } else if (hasSourceUnnormalized) {
+  if (hasSourceUnnormalized) {
     preferredAddressMode = "unnormalized";
   } else if (hasStructuredForOutput) {
     preferredAddressMode = "structured";
@@ -13930,6 +14076,7 @@ async function main() {
             relFileName,
             `./${latestOwnerMeta.fileName}`,
             "./mailing_address.json",
+            { type: "person_has_mailing_address" },
           );
           if (wroteRelationship) {
             console.log(`Created mailing address relationship: ${relFileName}`);
@@ -13964,6 +14111,7 @@ async function main() {
             relFileName,
             propertyRef,
             `./${meta.fileName}`,
+            { type: "property_has_company" },
           );
         }
       } else if (meta.type === "person") {
@@ -14035,6 +14183,7 @@ async function main() {
             relFileName,
             propertyRef,
             `./${meta.fileName}`,
+            { type: "property_has_person" },
           );
         }
       }
@@ -14224,6 +14373,7 @@ async function main() {
           `relationship_sales_history_${i + 1}_to_deed_${i + 1}.json`,
           `./${saleFileName}`,
           `./${deedFileName}`,
+          { type: "sales_history_has_deed" },
         );
 
         // --- Create sales_history_has_person/company relationships ---
@@ -14260,6 +14410,7 @@ async function main() {
                   relFileName,
                   `./${saleFileName}`,
                   `./${granteeMeta.fileName}`,
+                  { type: "sales_history_has_person" },
                 );
               }
             } else {
@@ -14268,6 +14419,7 @@ async function main() {
                 relFileName,
                 `./${saleFileName}`,
                 `./${granteeMeta.fileName}`,
+                { type: "sales_history_has_company" },
               );
             }
           }
@@ -14293,6 +14445,7 @@ async function main() {
             `relationship_deed_${i + 1}_to_file_${fileIdx}.json`,
             `./${deedFileName}`,
             `./${fileFileName}`,
+            { type: "deed_has_file" },
           );
         }
       } // End of if (deedType !== null)
@@ -14657,6 +14810,7 @@ async function main() {
         relFile,
         `./${layoutIndexToFile.get(parentIndex)}`,
         `./${record.file}`,
+        { type: "layout_has_layout" },
       );
     }
   }
@@ -14692,6 +14846,7 @@ async function main() {
             relFile,
             `./${layoutFile}`,
             utilityRef,
+            { type: "layout_has_utility" },
           );
           if (wroteRel) {
             linkedToLayout = true;
@@ -14706,6 +14861,7 @@ async function main() {
           relFile,
           `./${layoutFile}`,
           utilityRef,
+          { type: "layout_has_utility" },
         );
         if (wroteRel) {
           linkedToLayout = true;
@@ -14719,6 +14875,7 @@ async function main() {
         relFile,
         propertyRef,
         utilityRef,
+        { type: "property_has_utility" },
       );
     }
   }
@@ -14740,6 +14897,7 @@ async function main() {
             relFile,
             `./${layoutFile}`,
             structureRef,
+            { type: "layout_has_structure" },
           );
           if (wroteRel) {
             linkedToLayout = true;
@@ -14754,6 +14912,7 @@ async function main() {
           relFile,
           `./${layoutFile}`,
           structureRef,
+          { type: "layout_has_structure" },
         );
         if (wroteRel) {
           linkedToLayout = true;
@@ -14767,6 +14926,7 @@ async function main() {
         relFile,
         propertyRef,
         structureRef,
+        { type: "property_has_structure" },
       );
     }
   }
@@ -14812,8 +14972,25 @@ async function main() {
   }
 
 }
+}
 
-  await finalizeEntityOutputs();
+async function main() {
+  let extractionError = null;
+  try {
+    await performExtraction();
+  } catch (err) {
+    extractionError = err;
+    throw err;
+  } finally {
+    try {
+      await finalizeEntityOutputs();
+    } catch (finalizeErr) {
+      console.warn("finalizeEntityOutputs failed", finalizeErr);
+      if (!extractionError) {
+        throw finalizeErr;
+      }
+    }
+  }
 }
 
 main().catch(async (err) => {
