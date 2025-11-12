@@ -1042,6 +1042,232 @@ async function dropRelationshipsWithNonReferenceEndpoints() {
   }
 }
 
+async function enforceRelationshipEndpointsAsReferencesStrict() {
+  let entries;
+  try {
+    entries = await fsp.readdir("data");
+  } catch {
+    return;
+  }
+
+  if (!entries || entries.length === 0) return;
+
+  const relationshipPattern = /^relationship_.*\.json$/i;
+  const existingFiles = new Set(entries);
+  const canonicalAddressRefs = new Map();
+  const canonicalPersonRefs = new Map();
+  const autoEntityCounters = { address: 0, person: 0 };
+
+  const ensureRefPrefix = (ref) => {
+    if (typeof ref !== "string") return null;
+    const trimmed = ref.trim();
+    if (!trimmed) return null;
+    return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+  };
+
+  const registerCanonicalRef = (map, canonical, ref) => {
+    if (!canonical || !ref) return;
+    if (!map.has(canonical)) {
+      map.set(canonical, ref);
+    }
+  };
+
+  for (const fileName of entries) {
+    if (relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (!payload || typeof payload !== "object") continue;
+
+    if (endpointLooksLikeAddress(payload)) {
+      const sanitized = sanitizeAddressEndpointPayload(payload);
+      if (sanitized && isAddressOneOfCompliant(sanitized)) {
+        const canonicalSanitized = canonicalStringify(sanitized);
+        if (
+          canonicalSanitized &&
+          canonicalSanitized !== canonicalStringify(payload)
+        ) {
+          await fsp.writeFile(
+            filePath,
+            JSON.stringify(sanitized, null, 2),
+          );
+        }
+        registerCanonicalRef(
+          canonicalAddressRefs,
+          canonicalSanitized,
+          `./${fileName}`,
+        );
+      }
+    } else if (endpointLooksLikePerson(payload)) {
+      const sanitized = sanitizePersonEndpointPayload(payload);
+      if (sanitized) {
+        const canonicalSanitized = canonicalStringify(sanitized);
+        if (
+          canonicalSanitized &&
+          canonicalSanitized !== canonicalStringify(payload)
+        ) {
+          await fsp.writeFile(
+            filePath,
+            JSON.stringify(sanitized, null, 2),
+          );
+        }
+        registerCanonicalRef(
+          canonicalPersonRefs,
+          canonicalSanitized,
+          `./${fileName}`,
+        );
+      }
+    }
+  }
+
+  for (const fileName of entries) {
+    const addressMatch = fileName.match(/^address_relationship_(\d+)\.json$/i);
+    if (addressMatch) {
+      const idx = parseInt(addressMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.address = Math.max(autoEntityCounters.address, idx);
+      }
+    }
+    const personMatch = fileName.match(/^person_relationship_(\d+)\.json$/i);
+    if (personMatch) {
+      const idx = parseInt(personMatch[1], 10);
+      if (!Number.isNaN(idx)) {
+        autoEntityCounters.person = Math.max(autoEntityCounters.person, idx);
+      }
+    }
+  }
+
+  const ensureAddressReference = async (endpoint) => {
+    const normalized = normalizeRelationshipRef(endpoint);
+    if (normalized) return ensureRefPrefix(normalized);
+
+    if (!endpointLooksLikeAddress(endpoint)) {
+      const canonicalFallback = canonicalStringify(endpoint);
+      if (canonicalFallback && canonicalAddressRefs.has(canonicalFallback)) {
+        return canonicalAddressRefs.get(canonicalFallback);
+      }
+      return null;
+    }
+
+    const sanitized = sanitizeAddressEndpointPayload(endpoint);
+    if (!sanitized || !isAddressOneOfCompliant(sanitized)) {
+      return null;
+    }
+
+    const canonical = canonicalStringify(sanitized);
+    if (canonical && canonicalAddressRefs.has(canonical)) {
+      return canonicalAddressRefs.get(canonical);
+    }
+
+    const fileName = nextAutoEntityFileName(
+      "address",
+      existingFiles,
+      autoEntityCounters,
+    );
+    const filePath = path.join("data", fileName);
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+    existingFiles.add(fileName);
+    const ref = `./${fileName}`;
+    registerCanonicalRef(canonicalAddressRefs, canonical, ref);
+    return ref;
+  };
+
+  const ensurePersonReference = async (endpoint) => {
+    const normalized = normalizeRelationshipRef(endpoint);
+    if (normalized) return ensureRefPrefix(normalized);
+
+    if (!endpointLooksLikePerson(endpoint)) {
+      const canonicalFallback = canonicalStringify(endpoint);
+      if (canonicalFallback && canonicalPersonRefs.has(canonicalFallback)) {
+        return canonicalPersonRefs.get(canonicalFallback);
+      }
+      return null;
+    }
+
+    const sanitized = sanitizePersonEndpointPayload(endpoint);
+    if (!sanitized) {
+      return null;
+    }
+
+    const canonical = canonicalStringify(sanitized);
+    if (canonical && canonicalPersonRefs.has(canonical)) {
+      return canonicalPersonRefs.get(canonical);
+    }
+
+    const fileName = nextAutoEntityFileName(
+      "person",
+      existingFiles,
+      autoEntityCounters,
+    );
+    const filePath = path.join("data", fileName);
+    await fsp.writeFile(filePath, JSON.stringify(sanitized, null, 2));
+    existingFiles.add(fileName);
+    const ref = `./${fileName}`;
+    registerCanonicalRef(canonicalPersonRefs, canonical, ref);
+    return ref;
+  };
+
+  for (const fileName of entries) {
+    if (!relationshipPattern.test(fileName)) continue;
+    const filePath = path.join("data", fileName);
+
+    let payload;
+    try {
+      payload = JSON.parse(await fsp.readFile(filePath, "utf8"));
+    } catch {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    if (!payload || typeof payload !== "object") {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    let fromRef =
+      (await ensureAddressReference(payload.from)) ??
+      (await ensurePersonReference(payload.from)) ??
+      ensureRefPrefix(normalizeRelationshipRef(payload.from));
+
+    let toRef =
+      (await ensureAddressReference(payload.to)) ??
+      (await ensurePersonReference(payload.to)) ??
+      ensureRefPrefix(normalizeRelationshipRef(payload.to));
+
+    if (!fromRef || !toRef) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+
+    const sanitizedRelationship = {
+      from: { "/": fromRef },
+      to: { "/": toRef },
+    };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "type")) {
+      const rawType = payload.type;
+      if (rawType == null) {
+        sanitizedRelationship.type = null;
+      } else if (typeof rawType === "string") {
+        const trimmed = rawType.trim();
+        if (RELATIONSHIP_ALLOWED_TYPE_VALUES.has(trimmed)) {
+          sanitizedRelationship.type = trimmed;
+        }
+      }
+    }
+
+    await fsp.writeFile(
+      filePath,
+      JSON.stringify(sanitizedRelationship, null, 2),
+    );
+  }
+}
+
 async function resetEmbeddedRelationshipsToNull() {
   let entries;
   try {
@@ -10079,6 +10305,7 @@ async function finalizeEntityOutputs() {
   await sanitizeRelationshipFiles();
   await enforceRelationshipReferenceEndpoints();
   await enforceStrictRelationshipEndpoints();
+  await enforceRelationshipEndpointsAsReferencesStrict();
   await dropRelationshipsWithNonReferenceEndpoints();
   await resetEmbeddedRelationshipsToNull();
 }
