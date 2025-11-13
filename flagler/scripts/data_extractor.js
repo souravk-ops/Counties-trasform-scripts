@@ -87,21 +87,6 @@ function wrapRelationshipEndpoint(_classKey, ref) {
   return null;
 }
 
-function buildInlineRelationshipEndpoint(classKey, data) {
-  if (!classKey || !data || typeof data !== "object") return null;
-  const clone = cloneDeep(data);
-  if (!clone || typeof clone !== "object") return null;
-  const { source_http_request, request_identifier, ...properties } = clone;
-  const node = {
-    class: classKey,
-    properties,
-  };
-  if (source_http_request) {
-    node.source_http_request = source_http_request;
-  }
-  return { node };
-}
-
 function removeFilesMatchingPatterns(patterns) {
   try {
     const entries = fs.readdirSync("data");
@@ -490,10 +475,13 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       transferDate,
     });
 
+    const saleRef = wrapRelationshipEndpoint(null, {
+      "/": `./${saleFilename}`,
+    });
     if (hasPropertyFile) {
       const relPropertySale = {
         from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
-        to: buildInlineRelationshipEndpoint("sales_history", saleObj),
+        to: saleRef,
       };
       writeJSON(
         path.join(
@@ -530,14 +518,16 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(file, defaultSourceHttpRequest);
     writeJSON(path.join("data", `file_${idx}.json`), file);
 
-    const deedEndpoint = () => buildInlineRelationshipEndpoint("deed", deed);
-    const fileEndpoint = () => buildInlineRelationshipEndpoint("file", file);
-    const saleEndpoint = () =>
-      buildInlineRelationshipEndpoint("sales_history", saleObj);
+    const deedRef = wrapRelationshipEndpoint(null, {
+      "/": `./deed_${idx}.json`,
+    });
+    const fileRef = wrapRelationshipEndpoint(null, {
+      "/": `./file_${idx}.json`,
+    });
 
     const relDeedFile = {
-      from: deedEndpoint(),
-      to: fileEndpoint(),
+      from: deedRef,
+      to: fileRef,
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -545,8 +535,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     );
 
     const relSaleDeed = {
-      from: saleEndpoint(),
-      to: deedEndpoint(),
+      from: saleRef,
+      to: deedRef,
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
