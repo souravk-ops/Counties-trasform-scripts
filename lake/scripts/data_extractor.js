@@ -1213,13 +1213,13 @@ function main() {
     fileFiles.push(fName);
   });
 
-  // relationship_deed_file_*.json (file -> deed)
+  // relationship_deed_has_file_*.json (deed -> file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
     const rel = {
-      from: { "/": `./${fileFiles[i]}` },
-      to: { "/": `./${deedFiles[i]}` },
+      from: { "/": `./${deedFiles[i]}` },
+      to: { "/": `./${fileFiles[i]}` },
     };
-    const relName = `relationship_deed_file_${i + 1}.json`;
+    const relName = `relationship_deed_has_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
   }
 
