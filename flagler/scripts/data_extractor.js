@@ -44,9 +44,15 @@ function buildRelationshipRef(filename) {
   return { "/": `./${filename}` };
 }
 
-function wrapRelationshipEndpoint(classKey, ref) {
-  if (!classKey || !ref) return null;
-  return { [classKey]: JSON.parse(JSON.stringify(ref)) };
+function wrapRelationshipEndpoint(_classKey, ref) {
+  if (!ref) return null;
+  if (ref.node && typeof ref.node === "object") {
+    return { node: JSON.parse(JSON.stringify(ref.node)) };
+  }
+  if (ref["/"]) {
+    return { "/": ref["/"] };
+  }
+  return null;
 }
 
 function parseCurrencyToNumber(txt) {
