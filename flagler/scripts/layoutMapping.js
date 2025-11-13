@@ -180,6 +180,12 @@ function main() {
       if (/^relationship_property_has_layout_\d+\.json$/i.test(fileName)) {
         fs.unlinkSync(path.join(dataDir, fileName));
       }
+      if (/^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i.test(fileName)) {
+        fs.unlinkSync(path.join(dataDir, fileName));
+      }
+      if (/^fact_sheet(?:_\d+)?\.json$/i.test(fileName)) {
+        fs.unlinkSync(path.join(dataDir, fileName));
+      }
     });
   } catch (err) {}
 
@@ -205,12 +211,7 @@ function main() {
 
     const rel = {
       from: JSON.parse(JSON.stringify(propertyRef)),
-      to: {
-        node: {
-          class: "layout",
-          properties: JSON.parse(JSON.stringify(layout)),
-        },
-      },
+      to: { "/": `./${layoutFile}` },
     };
     fs.writeFileSync(
       path.join(

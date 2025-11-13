@@ -55,6 +55,19 @@ function wrapRelationshipEndpoint(_classKey, ref) {
   return null;
 }
 
+function removeFilesMatchingPatterns(patterns) {
+  try {
+    const entries = fs.readdirSync("data");
+    entries.forEach((filename) => {
+      if (patterns.some((regex) => regex.test(filename))) {
+        fs.unlinkSync(path.join("data", filename));
+      }
+    });
+  } catch (err) {
+    if (err && err.code !== "ENOENT") throw err;
+  }
+}
+
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const s = String(txt).trim();
@@ -398,21 +411,12 @@ function writeSalesDeedsFilesAndRelationships($) {
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
   // Remove old deed/file and sales artifacts if present to avoid duplicates
-  try {
-    fs.readdirSync("data").forEach((f) => {
-      if (
-        /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/.test(
-          f,
-        )
-      ) {
-        fs.unlinkSync(path.join("data", f));
-        return;
-      }
-      if (/^(sales_history|sales|deed|file)_\d+\.json$/.test(f)) {
-        fs.unlinkSync(path.join("data", f));
-      }
-    });
-  } catch (e) {}
+  removeFilesMatchingPatterns([
+    /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/i,
+    /^relationship_(file_has_fact_sheet|layout_has_fact_sheet)(?:_\d+)?\.json$/i,
+    /^(sales_history|sales|deed|file|fact_sheet)_\d+\.json$/i,
+    /^fact_sheet\.json$/i,
+  ]);
 
   sales.forEach((s, i) => {
     const idx = i + 1;
@@ -703,18 +707,19 @@ function writeLayout(parcelId) {
   if (!layouts) return;
   const key = `property_${parcelId}`;
   const record = (layouts[key] && layouts[key].layouts) ? layouts[key].layouts : [];
-  try {
-    fs.readdirSync("data").forEach((f) => {
-      if (/^relationship_property_has_layout(?:_\d+)?\.json$/.test(f)) {
-        fs.unlinkSync(path.join("data", f));
-      }
-    });
-  } catch (e) {}
+  removeFilesMatchingPatterns([
+    /^relationship_property_has_layout(?:_\d+)?\.json$/i,
+    /^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i,
+    /^fact_sheet(?:_\d+)?\.json$/i,
+  ]);
   record.forEach((l, idx) => {
-    const derivedIndex =
+    let derivedIndex =
       l.space_type_index != null && `${l.space_type_index}`.trim() !== ""
-        ? String(l.space_type_index)
+        ? `${l.space_type_index}`.trim()
         : String(idx + 1);
+    if (!derivedIndex) {
+      derivedIndex = String(idx + 1);
+    }
     const out = {
       space_type: l.space_type ?? null,
       space_type_index: derivedIndex,
