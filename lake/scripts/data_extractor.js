@@ -250,6 +250,15 @@ function main() {
   ensureDir(dataDir);
   clearDir(dataDir);
 
+  const relationships = {};
+  const queueRelationship = (name, finalFromFile, finalToFile) => {
+    const fromRef = makeRelationshipRef(finalToFile);
+    const toRef = makeRelationshipRef(finalFromFile);
+    if (!fromRef || !toRef) return;
+    if (!relationships[name]) relationships[name] = [];
+    relationships[name].push({ from: fromRef, to: toRef });
+  };
+
   // Inputs
   const inputHtml = readText("input.html");
   const addrSeed = readJSON("unnormalized_address.json");
@@ -1024,27 +1033,20 @@ function main() {
   const addressPath = path.join(dataDir, "address.json");
   const lotPath = path.join(dataDir, "lot.json");
 
-  if (fs.existsSync(propertyPath) && fs.existsSync(addressPath)) {
-    writeJSON(
-      path.join(dataDir, "relationship_property_has_address.json"),
-      {
-        from: { "/": "./property.json" },
-        to: { "/": "./address.json" },
-      },
-    );
+  const propertyExists = fs.existsSync(propertyPath);
+  const addressExists = fs.existsSync(addressPath);
+  const lotExists = fs.existsSync(lotPath);
+
+  if (propertyExists && addressExists) {
+    queueRelationship("property_has_address", "property.json", "address.json");
   }
 
-  if (fs.existsSync(propertyPath) && fs.existsSync(lotPath)) {
-    writeJSON(
-      path.join(dataDir, "relationship_property_has_lot.json"),
-      {
-        from: { "/": "./property.json" },
-        to: { "/": "./lot.json" },
-      },
-    );
+  if (propertyExists && lotExists) {
+    queueRelationship("property_has_lot", "property.json", "lot.json");
   }
 
   // tax_*.json
+  const taxFiles = [];
   if (
     bx.taxYear ||
     bx.marketValue ||
@@ -1073,11 +1075,18 @@ function main() {
     };
     const taxName = `tax_${tax.tax_year || "1"}.json`;
     writeJSON(path.join(dataDir, taxName), tax);
+    taxFiles.push(taxName);
     if (tax.tax_year && fs.existsSync(path.join(dataDir, "tax_1.json"))) {
       try {
         fs.unlinkSync(path.join(dataDir, "tax_1.json"));
       } catch (e) {}
     }
+  }
+
+  if (propertyExists) {
+    taxFiles.forEach((tf) => {
+      queueRelationship("property_has_tax", "property.json", tf);
+    });
   }
 
   // structure.json — include parsed stories and exterior wall mapping
@@ -1144,6 +1153,7 @@ function main() {
   }
 
   // layout_*.json from layout_data
+  const layoutFiles = [];
   if (
     layoutData &&
     ownerKey &&
@@ -1154,6 +1164,13 @@ function main() {
     layouts.forEach((lay, idx) => {
       const name = `layout_${idx + 1}.json`;
       writeJSON(path.join(dataDir, name), lay);
+      layoutFiles.push(name);
+    });
+  }
+
+  if (propertyExists) {
+    layoutFiles.forEach((lf) => {
+      queueRelationship("property_has_layout", "property.json", lf);
     });
   }
 
@@ -1232,36 +1249,42 @@ function main() {
     fileFiles.push(fName);
   });
 
+  if (propertyExists) {
+    salesFiles.forEach((sf) => {
+      queueRelationship("property_has_sales_history", "property.json", sf);
+    });
+    fileFiles.forEach((ff) => {
+      queueRelationship("property_has_file", "property.json", ff);
+    });
+  }
+
   // relationship_deed_has_file_*.json (deed → file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
-    const fromRef = makeRelationshipRef(deedFiles[i]);
-    const toRef = makeRelationshipRef(fileFiles[i]);
-    if (!fromRef || !toRef) continue;
-    const relName = `relationship_deed_has_file_${i + 1}.json`;
-    writeJSON(path.join(dataDir, relName), { from: fromRef, to: toRef });
+    queueRelationship("deed_has_file", deedFiles[i], fileFiles[i]);
   }
 
   // relationship_sales_history_has_deed_*.json (sales → deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
-    const fromRef = makeRelationshipRef(salesFiles[i]);
-    const toRef = makeRelationshipRef(deedFiles[i]);
-    if (!fromRef || !toRef) continue;
-    const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
-    writeJSON(path.join(dataDir, relName), { from: fromRef, to: toRef });
+    queueRelationship("sales_history_has_deed", salesFiles[i], deedFiles[i]);
   }
 
   // relationship_sales_person_*.json for current owners to most recent sale
   if (personFiles.length > 0 && salesFiles.length > 0) {
     const recentSalesFile = salesFiles[0];
     personFiles.forEach((pf, idx) => {
-      const rel = {
-        to: { "/": `./${pf}` },
-        from: { "/": `./${recentSalesFile}` },
-      };
-      const relName = `relationship_sales_person_${idx + 1}.json`;
-      writeJSON(path.join(dataDir, relName), rel);
+      queueRelationship("sales_person", recentSalesFile, pf);
     });
   }
+
+  Object.entries(relationships).forEach(([relName, items]) => {
+    items.forEach((rel, idx) => {
+      const relFile = path.join(
+        dataDir,
+        `relationship_${relName}_${idx + 1}.json`,
+      );
+      writeJSON(relFile, rel);
+    });
+  });
 }
 
 main();
