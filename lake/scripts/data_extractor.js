@@ -538,6 +538,9 @@ function main() {
         bx.livingArea || bx.yearBuilt ? "SingleFamily" : "LandParcel";
     }
     propertyType = normalizePropertyType(propertyType) || "LandParcel";
+    if (typeof propertyType !== "string" || propertyType.length === 0) {
+      propertyType = "LandParcel";
+    }
 
     const property = {
       parcel_identifier: general.parcelNumber || propSeed.parcel_id || null,
@@ -1008,6 +1011,7 @@ function main() {
   writeJSON(
     path.join(dataDir, "relationship_property_has_address.json"),
     {
+      type: "property_has_address",
       from: propertyRef,
       to: { "/": "./address.json" },
     },
@@ -1015,6 +1019,7 @@ function main() {
   writeJSON(
     path.join(dataDir, "relationship_property_has_lot.json"),
     {
+      type: "property_has_lot",
       from: propertyRef,
       to: { "/": "./lot.json" },
     },
@@ -1129,7 +1134,14 @@ function main() {
     const layouts = layoutData[ownerKey].layouts;
     layouts.forEach((lay, idx) => {
       const name = `layout_${idx + 1}.json`;
-      writeJSON(path.join(dataDir, name), lay);
+      const layoutObj = { ...lay };
+      const indexValue =
+        layoutObj.space_type_index != null &&
+        String(layoutObj.space_type_index).trim() !== ""
+          ? String(layoutObj.space_type_index).trim()
+          : String(idx + 1);
+      layoutObj.space_type_index = indexValue;
+      writeJSON(path.join(dataDir, name), layoutObj);
     });
   }
 
@@ -1216,6 +1228,7 @@ function main() {
   // relationship_deed_has_file_*.json (deed -> file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
     const rel = {
+      type: "deed_has_file",
       from: { "/": `./${deedFiles[i]}` },
       to: { "/": `./${fileFiles[i]}` },
     };
@@ -1226,6 +1239,7 @@ function main() {
   // relationship_sales_history_has_deed_*.json (sale -> deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
     const rel = {
+      type: "sales_history_has_deed",
       from: { "/": `./${salesFiles[i]}` },
       to: { "/": `./${deedFiles[i]}` },
     };
@@ -1238,6 +1252,7 @@ function main() {
     const recentSalesFile = salesFiles[0];
     personFiles.forEach((pf, idx) => {
       const rel = {
+        type: "sales_history_has_person",
         to: { "/": `./${pf}` },
         from: { "/": `./${recentSalesFile}` },
       };
