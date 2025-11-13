@@ -416,11 +416,11 @@ function writeSalesDeedsFilesAndRelationships($) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
-    // Link the deed record to its supporting file asset. The downstream compiler swaps from/to,
-    // so reference the file on `from` to yield a deed->file relationship after processing.
+    // Link the deed record to its supporting file asset. Keep the deed on `from`
+    // so validation resolves the correct schema for each side of the relationship.
     const relDeedFile = {
-      from: { "/": `./${fileFilename}` },
-      to: { "/": `./${deedFilename}` },
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${fileFilename}` },
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
