@@ -409,10 +409,10 @@ function writeSalesDeedsFilesAndRelationships($) {
     };
     writeJSON(path.join("data", `file_${idx}.json`), file);
 
-    // Emit reversed pointers so the downstream loader's normalization yields deed -> file.
+    // Link the deed record to its supporting file asset.
     const relDeedFile = {
-      from: { "/": `./file_${idx}.json` },
-      to: { "/": `./deed_${idx}.json` },
+      from: { "/": `./deed_${idx}.json` },
+      to: { "/": `./file_${idx}.json` },
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
