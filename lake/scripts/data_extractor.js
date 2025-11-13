@@ -65,40 +65,53 @@ function properCaseName(s) {
 }
 
 const PROPERTY_TYPE_VALUES = new Set([
-  "Cooperative",
-  "Condominium",
-  "Modular",
-  "ManufacturedHousingMultiWide",
-  "Pud",
-  "Timeshare",
-  "2Units",
-  "DetachedCondominium",
-  "Duplex",
-  "SingleFamily",
-  "MultipleFamily",
-  "3Units",
-  "ManufacturedHousing",
-  "ManufacturedHousingSingleWide",
-  "4Units",
-  "Townhouse",
-  "NonWarrantableCondo",
-  "VacantLand",
-  "Retirement",
-  "MiscellaneousResidential",
-  "ResidentialCommonElementsAreas",
-  "MobileHome",
-  "Apartment",
-  "MultiFamilyMoreThan10",
-  "MultiFamilyLessThan10",
   "LandParcel",
   "Building",
   "Unit",
   "ManufacturedHome",
 ]);
 
-function sanitizePropertyType(type) {
-  if (!type) return null;
-  return PROPERTY_TYPE_VALUES.has(type) ? type : null;
+function normalizePropertyTypeCandidate(value) {
+  if (!value && value !== 0) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (PROPERTY_TYPE_VALUES.has(raw)) return raw;
+
+  const upper = raw.toUpperCase();
+  if (
+    upper.includes("MANUFACT") ||
+    upper.includes("MOBILE HOME") ||
+    upper.includes("MOBILEHOME") ||
+    upper.includes("SINGLEWIDE") ||
+    upper.includes("DOUBLEWIDE")
+  ) {
+    return "ManufacturedHome";
+  }
+
+  if (
+    upper.includes("CONDO") ||
+    upper.includes("CONDOMINIUM") ||
+    upper.includes("CO-OP") ||
+    upper.includes("APARTMENT") ||
+    /\bAPT\b/.test(upper) ||
+    upper.includes("UNIT") ||
+    upper.includes("VILLA") ||
+    upper.includes("TOWNHOME") ||
+    upper.includes("TOWN HOUSE")
+  ) {
+    return "Unit";
+  }
+
+  if (
+    upper.includes("VACANT") ||
+    upper.includes("LAND") ||
+    upper.includes("LOT") ||
+    upper.includes("ACRE")
+  ) {
+    return "LandParcel";
+  }
+
+  return "Building";
 }
 
 function mapInstrumentToDeedType(instrument) {
@@ -192,57 +205,7 @@ function mapInstrumentToDeedType(instrument) {
 
 function mapLandUseToPropertyType(landUseDescription) {
   if (!landUseDescription) return null;
-
-  const desc = landUseDescription.toUpperCase();
-  const has = (needle) => desc.includes(needle);
-
-  if (has("VACANT")) return "VacantLand";
-
-  if (has("RESIDENTIAL COMMON ELEMENT")) return "ResidentialCommonElementsAreas";
-  if (has("MISC RESIDENTIAL") || has("MIGRANT")) return "MiscellaneousResidential";
-
-  if (has("RETIREMENT")) return "Retirement";
-  if (has("TIMESHARE")) return "Timeshare";
-  if (has("PUD")) return "Pud";
-
-  if (has("CO-OP") || has("COOPERATIVE")) return "Cooperative";
-  if (has("DETACHED CONDO")) return "DetachedCondominium";
-  if (has("NON WARRANTABLE")) return "NonWarrantableCondo";
-  if (has("CONDOMINIUM") || has("CONDO")) return "Condominium";
-
-  if (has("TOWNHOUSE")) return "Townhouse";
-  if (has("APARTMENT")) return "Apartment";
-
-  if (has("SINGLE FAMILY")) return "SingleFamily";
-
-  if (has("DUPLEX")) return "Duplex";
-  if (/\b2\s*(FAMILY|UNIT)\b/.test(desc)) return "2Units";
-  if (/TRIPLEX|\b3\s*(FAMILY|UNIT)\b/.test(desc)) return "3Units";
-  if (/QUAD|FOURPLEX|\b4\s*(FAMILY|UNIT)\b/.test(desc)) return "4Units";
-
-  if (has("MULTI FAMILY >9") || has("MULTI FAMILY >=10") || has("MULTI FAMILY 10")) {
-    return "MultiFamilyMoreThan10";
-  }
-  if (has("MULTI FAMILY <5") || has("MULTI FAMILY <=9") || has("MULTI FAMILY >4 AND <10")) {
-    return "MultiFamilyLessThan10";
-  }
-  if (has("MULTI FAMILY")) return "MultipleFamily";
-
-  if (has("MANUFACTURED HOUSING MULTI")) return "ManufacturedHousingMultiWide";
-  if (has("MANUFACTURED HOUSING SINGLE")) return "ManufacturedHousingSingleWide";
-  if (has("MANUFACTURED HOUSING")) return "ManufacturedHousing";
-  if (has("MANUFACTURED HOME")) return "ManufacturedHome";
-
-  if (has("MOBILE HOME")) return "MobileHome";
-
-  if (has("MODULAR")) return "Modular";
-
-  if (/\bLAND\b/.test(desc)) return "LandParcel";
-  if (/\bBUILDING\b/.test(desc)) return "Building";
-  if (/\bUNIT\b/.test(desc)) return "Unit";
-
-  // Default to null for non-residential or unrecognized codes
-  return null;
+  return normalizePropertyTypeCandidate(landUseDescription);
 }
 
 function main() {
@@ -252,8 +215,8 @@ function main() {
 
   const relationships = {};
   const queueRelationship = (name, finalFromFile, finalToFile) => {
-    const fromRef = makeRelationshipRef(finalToFile);
-    const toRef = makeRelationshipRef(finalFromFile);
+    const fromRef = makeRelationshipRef(finalFromFile);
+    const toRef = makeRelationshipRef(finalToFile);
     if (!fromRef || !toRef) return;
     if (!relationships[name]) relationships[name] = [];
     relationships[name].push({ from: fromRef, to: toRef });
@@ -547,23 +510,24 @@ function main() {
     const propertyInfo = extractPropertyTypeFromLandData();
 
     const propertyTypeCandidates = [
-      propertyInfo.propertyType || null,
-      propSeed && propSeed.property_type
-        ? String(propSeed.property_type).trim()
-        : null,
+      normalizePropertyTypeCandidate(propertyInfo.propertyType),
+      normalizePropertyTypeCandidate(
+        propSeed && propSeed.property_type
+          ? String(propSeed.property_type).trim()
+          : null,
+      ),
     ];
 
-    let normalizedPropertyType = null;
-    for (const candidate of propertyTypeCandidates) {
-      const sanitized = sanitizePropertyType(candidate);
-      if (sanitized) {
-        normalizedPropertyType = sanitized;
-        break;
-      }
-    }
+    let normalizedPropertyType =
+      propertyTypeCandidates.find((candidate) => candidate) || null;
 
     if (!normalizedPropertyType) {
-      normalizedPropertyType = "MiscellaneousResidential";
+      const hasStructureIndicators =
+        (bx.livingArea && Number(bx.livingArea) > 0) ||
+        Number.isFinite(propertyInfo.units);
+      normalizedPropertyType = hasStructureIndicators
+        ? "Building"
+        : "LandParcel";
     }
 
     const property = {
@@ -1027,15 +991,19 @@ function main() {
     driveway_condition: null,
     lot_condition_issues: null,
   };
-  writeJSON(path.join(dataDir, "lot.json"), lot);
+  const lotHasValues = Object.values(lot).some((value) => value != null);
+  let lotPath = null;
+  if (lotHasValues) {
+    lotPath = path.join(dataDir, "lot.json");
+    writeJSON(lotPath, lot);
+  }
 
   const propertyPath = path.join(dataDir, "property.json");
   const addressPath = path.join(dataDir, "address.json");
-  const lotPath = path.join(dataDir, "lot.json");
 
   const propertyExists = fs.existsSync(propertyPath);
   const addressExists = fs.existsSync(addressPath);
-  const lotExists = fs.existsSync(lotPath);
+  const lotExists = !!lotPath && fs.existsSync(lotPath);
 
   if (propertyExists && addressExists) {
     queueRelationship("property_has_address", "property.json", "address.json");
