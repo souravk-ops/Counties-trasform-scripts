@@ -53,18 +53,6 @@ function attachSourceHttpRequest(target, request) {
   target.source_http_request = cloneDeep(request);
 }
 
-function buildRequestIdentifier(base, ...parts) {
-  const tokens = [];
-  if (base) tokens.push(String(base).trim());
-  parts
-    .flat()
-    .map((part) => (part == null ? null : String(part).trim()))
-    .filter((part) => part && part.length)
-    .forEach((part) => tokens.push(part));
-  if (!tokens.length) return null;
-  return tokens.join("|");
-}
-
 function normalizeSaleDate(value) {
   const iso = parseDateToISO(value);
   if (iso) return iso;
@@ -88,11 +76,6 @@ function parseBookAndPage(raw) {
   return { book: null, page: null };
 }
 
-function buildRelationshipRef(filename) {
-  if (!filename) return null;
-  return { "/": `./${filename}` };
-}
-
 function wrapRelationshipEndpoint(_classKey, ref) {
   if (!ref) return null;
   if (ref.node && typeof ref.node === "object") {
@@ -102,6 +85,21 @@ function wrapRelationshipEndpoint(_classKey, ref) {
     return { "/": ref["/"] };
   }
   return null;
+}
+
+function buildInlineRelationshipEndpoint(classKey, data) {
+  if (!classKey || !data || typeof data !== "object") return null;
+  const clone = cloneDeep(data);
+  if (!clone || typeof clone !== "object") return null;
+  const { source_http_request, request_identifier, ...properties } = clone;
+  const node = {
+    class: classKey,
+    properties,
+  };
+  if (source_http_request) {
+    node.source_http_request = source_http_request;
+  }
+  return { node };
 }
 
 function removeFilesMatchingPatterns(patterns) {
@@ -300,7 +298,7 @@ function extractBuildingYears($) {
   const buildings = collectBuildings($);
   const yearsActual = [];
   const yearsEffective = [];
-   buildings.forEach((b) => {
+  buildings.forEach((b) => {
     yearsActual.push(toInt(b["Actual Year Built"]));
     yearsEffective.push(toInt(b["Effective Year Built"]));
   });
@@ -313,7 +311,7 @@ function extractBuildingYears($) {
 function extractAreas($) {
   let total = 0;
   const buildings = collectBuildings($);
-   buildings.forEach((b) => {
+  buildings.forEach((b) => {
     // The sample HTML does not have a "Total Area" field directly.
     // We can use "Total Area" from the building information.
     total += toInt(b["Total Area"]);
@@ -422,8 +420,7 @@ function extractValuation($) {
 }
 
 function writeProperty($, parcelId, context) {
-  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
-    context || {};
+  const { defaultSourceHttpRequest } = context || {};
   const legal = extractLegalDescription($);
   const useCode = extractUseCode($);
   const propertyType = mapPropertyTypeFromUseCode(useCode);
@@ -454,16 +451,12 @@ function writeProperty($, parcelId, context) {
     subdivision: null, // Not directly available in the sample HTML
     zoning: null, // Not directly available in the sample HTML
   };
-  if (defaultRequestIdentifier) {
-    property.request_identifier = defaultRequestIdentifier;
-  }
   attachSourceHttpRequest(property, defaultSourceHttpRequest);
   writeJSON(path.join("data", "property.json"), property);
 }
 
 function writeSalesDeedsFilesAndRelationships($, sales, context) {
-  const { parcelId, defaultRequestIdentifier, defaultSourceHttpRequest } =
-    context || {};
+  const { parcelId, defaultSourceHttpRequest } = context || {};
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
   // Remove old deed/file and sales artifacts if present to avoid duplicates
@@ -487,15 +480,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       ownership_transfer_date: transferDate,
       purchase_price_amount: parseCurrencyToNumber(s.salePrice),
     };
-    const saleRequestId = buildRequestIdentifier(
-      defaultRequestIdentifier,
-      "sale",
-      transferDate,
-      idx,
-    );
-    if (saleRequestId) {
-      saleObj.request_identifier = saleRequestId;
-    }
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
@@ -509,9 +493,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (hasPropertyFile) {
       const relPropertySale = {
         from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
-        to: wrapRelationshipEndpoint("sales_history", {
-          "/": `./${saleFilename}`,
-        }),
+        to: buildInlineRelationshipEndpoint("sales_history", saleObj),
       };
       writeJSON(
         path.join(
@@ -529,20 +511,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       book,
       page,
     };
-    const deedRequestId = buildRequestIdentifier(
-      defaultRequestIdentifier,
-      "deed",
-      transferDate,
-      book,
-      page,
-      idx,
-    );
-    if (deedRequestId) {
-      deed.request_identifier = deedRequestId;
-    }
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
-    const deedFilename = `deed_${idx}.json`;
-    writeJSON(path.join("data", deedFilename), deed);
+    writeJSON(path.join("data", `deed_${idx}.json`), deed);
 
     const deedFileName =
       s.bookPage && s.bookPage.trim()
@@ -557,26 +527,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         file.file_format = fmt;
       }
     }
-    const fileRequestId = buildRequestIdentifier(
-      defaultRequestIdentifier,
-      "deed-file",
-      transferDate,
-      book,
-      page,
-      idx,
-    );
-    if (fileRequestId) {
-      file.request_identifier = fileRequestId;
-    }
     attachSourceHttpRequest(file, defaultSourceHttpRequest);
-    const fileFilename = `file_${idx}.json`;
-    writeJSON(path.join("data", fileFilename), file);
+    writeJSON(path.join("data", `file_${idx}.json`), file);
 
-    const deedRef = buildRelationshipRef(deedFilename);
-    const fileRef = buildRelationshipRef(fileFilename);
+    const deedEndpoint = () => buildInlineRelationshipEndpoint("deed", deed);
+    const fileEndpoint = () => buildInlineRelationshipEndpoint("file", file);
+    const saleEndpoint = () =>
+      buildInlineRelationshipEndpoint("sales_history", saleObj);
+
     const relDeedFile = {
-      from: wrapRelationshipEndpoint("deed", deedRef),
-      to: wrapRelationshipEndpoint("file", fileRef),
+      from: deedEndpoint(),
+      to: fileEndpoint(),
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -584,10 +545,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     );
 
     const relSaleDeed = {
-      from: wrapRelationshipEndpoint("sales_history", {
-        "/": `./${saleFilename}`,
-      }),
-      to: wrapRelationshipEndpoint("deed", deedRef),
+      from: saleEndpoint(),
+      to: deedEndpoint(),
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
@@ -632,8 +591,7 @@ function writePersonCompaniesSalesRelationships(
   processedSales,
   context,
 ) {
-  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
-    context || {};
+  const { defaultSourceHttpRequest } = context || {};
   const owners = readJSON(path.join("owners", "owner_data.json"));
   if (!owners) return;
   const key = `property_${parcelId}`;
@@ -659,7 +617,6 @@ function writePersonCompaniesSalesRelationships(
       }
     });
   });
-  const baseId = defaultRequestIdentifier || parcelId || null;
   people = Array.from(personMap.values()).map((p) => ({
     first_name: p.first_name ? titleCaseName(p.first_name) : null,
     middle_name: p.middle_name ? titleCaseName(p.middle_name) : null,
@@ -671,16 +628,6 @@ function writePersonCompaniesSalesRelationships(
     veteran_status: null,
   }));
   people.forEach((p, idx) => {
-    const personRequestId = buildRequestIdentifier(
-      baseId,
-      "person",
-      idx + 1,
-    );
-    if (personRequestId) {
-      p.request_identifier = personRequestId;
-    } else {
-      p.request_identifier = parcelId || null;
-    }
     attachSourceHttpRequest(p, defaultSourceHttpRequest);
     writeJSON(path.join("data", `person_${idx + 1}.json`), p);
   });
@@ -695,16 +642,6 @@ function writePersonCompaniesSalesRelationships(
     name: n,
   }));
   companies.forEach((c, idx) => {
-    const companyRequestId = buildRequestIdentifier(
-      baseId,
-      "company",
-      idx + 1,
-    );
-    if (companyRequestId) {
-      c.request_identifier = companyRequestId;
-    } else {
-      c.request_identifier = parcelId || null;
-    }
     attachSourceHttpRequest(c, defaultSourceHttpRequest);
     writeJSON(path.join("data", `company_${idx + 1}.json`), c);
   });
@@ -761,9 +698,7 @@ function writePersonCompaniesSalesRelationships(
 }
 
 function writeTaxes($, context) {
-  const { parcelId, defaultRequestIdentifier, defaultSourceHttpRequest } =
-    context || {};
-  const baseId = defaultRequestIdentifier || parcelId || null;
+  const { defaultSourceHttpRequest } = context || {};
   const vals = extractValuation($);
   vals.forEach((v) => {
     const taxObj = {
@@ -777,19 +712,13 @@ function writeTaxes($, context) {
       period_end_date: null,
       period_start_date: null,
     };
-    const taxRequestId = buildRequestIdentifier(baseId, "tax", v.year);
-    if (taxRequestId) {
-      taxObj.request_identifier = taxRequestId;
-    }
     attachSourceHttpRequest(taxObj, defaultSourceHttpRequest);
     writeJSON(path.join("data", `tax_${v.year}.json`), taxObj);
   });
 }
 
 function writeUtility(parcelId, context) {
-  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
-    context || {};
-  const baseId = defaultRequestIdentifier || parcelId || null;
+  const { defaultSourceHttpRequest } = context || {};
   const utils = readJSON(path.join("owners", "utilities_data.json"));
   if (!utils) return;
   const key = `property_${parcelId}`;
@@ -844,18 +773,12 @@ function writeUtility(parcelId, context) {
     water_heater_model: u.water_heater_model ?? null,
     well_installation_date: u.well_installation_date ?? null,
   };
-  const utilityRequestId = buildRequestIdentifier(baseId, "utility");
-  if (utilityRequestId) {
-    utility.request_identifier = utilityRequestId;
-  }
   attachSourceHttpRequest(utility, defaultSourceHttpRequest);
   writeJSON(path.join("data", "utility.json"), utility);
 }
 
 function writeLayout(parcelId, context) {
-  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
-    context || {};
-  const baseId = defaultRequestIdentifier || parcelId || null;
+  const { defaultSourceHttpRequest } = context || {};
   const layouts = readJSON(path.join("owners", "layout_data.json"));
   if (!layouts) return;
   const key = `property_${parcelId}`;
@@ -907,16 +830,6 @@ function writeLayout(parcelId, context) {
       pool_surface_type: l.pool_surface_type ?? null,
       pool_water_quality: l.pool_water_quality ?? null,
     };
-    const layoutRequestId = buildRequestIdentifier(
-      baseId,
-      "layout",
-      derivedIndex,
-    );
-    if (layoutRequestId) {
-      out.request_identifier = layoutRequestId;
-    } else {
-      out.request_identifier = parcelId || null;
-    }
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${idx + 1}.json`;
     writeJSON(path.join("data", layoutFilename), out);
@@ -1052,8 +965,7 @@ function isNumeric(value) {
 }
 
 function attemptWriteAddress(unnorm, secTwpRng, context) {
-  const { defaultRequestIdentifier, defaultSourceHttpRequest, parcelId } =
-    context || {};
+  const { defaultSourceHttpRequest, parcelId } = context || {};
   const full =
     unnorm && unnorm.full_address ? unnorm.full_address.trim() : null;
   if (!full) return;
@@ -1159,12 +1071,8 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     lot: null,
     municipality_name: null,
     unnormalized_address: full,
-    request_identifier: unnorm && unnorm.request_identifier
-      ? unnorm.request_identifier
-      : buildRequestIdentifier(
-          defaultRequestIdentifier || parcelId || null,
-          "address",
-        ),
+    request_identifier:
+      unnorm && unnorm.request_identifier ? unnorm.request_identifier : null,
   };
   const sourceRequest =
     (unnorm && unnorm.source_http_request) || defaultSourceHttpRequest;
@@ -1187,15 +1095,9 @@ function main() {
     (unnormalized && unnormalized.source_http_request) ||
     (propertySeed && propertySeed.source_http_request) ||
     DEFAULT_SOURCE_HTTP_REQUEST;
-  const defaultRequestIdentifier =
-    (propertySeed && propertySeed.request_identifier) ||
-    (unnormalized && unnormalized.request_identifier) ||
-    parcelId ||
-    null;
   const context = {
     parcelId,
     defaultSourceHttpRequest,
-    defaultRequestIdentifier,
   };
 
   if (parcelId) writeProperty($, parcelId, context);
