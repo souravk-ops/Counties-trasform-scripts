@@ -495,6 +495,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
     if (hasPropertyFile) {
       const relPropertySale = {
+        type: "property_has_sales_history",
         from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
         to: saleRef,
       };
@@ -538,6 +539,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
 
     const relDeedFile = {
+      type: "deed_has_file",
       from: deedRef,
       to: fileRef,
     };
@@ -547,6 +549,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     );
 
     const relSaleDeed = {
+      type: "sales_history_has_deed",
       from: saleRef,
       to: deedRef,
     };
@@ -837,6 +840,7 @@ function writeLayout(parcelId, context) {
     writeJSON(path.join("data", layoutFilename), out);
     if (fs.existsSync(path.join("data", "property.json"))) {
       const rel = {
+        type: "property_has_layout",
         from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
         to: wrapRelationshipEndpoint("layout", { "/": `./${layoutFilename}` }),
       };
