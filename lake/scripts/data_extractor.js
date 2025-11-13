@@ -38,6 +38,13 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
 }
 
+function makeRelationshipRef(filename) {
+  if (!filename || typeof filename !== "string") return null;
+  const trimmed = filename.trim();
+  if (!trimmed) return null;
+  return { "/": `./${trimmed}` };
+}
+
 function parseCurrency(str) {
   if (str == null) return null;
   const s = String(str).replace(/[$,\s]/g, "");
@@ -1227,22 +1234,20 @@ function main() {
 
   // relationship_deed_has_file_*.json (deed → file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
-    const rel = {
-      from: { "/": `./${deedFiles[i]}` },
-      to: { "/": `./${fileFiles[i]}` },
-    };
+    const fromRef = makeRelationshipRef(deedFiles[i]);
+    const toRef = makeRelationshipRef(fileFiles[i]);
+    if (!fromRef || !toRef) continue;
     const relName = `relationship_deed_has_file_${i + 1}.json`;
-    writeJSON(path.join(dataDir, relName), rel);
+    writeJSON(path.join(dataDir, relName), { from: fromRef, to: toRef });
   }
 
   // relationship_sales_history_has_deed_*.json (sales → deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
-    const rel = {
-      from: { "/": `./${salesFiles[i]}` },
-      to: { "/": `./${deedFiles[i]}` },
-    };
+    const fromRef = makeRelationshipRef(salesFiles[i]);
+    const toRef = makeRelationshipRef(deedFiles[i]);
+    if (!fromRef || !toRef) continue;
     const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
-    writeJSON(path.join(dataDir, relName), rel);
+    writeJSON(path.join(dataDir, relName), { from: fromRef, to: toRef });
   }
 
   // relationship_sales_person_*.json for current owners to most recent sale
