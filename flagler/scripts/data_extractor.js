@@ -382,7 +382,11 @@ function writeSalesDeedsFilesAndRelationships($) {
   // Remove old deed/file and sales_deed relationships if present to avoid duplicates
   try {
     fs.readdirSync("data").forEach((f) => {
-      if (/^relationship_(deed_file|sales_deed)(?:_\d+)?\.json$/.test(f)) {
+      if (
+        /^relationship_(deed_has_file|deed_file|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/.test(
+          f,
+        )
+      ) {
         fs.unlinkSync(path.join("data", f));
       }
     });
@@ -403,9 +407,6 @@ function writeSalesDeedsFilesAndRelationships($) {
     const file = {
       name: s.bookPage ? `Deed ${s.bookPage}` : "Deed Document",
     };
-    if (s.link) {
-      file.original_url = s.link;
-    }
     writeJSON(path.join("data", `file_${idx}.json`), file);
 
     const relDeedFile = {
@@ -413,7 +414,7 @@ function writeSalesDeedsFilesAndRelationships($) {
       to: { "/": `./file_${idx}.json` },
     };
     writeJSON(
-      path.join("data", `relationship_deed_file_${idx}.json`),
+      path.join("data", `relationship_deed_has_file_${idx}.json`),
       relDeedFile,
     );
 
@@ -422,7 +423,10 @@ function writeSalesDeedsFilesAndRelationships($) {
       to: { "/": `./deed_${idx}.json` },
     };
     writeJSON(
-      path.join("data", `relationship_sales_deed_${idx}.json`),
+      path.join(
+        "data",
+        `relationship_sales_history_has_deed_${idx}.json`,
+      ),
       relSalesDeed,
     );
   });
@@ -637,10 +641,21 @@ function writeLayout(parcelId) {
   if (!layouts) return;
   const key = `property_${parcelId}`;
   const record = (layouts[key] && layouts[key].layouts) ? layouts[key].layouts : [];
+  try {
+    fs.readdirSync("data").forEach((f) => {
+      if (/^relationship_property_has_layout(?:_\d+)?\.json$/.test(f)) {
+        fs.unlinkSync(path.join("data", f));
+      }
+    });
+  } catch (e) {}
   record.forEach((l, idx) => {
+    const derivedIndex =
+      l.space_type_index != null && `${l.space_type_index}`.trim() !== ""
+        ? String(l.space_type_index)
+        : String(idx + 1);
     const out = {
       space_type: l.space_type ?? null,
-      space_index: l.space_index ?? null,
+      space_type_index: derivedIndex,
       flooring_material_type: l.flooring_material_type ?? null,
       size_square_feet: l.size_square_feet ?? null,
       floor_level: l.floor_level ?? null,
@@ -673,7 +688,18 @@ function writeLayout(parcelId) {
       pool_water_quality: l.pool_water_quality ?? null,
       request_identifier: parcelId,
     };
-    writeJSON(path.join("data", `layout_${idx + 1}.json`), out);
+    const layoutFilename = `layout_${idx + 1}.json`;
+    writeJSON(path.join("data", layoutFilename), out);
+    if (fs.existsSync(path.join("data", "property.json"))) {
+      const rel = {
+        from: { "/": "./property.json" },
+        to: { "/": `./${layoutFilename}` },
+      };
+      writeJSON(
+        path.join("data", `relationship_property_has_layout_${idx + 1}.json`),
+        rel,
+      );
+    }
   });
 }
 
@@ -803,30 +829,55 @@ function attemptWriteAddress(unnorm, secTwpRng) {
   let zip = null;
   const fullAddressParts = (full || "").split(",");
   if (fullAddressParts.length >= 3 && fullAddressParts[2]) {
-    state_and_pin = fullAddressParts[2].split(/\s+/);
-    if (state_and_pin.length >= 1 && state_and_pin[state_and_pin.length - 1] && state_and_pin[state_and_pin.length - 1].trim().match(/^\d{5}$/)) {
-      zip = state_and_pin[state_and_pin.length - 1].trim();
+    const stateAndZipTokens = fullAddressParts[2].split(/\s+/);
+    const potentialZip = stateAndZipTokens[stateAndZipTokens.length - 1];
+    if (potentialZip && potentialZip.trim().match(/^\d{5}$/)) {
+      zip = potentialZip.trim();
       city = fullAddressParts[1].trim();
     }
   }
   const parts = (fullAddressParts[0] || "").split(/\s+/);
   let street_number = null;
   if (parts && parts.length > 1) {
-    street_number_candidate = parts[0];
-    if ((street_number_candidate || "") && isNumeric(street_number_candidate)) {
+    const streetNumberCandidate = parts[0];
+    if (
+      (streetNumberCandidate || "") &&
+      isNumeric(streetNumberCandidate)
+    ) {
       street_number = parts.shift() || null;
+    }
+  }
+  let street_pre_directional_text = null;
+  if (parts && parts.length > 0) {
+    const dirCandidate = parts[0] ? parts[0].toUpperCase() : null;
+    const validDirs = new Set([
+      "N",
+      "S",
+      "E",
+      "W",
+      "NE",
+      "NW",
+      "SE",
+      "SW",
+    ]);
+    if (dirCandidate && validDirs.has(dirCandidate)) {
+      street_pre_directional_text = dirCandidate;
+      parts.shift();
     }
   }
   let suffix = null;
   if (parts && parts.length > 1) {
-    suffix_candidate = parts[parts.length - 1];
-    if (normalizeSuffix(suffix_candidate)) {
+    const suffixCandidate = parts[parts.length - 1];
+    if (normalizeSuffix(suffixCandidate)) {
       suffix = parts.pop() || null;
     }
   }
   let street_name = parts.join(" ") || null;
   if (street_name) {
-    street_name = street_name.replace(/\b(E|N|NE|NW|S|SE|SW|W)\b/g, "");
+    street_name = street_name.replace(/\s+/g, " ").trim();
+    if (street_name === "") {
+      street_name = null;
+    }
   }
   // const m = full.match(
   //   /^(\d+)\s+([^,]+),\s*([^,]+),\s*([A-Z]{2})\s*(\d{5})(?:-(\d{4}))?$/i,
@@ -862,9 +913,9 @@ function attemptWriteAddress(unnorm, secTwpRng) {
     plus_four_postal_code: null,
     postal_code,
     state_code: "FL",
-    street_name: street_name,
+    street_name,
     street_post_directional_text: null,
-    street_pre_directional_text: null,
+    street_pre_directional_text,
     street_number: street_number,
     street_suffix_type: normalizeSuffix(suffix),
     unit_identifier: null,
@@ -875,6 +926,10 @@ function attemptWriteAddress(unnorm, secTwpRng) {
     block: null,
     lot: null,
     municipality_name: null,
+    unnormalized_address: full,
+    request_identifier: unnorm && unnorm.request_identifier
+      ? unnorm.request_identifier
+      : null,
   };
   writeJSON(path.join("data", "address.json"), address);
 }
