@@ -524,8 +524,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
     const relDeedHasFile = {
       type: "deed_has_file",
-      from: deedRef,
-      to: fileRef,
+      from: fileRef,
+      to: deedRef,
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -534,8 +534,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const relSalesHistoryHasDeed = {
       type: "sales_history_has_deed",
-      from: saleRef,
-      to: deedRef,
+      from: deedRef,
+      to: saleRef,
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
