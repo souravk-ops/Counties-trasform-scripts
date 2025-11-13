@@ -123,6 +123,20 @@ function parseDateToISO(txt) {
   return null;
 }
 
+function toValidHttpUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  try {
+    const cleaned = url.trim().replace(/&amp;/g, "&");
+    const parsed = new URL(cleaned);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch (_err) {
+    return null;
+  }
+  return null;
+}
+
 function textOf($el) {
   if (!$el || $el.length === 0) return null;
   return $el.text().trim();
@@ -315,7 +329,8 @@ function extractSales($) {
     const instrument = textOf(tds.eq(1));
     const book = textOf(tds.eq(2).find("span")); // Book is in a span
     const page = textOf(tds.eq(3).find("span")); // Page is in a span
-    const link = tds.eq(4).find("span input").attr("onclick"); // Link is in onclick attribute of input button
+    const linkCell = tds.eq(7); // Link button column is the 8th <td>
+    const link = linkCell.find("input").attr("onclick"); // Link is in onclick attribute of input button
     const grantor = textOf(tds.eq(6).find("span")); // Grantor is in a span
     // Grantee is not directly available in the sales table, it's the current owner for the most recent sale.
     // For historical sales, the grantee is the owner at that time, which is not explicitly listed here.
@@ -505,6 +520,31 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedRef = wrapRelationshipEndpoint(null, {
       "/": `./deed_${idx}.json`,
     });
+
+    const fileObj = {
+      document_type: "Title",
+      file_format: null,
+      ipfs_url: null,
+      name: s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`,
+      original_url: toValidHttpUrl(s.link),
+      request_identifier: null,
+    };
+    attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
+    const fileFilename = `file_${idx}.json`;
+    writeJSON(path.join("data", fileFilename), fileObj);
+
+    const fileRef = wrapRelationshipEndpoint(null, {
+      "/": `./${fileFilename}`,
+    });
+
+    const relDeedFile = {
+      from: deedRef,
+      to: fileRef,
+    };
+    writeJSON(
+      path.join("data", `relationship_deed_has_file_${idx}.json`),
+      relDeedFile,
+    );
 
     const relSaleDeed = {
       from: saleRef,
