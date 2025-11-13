@@ -475,6 +475,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   ]);
 
   const processedSales = [];
+  const propertyRef = hasPropertyFile
+    ? buildRelationshipRef("property.json")
+    : null;
   let saleCounter = 0;
   sales.forEach((s, i) => {
     const transferDate = normalizeSaleDate(s.saleDate);
@@ -544,22 +547,19 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deed);
 
-    const file = {
-      document_type: "Recorded Deed",
-      ipfs_url: null,
-      original_url: s.link || null,
-    };
-    if (s.fileFormat && typeof s.fileFormat === "string") {
-      const fmt = s.fileFormat.trim().toLowerCase();
-      if (fmt === "jpeg" || fmt === "png" || fmt === "txt") {
-        file.file_format = fmt;
-      }
-    }
     const deedFileName =
       s.bookPage && s.bookPage.trim()
         ? `Deed ${s.bookPage.trim()}`
         : "Deed Document";
-    file.name = deedFileName;
+    const file = {
+      name: deedFileName,
+    };
+    if (s.fileFormat && typeof s.fileFormat === "string") {
+      const fmt = s.fileFormat.trim().toLowerCase();
+      if (fmt === "jpeg" || fmt === "png" || fmt === "txt" || fmt === "pdf") {
+        file.file_format = fmt;
+      }
+    }
     const fileRequestId = buildRequestIdentifier(
       defaultRequestIdentifier,
       "deed-file",
@@ -577,14 +577,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const deedRef = buildRelationshipRef(deedFilename);
     const fileRef = buildRelationshipRef(fileFilename);
-    if (deedRef && fileRef) {
-      const relDeedFile = {
-        from: wrapRelationshipEndpoint("deed", deedRef),
+    if (propertyRef && fileRef) {
+      const relPropertyFile = {
+        from: wrapRelationshipEndpoint("property", propertyRef),
         to: wrapRelationshipEndpoint("file", fileRef),
       };
       writeJSON(
-        path.join("data", `relationship_deed_has_file_${idx}.json`),
-        relDeedFile,
+        path.join("data", `relationship_property_has_file_${idx}.json`),
+        relPropertyFile,
       );
     }
 
