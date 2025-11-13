@@ -502,37 +502,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", `deed_${idx}.json`), deed);
 
-    const deedFileName =
-      s.bookPage && s.bookPage.trim()
-        ? `Deed ${s.bookPage.trim()}`
-        : "Deed Document";
-    const file = {
-      name: deedFileName,
-    };
-    if (s.fileFormat && typeof s.fileFormat === "string") {
-      const fmt = s.fileFormat.trim().toLowerCase();
-      if (fmt === "jpeg" || fmt === "png" || fmt === "txt" || fmt === "pdf") {
-        file.file_format = fmt;
-      }
-    }
-    attachSourceHttpRequest(file, defaultSourceHttpRequest);
-    writeJSON(path.join("data", `file_${idx}.json`), file);
-
     const deedRef = wrapRelationshipEndpoint(null, {
       "/": `./deed_${idx}.json`,
     });
-    const fileRef = wrapRelationshipEndpoint(null, {
-      "/": `./file_${idx}.json`,
-    });
-
-    const relDeedFile = {
-      from: deedRef,
-      to: fileRef,
-    };
-    writeJSON(
-      path.join("data", `relationship_deed_has_file_${idx}.json`),
-      relDeedFile,
-    );
 
     const relSaleDeed = {
       from: saleRef,
