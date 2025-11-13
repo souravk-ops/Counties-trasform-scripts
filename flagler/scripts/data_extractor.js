@@ -429,16 +429,14 @@ function writeSalesDeedsFilesAndRelationships($) {
     const file = {
       document_type: null,
       file_format: null,
-      ipfs_url: null,
       name: s.bookPage ? `Deed ${s.bookPage}` : "Deed Document",
-      original_url: s.link || null,
     };
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
     const relDeedFile = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
+      from: { "/": `./${fileFilename}` },
+      to: { "/": `./${deedFilename}` },
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -446,8 +444,8 @@ function writeSalesDeedsFilesAndRelationships($) {
     );
 
     const relSaleDeed = {
-      from: { "/": `./${saleFilename}` },
-      to: { "/": `./${deedFilename}` },
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${saleFilename}` },
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
