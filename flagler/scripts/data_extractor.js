@@ -418,8 +418,9 @@ function writeSalesDeedsFilesAndRelationships($) {
 
     // Link the deed record to its supporting file asset.
     const relDeedFile = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
+      // Swap the pointer order so downstream hydration resolves deed -> file.
+      from: { "/": `./${fileFilename}` },
+      to: { "/": `./${deedFilename}` },
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -427,8 +428,9 @@ function writeSalesDeedsFilesAndRelationships($) {
     );
 
     const relSalesDeed = {
-      from: { "/": `./${saleFilename}` },
-      to: { "/": `./${deedFilename}` },
+      // Align with validation that expects sale on the relationship target.
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${saleFilename}` },
     };
     writeJSON(
       path.join(
