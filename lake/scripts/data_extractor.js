@@ -14,6 +14,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { URL } = require("url");
 let cheerio;
 try {
   cheerio = require("cheerio");
@@ -212,6 +213,59 @@ function mapInstrumentToDeedType(instrument) {
   if (t.includes("release")) return "Release of Contract";
 
   return null;
+}
+
+function extractBookPageInfo(bookPageText, href) {
+  let book = null;
+  let page = null;
+  if (bookPageText && typeof bookPageText === "string") {
+    const match = bookPageText.match(/(\d+)\s*\/\s*(\d+)/);
+    if (match) {
+      book = match[1];
+      page = match[2];
+    }
+  }
+
+  let originalUrl = null;
+  let requestIdentifier = null;
+  if (href && typeof href === "string") {
+    const trimmed = href.trim();
+    if (trimmed) {
+      try {
+        const url = new URL(trimmed);
+        originalUrl = url.toString();
+        const segments = url.pathname.split("/").filter(Boolean);
+        const idx = segments.findIndex(
+          (seg) => seg.toLowerCase() === "getdocumentbybookpage",
+        );
+        if (idx >= 0) {
+          const identifierParts = segments.slice(idx + 1);
+          if (identifierParts.length > 0) {
+            requestIdentifier = identifierParts.join("/");
+          }
+          if (!book && identifierParts.length >= 2) {
+            book = identifierParts[identifierParts.length - 2];
+          }
+          if (!page && identifierParts.length >= 1) {
+            page = identifierParts[identifierParts.length - 1];
+          }
+        }
+      } catch (err) {
+        // ignore invalid URL formats
+      }
+    }
+  }
+
+  if (!requestIdentifier && book && page) {
+    requestIdentifier = `${book}/${page}`;
+  }
+
+  return {
+    book: book || null,
+    page: page || null,
+    originalUrl,
+    requestIdentifier,
+  };
 }
 
 function mapLandUseToPropertyType(landUseDescription) {
@@ -456,6 +510,8 @@ function main() {
       const saleDateRaw = $(tds[1]).text().trim(); // mm/dd/yyyy
       const instrument = $(tds[2]).text().trim();
       const salePriceRaw = $(tds[5]).text().trim();
+      const bookPageHref = bookPageLink.attr("href") || "";
+      const bookPageInfo = extractBookPageInfo(bookPageText, bookPageHref);
 
       const sale = {
         ownership_transfer_date: toISODate(saleDateRaw),
@@ -467,6 +523,10 @@ function main() {
       const deedType = mapInstrumentToDeedType(instrument) || (instrument ? "Miscellaneous" : null);
       const deed = {};
       if (deedType) deed.deed_type = deedType;
+      if (bookPageInfo.book) deed.book = String(bookPageInfo.book);
+      if (bookPageInfo.page) deed.page = String(bookPageInfo.page);
+      if (bookPageInfo.requestIdentifier)
+        deed.request_identifier = String(bookPageInfo.requestIdentifier);
       out.deeds.push(deed);
 
       const fileObj = {};
@@ -476,6 +536,12 @@ function main() {
         fileObj.name = `${instrument} Document`;
       } else {
         fileObj.name = "Recorded Document";
+      }
+      if (bookPageInfo.originalUrl) {
+        fileObj.original_url = bookPageInfo.originalUrl;
+      }
+      if (bookPageInfo.requestIdentifier) {
+        fileObj.request_identifier = String(bookPageInfo.requestIdentifier);
       }
       out.files.push(fileObj);
     });
@@ -1232,7 +1298,18 @@ function main() {
   });
   bx.deeds.forEach((d, i) => {
     const dName = `deed_${i + 1}.json`;
-    writeJSON(path.join(dataDir, dName), { deed_type: d.deed_type || null });
+    const deedPayload = {};
+    if (d.deed_type != null) deedPayload.deed_type = d.deed_type;
+    if (d.book != null) deedPayload.book = String(d.book);
+    if (d.page != null) deedPayload.page = String(d.page);
+    if (d.request_identifier)
+      deedPayload.request_identifier = String(d.request_identifier);
+    const hasDeedLocator =
+      !!deedPayload.book ||
+      !!deedPayload.page ||
+      !!deedPayload.request_identifier;
+    if (!hasDeedLocator) return;
+    writeJSON(path.join(dataDir, dName), deedPayload);
     deedFiles.push(dName);
   });
   bx.files.forEach((f, i) => {
@@ -1241,6 +1318,15 @@ function main() {
     if (f && typeof f.name === "string" && f.name.trim()) {
       obj.name = f.name.trim();
     }
+    if (f && typeof f.original_url === "string" && f.original_url.trim()) {
+      obj.original_url = f.original_url.trim();
+    }
+    if (f && f.request_identifier != null && `${f.request_identifier}`.trim()) {
+      obj.request_identifier = `${f.request_identifier}`.trim();
+    }
+    const hasFileLocator =
+      !!obj.original_url || !!obj.request_identifier;
+    if (!hasFileLocator) return;
     writeJSON(path.join(dataDir, fName), obj);
     fileFiles.push(fName);
   });
