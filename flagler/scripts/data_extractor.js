@@ -10,6 +10,11 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
+const DEFAULT_SOURCE_HTTP_REQUEST = {
+  method: "GET",
+  url: "https://qpublic.schneidercorp.com/application.aspx",
+};
+
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
@@ -37,6 +42,50 @@ function textTrim(s) {
 function writeJSON(p, obj) {
   ensureDir(path.dirname(p));
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
+}
+
+function cloneDeep(obj) {
+  return obj == null ? null : JSON.parse(JSON.stringify(obj));
+}
+
+function attachSourceHttpRequest(target, request) {
+  if (!target || !request) return;
+  target.source_http_request = cloneDeep(request);
+}
+
+function buildRequestIdentifier(base, ...parts) {
+  const tokens = [];
+  if (base) tokens.push(String(base).trim());
+  parts
+    .flat()
+    .map((part) => (part == null ? null : String(part).trim()))
+    .filter((part) => part && part.length)
+    .forEach((part) => tokens.push(part));
+  if (!tokens.length) return null;
+  return tokens.join("|");
+}
+
+function normalizeSaleDate(value) {
+  const iso = parseDateToISO(value);
+  if (iso) return iso;
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+function parseBookAndPage(raw) {
+  if (!raw || typeof raw !== "string") {
+    return { book: null, page: null };
+  }
+  const cleaned = raw.replace(/\s+/g, "");
+  const match = cleaned.match(/^(\d+)[/-](\d+)$/);
+  if (match) {
+    return { book: match[1], page: match[2] };
+  }
+  return { book: null, page: null };
 }
 
 function buildRelationshipRef(filename) {
@@ -372,7 +421,9 @@ function extractValuation($) {
   });
 }
 
-function writeProperty($, parcelId) {
+function writeProperty($, parcelId, context) {
+  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
+    context || {};
   const legal = extractLegalDescription($);
   const useCode = extractUseCode($);
   const propertyType = mapPropertyTypeFromUseCode(useCode);
@@ -403,11 +454,16 @@ function writeProperty($, parcelId) {
     subdivision: null, // Not directly available in the sample HTML
     zoning: null, // Not directly available in the sample HTML
   };
+  if (defaultRequestIdentifier) {
+    property.request_identifier = defaultRequestIdentifier;
+  }
+  attachSourceHttpRequest(property, defaultSourceHttpRequest);
   writeJSON(path.join("data", "property.json"), property);
 }
 
-function writeSalesDeedsFilesAndRelationships($) {
-  const sales = extractSales($);
+function writeSalesDeedsFilesAndRelationships($, sales, context) {
+  const { parcelId, defaultRequestIdentifier, defaultSourceHttpRequest } =
+    context || {};
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
   // Remove old deed/file and sales artifacts if present to avoid duplicates
@@ -418,14 +474,37 @@ function writeSalesDeedsFilesAndRelationships($) {
     /^fact_sheet\.json$/i,
   ]);
 
+  const processedSales = [];
+  let saleCounter = 0;
   sales.forEach((s, i) => {
-    const idx = i + 1;
+    const transferDate = normalizeSaleDate(s.saleDate);
+    if (!transferDate) {
+      return;
+    }
+    saleCounter += 1;
+    const idx = saleCounter;
     const saleObj = {
-      ownership_transfer_date: parseDateToISO(s.saleDate),
+      ownership_transfer_date: transferDate,
       purchase_price_amount: parseCurrencyToNumber(s.salePrice),
     };
+    const saleRequestId = buildRequestIdentifier(
+      defaultRequestIdentifier,
+      "sale",
+      transferDate,
+      idx,
+    );
+    if (saleRequestId) {
+      saleObj.request_identifier = saleRequestId;
+    }
+    attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
+    processedSales.push({
+      source: s,
+      idx,
+      saleFilename,
+      transferDate,
+    });
 
     if (hasPropertyFile) {
       const relPropertySale = {
@@ -444,11 +523,32 @@ function writeSalesDeedsFilesAndRelationships($) {
     }
 
     const deedType = mapInstrumentToDeedType(s.instrument);
-    const deed = { deed_type: deedType };
+    const { book, page } = parseBookAndPage(s.bookPage);
+    const deed = {
+      deed_type: deedType,
+      book,
+      page,
+    };
+    const deedRequestId = buildRequestIdentifier(
+      defaultRequestIdentifier,
+      "deed",
+      transferDate,
+      book,
+      page,
+      idx,
+    );
+    if (deedRequestId) {
+      deed.request_identifier = deedRequestId;
+    }
+    attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deed);
 
-    const file = {};
+    const file = {
+      document_type: "Recorded Deed",
+      ipfs_url: null,
+      original_url: s.link || null,
+    };
     if (s.fileFormat && typeof s.fileFormat === "string") {
       const fmt = s.fileFormat.trim().toLowerCase();
       if (fmt === "jpeg" || fmt === "png" || fmt === "txt") {
@@ -460,6 +560,18 @@ function writeSalesDeedsFilesAndRelationships($) {
         ? `Deed ${s.bookPage.trim()}`
         : "Deed Document";
     file.name = deedFileName;
+    const fileRequestId = buildRequestIdentifier(
+      defaultRequestIdentifier,
+      "deed-file",
+      transferDate,
+      book,
+      page,
+      idx,
+    );
+    if (fileRequestId) {
+      file.request_identifier = fileRequestId;
+    }
+    attachSourceHttpRequest(file, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
@@ -488,6 +600,7 @@ function writeSalesDeedsFilesAndRelationships($) {
     );
 
   });
+  return processedSales;
 }
 let people = [];
 let companies = [];
@@ -519,7 +632,13 @@ function titleCaseName(s) {
     .join(" ");
 }
 
-function writePersonCompaniesSalesRelationships(parcelId, sales) {
+function writePersonCompaniesSalesRelationships(
+  parcelId,
+  processedSales,
+  context,
+) {
+  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
+    context || {};
   const owners = readJSON(path.join("owners", "owner_data.json"));
   if (!owners) return;
   const key = `property_${parcelId}`;
@@ -545,6 +664,7 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
       }
     });
   });
+  const baseId = defaultRequestIdentifier || parcelId || null;
   people = Array.from(personMap.values()).map((p) => ({
     first_name: p.first_name ? titleCaseName(p.first_name) : null,
     middle_name: p.middle_name ? titleCaseName(p.middle_name) : null,
@@ -554,9 +674,19 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
     suffix_name: null,
     us_citizenship_status: null,
     veteran_status: null,
-    request_identifier: parcelId,
   }));
   people.forEach((p, idx) => {
+    const personRequestId = buildRequestIdentifier(
+      baseId,
+      "person",
+      idx + 1,
+    );
+    if (personRequestId) {
+      p.request_identifier = personRequestId;
+    } else {
+      p.request_identifier = parcelId || null;
+    }
+    attachSourceHttpRequest(p, defaultSourceHttpRequest);
     writeJSON(path.join("data", `person_${idx + 1}.json`), p);
   });
   const companyNames = new Set();
@@ -568,17 +698,26 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
   });
   companies = Array.from(companyNames).map((n) => ({
     name: n,
-    request_identifier: parcelId,
   }));
   companies.forEach((c, idx) => {
+    const companyRequestId = buildRequestIdentifier(
+      baseId,
+      "company",
+      idx + 1,
+    );
+    if (companyRequestId) {
+      c.request_identifier = companyRequestId;
+    } else {
+      c.request_identifier = parcelId || null;
+    }
+    attachSourceHttpRequest(c, defaultSourceHttpRequest);
     writeJSON(path.join("data", `company_${idx + 1}.json`), c);
   });
   // Relationships: link sale to owners present on that date (both persons and companies)
   let relPersonCounter = 0;
   let relCompanyCounter = 0;
-  sales.forEach((rec, idx) => {
-    const d = parseDateToISO(rec.saleDate);
-    const ownersOnDate = ownersByDate[d] || [];
+  processedSales.forEach((rec) => {
+    const ownersOnDate = ownersByDate[rec.transferDate] || [];
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
@@ -595,7 +734,7 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
                 "/": `./person_${pIdx}.json`,
               }),
               from: wrapRelationshipEndpoint("sales_history", {
-                "/": `./sales_history_${idx + 1}.json`,
+                "/": `./${rec.saleFilename}`,
               }),
             },
           );
@@ -617,7 +756,7 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
                 "/": `./company_${cIdx}.json`,
               }),
               from: wrapRelationshipEndpoint("sales_history", {
-                "/": `./sales_history_${idx + 1}.json`,
+                "/": `./${rec.saleFilename}`,
               }),
             },
           );
@@ -626,7 +765,10 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
   });
 }
 
-function writeTaxes($) {
+function writeTaxes($, context) {
+  const { parcelId, defaultRequestIdentifier, defaultSourceHttpRequest } =
+    context || {};
+  const baseId = defaultRequestIdentifier || parcelId || null;
   const vals = extractValuation($);
   vals.forEach((v) => {
     const taxObj = {
@@ -640,11 +782,19 @@ function writeTaxes($) {
       period_end_date: null,
       period_start_date: null,
     };
+    const taxRequestId = buildRequestIdentifier(baseId, "tax", v.year);
+    if (taxRequestId) {
+      taxObj.request_identifier = taxRequestId;
+    }
+    attachSourceHttpRequest(taxObj, defaultSourceHttpRequest);
     writeJSON(path.join("data", `tax_${v.year}.json`), taxObj);
   });
 }
 
-function writeUtility(parcelId) {
+function writeUtility(parcelId, context) {
+  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
+    context || {};
+  const baseId = defaultRequestIdentifier || parcelId || null;
   const utils = readJSON(path.join("owners", "utilities_data.json"));
   if (!utils) return;
   const key = `property_${parcelId}`;
@@ -699,10 +849,18 @@ function writeUtility(parcelId) {
     water_heater_model: u.water_heater_model ?? null,
     well_installation_date: u.well_installation_date ?? null,
   };
+  const utilityRequestId = buildRequestIdentifier(baseId, "utility");
+  if (utilityRequestId) {
+    utility.request_identifier = utilityRequestId;
+  }
+  attachSourceHttpRequest(utility, defaultSourceHttpRequest);
   writeJSON(path.join("data", "utility.json"), utility);
 }
 
-function writeLayout(parcelId) {
+function writeLayout(parcelId, context) {
+  const { defaultRequestIdentifier, defaultSourceHttpRequest } =
+    context || {};
+  const baseId = defaultRequestIdentifier || parcelId || null;
   const layouts = readJSON(path.join("owners", "layout_data.json"));
   if (!layouts) return;
   const key = `property_${parcelId}`;
@@ -753,8 +911,18 @@ function writeLayout(parcelId) {
       pool_condition: l.pool_condition ?? null,
       pool_surface_type: l.pool_surface_type ?? null,
       pool_water_quality: l.pool_water_quality ?? null,
-      request_identifier: parcelId,
     };
+    const layoutRequestId = buildRequestIdentifier(
+      baseId,
+      "layout",
+      derivedIndex,
+    );
+    if (layoutRequestId) {
+      out.request_identifier = layoutRequestId;
+    } else {
+      out.request_identifier = parcelId || null;
+    }
+    attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${idx + 1}.json`;
     writeJSON(path.join("data", layoutFilename), out);
     if (fs.existsSync(path.join("data", "property.json"))) {
@@ -885,10 +1053,12 @@ function normalizeSuffix(s) {
 }
 
 function isNumeric(value) {
-    return /^-?\d+$/.test(value);
+  return /^-?\d+$/.test(value);
 }
 
-function attemptWriteAddress(unnorm, secTwpRng) {
+function attemptWriteAddress(unnorm, secTwpRng, context) {
+  const { defaultRequestIdentifier, defaultSourceHttpRequest, parcelId } =
+    context || {};
   const full =
     unnorm && unnorm.full_address ? unnorm.full_address.trim() : null;
   if (!full) return;
@@ -996,8 +1166,14 @@ function attemptWriteAddress(unnorm, secTwpRng) {
     unnormalized_address: full,
     request_identifier: unnorm && unnorm.request_identifier
       ? unnorm.request_identifier
-      : null,
+      : buildRequestIdentifier(
+          defaultRequestIdentifier || parcelId || null,
+          "address",
+        ),
   };
+  const sourceRequest =
+    (unnorm && unnorm.source_http_request) || defaultSourceHttpRequest;
+  attachSourceHttpRequest(address, sourceRequest);
   writeJSON(path.join("data", "address.json"), address);
 }
 
@@ -1012,24 +1188,47 @@ function main() {
   const parcelId =
     parcelFromHTML || (propertySeed && propertySeed.parcel_id) || null;
 
-  if (parcelId) writeProperty($, parcelId);
+  const defaultSourceHttpRequest =
+    (unnormalized && unnormalized.source_http_request) ||
+    (propertySeed && propertySeed.source_http_request) ||
+    DEFAULT_SOURCE_HTTP_REQUEST;
+  const defaultRequestIdentifier =
+    (propertySeed && propertySeed.request_identifier) ||
+    (unnormalized && unnormalized.request_identifier) ||
+    parcelId ||
+    null;
+  const context = {
+    parcelId,
+    defaultSourceHttpRequest,
+    defaultRequestIdentifier,
+  };
+
+  if (parcelId) writeProperty($, parcelId, context);
 
   const sales = extractSales($);
-  writeSalesDeedsFilesAndRelationships($);
+  const processedSales = writeSalesDeedsFilesAndRelationships(
+    $,
+    sales,
+    context,
+  );
 
-  writeTaxes($);
+  writeTaxes($, context);
 
   if (parcelId) {
-    writePersonCompaniesSalesRelationships(parcelId, sales);
+    writePersonCompaniesSalesRelationships(
+      parcelId,
+      processedSales || [],
+      context,
+    );
     // writeOwnersCurrentAndRelationships(parcelId);
     // writeHistoricalBuyerPersonsAndRelationships(parcelId, sales);
-    writeUtility(parcelId);
-    writeLayout(parcelId);
+    writeUtility(parcelId, context);
+    writeLayout(parcelId, context);
   }
 
   // Address last
   const secTwpRng = extractSecTwpRng($);
-  attemptWriteAddress(unnormalized, secTwpRng);
+  attemptWriteAddress(unnormalized, secTwpRng, context);
 }
 
 if (require.main === module) {
