@@ -45,6 +45,17 @@ function makeRelationshipRef(filename) {
   return { "/": `./${trimmed}` };
 }
 
+const RELATIONSHIP_EXPECTATIONS = {
+  deed_has_file: {
+    from: (fileName) => /^deed_\d+\.json$/i.test(fileName || ""),
+    to: (fileName) => /^file_\d+\.json$/i.test(fileName || ""),
+  },
+  sales_history_has_deed: {
+    from: (fileName) => /^sales_\d+\.json$/i.test(fileName || ""),
+    to: (fileName) => /^deed_\d+\.json$/i.test(fileName || ""),
+  },
+};
+
 function parseCurrency(str) {
   if (str == null) return null;
   const s = String(str).replace(/[$,\s]/g, "");
@@ -214,7 +225,24 @@ function main() {
   clearDir(dataDir);
 
   const relationships = {};
-  const queueRelationship = (name, finalFromFile, finalToFile) => {
+  const queueRelationship = (name, initialFromFile, initialToFile) => {
+    let finalFromFile = initialFromFile;
+    let finalToFile = initialToFile;
+
+    const expectation = RELATIONSHIP_EXPECTATIONS[name];
+    if (expectation) {
+      const fromMatches = expectation.from(finalFromFile);
+      const toMatches = expectation.to(finalToFile);
+      const swappedFromMatches = expectation.from(finalToFile);
+      const swappedToMatches = expectation.to(finalFromFile);
+
+      if (!fromMatches && swappedFromMatches && swappedToMatches) {
+        [finalFromFile, finalToFile] = [finalToFile, finalFromFile];
+      } else if (!fromMatches || !toMatches) {
+        return;
+      }
+    }
+
     const fromRef = makeRelationshipRef(finalFromFile);
     const toRef = makeRelationshipRef(finalToFile);
     if (!fromRef || !toRef) return;
