@@ -53,7 +53,7 @@ function main() {
   for (let i = 1; i <= bedrooms; i++) {
     layouts.push({
       space_type: "Bedroom",
-      space_index: i,
+      space_type_index: i,
       flooring_material_type: null,
       size_square_feet: null,
       floor_level: defaultFloor,
@@ -91,7 +91,7 @@ function main() {
   for (let i = 1; i <= fullBaths; i++) {
     layouts.push({
       space_type: "Full Bathroom",
-      space_index: i,
+      space_type_index: i,
       flooring_material_type: null,
       size_square_feet: null,
       floor_level: defaultFloor,
@@ -129,7 +129,7 @@ function main() {
   for (let i = 1; i <= halfBaths; i++) {
     layouts.push({
       space_type: "Half Bathroom / Powder Room",
-      space_index: i,
+      space_type_index: i,
       flooring_material_type: null,
       size_square_feet: null,
       floor_level: defaultFloor,
@@ -167,7 +167,7 @@ function main() {
   if (totalLivingArea) {
     layouts.push({
       space_type: "Living Room",
-      space_index: bedrooms + fullBaths + halfBaths + 1,
+      space_type_index: bedrooms + fullBaths + halfBaths + 1,
       flooring_material_type: null,
       size_square_feet: null,
       floor_level: defaultFloor,

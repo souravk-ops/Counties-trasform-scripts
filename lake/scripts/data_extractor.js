@@ -529,16 +529,35 @@ function main() {
 
   function buildPropertyJson() {
     const propertyInfo = extractPropertyTypeFromLandData();
-    const propertyType = sanitizePropertyType(propertyInfo.propertyType);
+
+    const propertyTypeCandidates = [
+      propertyInfo.propertyType || null,
+      propSeed && propSeed.property_type
+        ? String(propSeed.property_type).trim()
+        : null,
+    ];
+
+    let normalizedPropertyType = null;
+    for (const candidate of propertyTypeCandidates) {
+      const sanitized = sanitizePropertyType(candidate);
+      if (sanitized) {
+        normalizedPropertyType = sanitized;
+        break;
+      }
+    }
+
+    if (!normalizedPropertyType) {
+      normalizedPropertyType = "MiscellaneousResidential";
+    }
 
     const property = {
       parcel_identifier: general.parcelNumber || propSeed.parcel_id || null,
       property_structure_built_year: bx.yearBuilt || null,
       livable_floor_area: bx.livingArea ? String(bx.livingArea) : null,
       property_legal_description_text: general.legalDescription || null,
+      property_type: normalizedPropertyType,
     };
 
-    if (propertyType) property.property_type = propertyType;
     if (Number.isFinite(propertyInfo.units)) {
       property.number_of_units = propertyInfo.units;
     }
@@ -994,6 +1013,30 @@ function main() {
   };
   writeJSON(path.join(dataDir, "lot.json"), lot);
 
+  const propertyPath = path.join(dataDir, "property.json");
+  const addressPath = path.join(dataDir, "address.json");
+  const lotPath = path.join(dataDir, "lot.json");
+
+  if (fs.existsSync(propertyPath) && fs.existsSync(addressPath)) {
+    writeJSON(
+      path.join(dataDir, "relationship_property_has_address.json"),
+      {
+        from: { "/": "./property.json" },
+        to: { "/": "./address.json" },
+      },
+    );
+  }
+
+  if (fs.existsSync(propertyPath) && fs.existsSync(lotPath)) {
+    writeJSON(
+      path.join(dataDir, "relationship_property_has_lot.json"),
+      {
+        from: { "/": "./property.json" },
+        to: { "/": "./lot.json" },
+      },
+    );
+  }
+
   // tax_*.json
   if (
     bx.taxYear ||
@@ -1174,28 +1217,31 @@ function main() {
   });
   bx.files.forEach((f, i) => {
     const fName = `file_${i + 1}.json`;
-    const obj = { ...f };
+    const obj = {};
+    if (f && typeof f.name === "string" && f.name.trim()) {
+      obj.name = f.name.trim();
+    }
     writeJSON(path.join(dataDir, fName), obj);
     fileFiles.push(fName);
   });
 
-  // relationship_deed_file_*.json (deed → file)
+  // relationship_deed_has_file_*.json (deed → file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
     const rel = {
       from: { "/": `./${deedFiles[i]}` },
       to: { "/": `./${fileFiles[i]}` },
     };
-    const relName = `relationship_deed_file_${i + 1}.json`;
+    const relName = `relationship_deed_has_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
   }
 
-  // relationship_sales_deed_*.json (sales → deed)
+  // relationship_sales_history_has_deed_*.json (sales → deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
     const rel = {
       from: { "/": `./${salesFiles[i]}` },
       to: { "/": `./${deedFiles[i]}` },
     };
-    const relName = `relationship_sales_deed_${i + 1}.json`;
+    const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
   }
 
