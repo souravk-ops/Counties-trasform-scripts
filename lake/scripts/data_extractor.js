@@ -1029,7 +1029,15 @@ function main() {
   };
   writeJSON(path.join(dataDir, "lot.json"), lot);
 
-  const propertyRef = { "/": "./property.json" };
+  const propertyTypeForRelationships =
+    typeof property.property_type === "string" &&
+    property.property_type.trim() !== ""
+      ? property.property_type.trim()
+      : "LandParcel";
+  const makePropertyRef = () => ({
+    "/": "./property.json",
+    property_type: propertyTypeForRelationships,
+  });
   const taxFiles = [];
 
   // tax_*.json
@@ -1153,7 +1161,10 @@ function main() {
           : String(idx + 1);
       layoutObj.space_type_index = indexValue;
       writeJSON(path.join(dataDir, name), layoutObj);
-      layoutFiles.push(name);
+      layoutFiles.push({
+        fileName: name,
+        space_type_index: indexValue,
+      });
     });
   }
 
@@ -1238,17 +1249,19 @@ function main() {
   });
 
   // property relationships and additional linkage
-  writeJSON(
-    path.join(dataDir, "relationship_property_has_address.json"),
-    {
-      from: propertyRef,
-      to: { "/": "./address.json" },
-    },
-  );
+  if (addr && Object.keys(addr).length > 0) {
+    writeJSON(
+      path.join(dataDir, "relationship_property_has_address.json"),
+      {
+        from: makePropertyRef(),
+        to: { "/": "./address.json" },
+      },
+    );
+  }
   writeJSON(
     path.join(dataDir, "relationship_property_has_lot.json"),
     {
-      from: propertyRef,
+      from: makePropertyRef(),
       to: { "/": "./lot.json" },
     },
   );
@@ -1259,7 +1272,7 @@ function main() {
         `relationship_property_has_sales_history_${idx + 1}.json`,
       ),
       {
-        from: propertyRef,
+        from: makePropertyRef(),
         to: { "/": `./${salesFile}` },
       },
     );
@@ -1268,17 +1281,21 @@ function main() {
     writeJSON(
       path.join(dataDir, `relationship_property_has_file_${idx + 1}.json`),
       {
-        from: propertyRef,
+        from: makePropertyRef(),
         to: { "/": `./${fileName}` },
       },
     );
   });
-  layoutFiles.forEach((layoutFile, idx) => {
+  layoutFiles.forEach((layoutEntry, idx) => {
+    const layoutRef = {
+      "/": `./${layoutEntry.fileName}`,
+      space_type_index: layoutEntry.space_type_index,
+    };
     writeJSON(
       path.join(dataDir, `relationship_property_has_layout_${idx + 1}.json`),
       {
-        from: propertyRef,
-        to: { "/": `./${layoutFile}` },
+        from: makePropertyRef(),
+        to: layoutRef,
       },
     );
   });
@@ -1286,7 +1303,7 @@ function main() {
     writeJSON(
       path.join(dataDir, `relationship_property_has_tax_${idx + 1}.json`),
       {
-        from: propertyRef,
+        from: makePropertyRef(),
         to: { "/": `./${taxFile}` },
       },
     );
@@ -1305,8 +1322,8 @@ function main() {
   // relationship_sales_history_has_deed_*.json (sale -> deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
     const rel = {
-      from: { "/": `./${deedFiles[i]}` },
-      to: { "/": `./${salesFiles[i]}` },
+      from: { "/": `./${salesFiles[i]}` },
+      to: { "/": `./${deedFiles[i]}` },
     };
     const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
