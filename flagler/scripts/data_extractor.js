@@ -39,6 +39,20 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
 }
 
+function cloneForRelationship(properties) {
+  if (!properties || typeof properties !== "object") return {};
+  return JSON.parse(JSON.stringify(properties));
+}
+
+function buildRelationshipNode(className, properties) {
+  return {
+    node: {
+      class: className,
+      properties: cloneForRelationship(properties),
+    },
+  };
+}
+
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const s = String(txt).trim();
@@ -410,7 +424,7 @@ function writeSalesDeedsFilesAndRelationships($) {
     if (hasPropertyFile) {
       const relPropertySale = {
         from: { "/": "./property.json" },
-        to: { "/": `./${saleFilename}` },
+        to: buildRelationshipNode("sales_history", saleObj),
       };
       writeJSON(
         path.join(
@@ -440,8 +454,8 @@ function writeSalesDeedsFilesAndRelationships($) {
     writeJSON(path.join("data", fileFilename), file);
 
     const relDeedFile = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
+      from: buildRelationshipNode("deed", deed),
+      to: buildRelationshipNode("file", file),
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -449,8 +463,8 @@ function writeSalesDeedsFilesAndRelationships($) {
     );
 
     const relSaleDeed = {
-      from: { "/": `./${saleFilename}` },
-      to: { "/": `./${deedFilename}` },
+      from: buildRelationshipNode("sales_history", saleObj),
+      to: buildRelationshipNode("deed", deed),
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),

@@ -158,6 +158,7 @@ function main() {
   const $ = readHtml(inputPath);
   const parcelId = getParcelId($);
   if (!parcelId) throw new Error("Parcel ID not found");
+
   const buildings = collectBuildings($);
   const layouts = buildLayoutsFromBuildings(buildings);
 
@@ -168,6 +169,58 @@ function main() {
   outObj[`property_${parcelId}`] = { layouts };
   fs.writeFileSync(outPath, JSON.stringify(outObj, null, 2), "utf8");
   console.log(`Wrote ${outPath}`);
+
+  const dataDir = path.resolve("data");
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  try {
+    fs.readdirSync(dataDir).forEach((fileName) => {
+      if (/^layout_\d+\.json$/i.test(fileName)) {
+        fs.unlinkSync(path.join(dataDir, fileName));
+      }
+      if (/^relationship_property_has_layout_\d+\.json$/i.test(fileName)) {
+        fs.unlinkSync(path.join(dataDir, fileName));
+      }
+    });
+  } catch (err) {}
+
+  const propertyRef = fs.existsSync(path.join(dataDir, "property.json"))
+    ? { "/": "./property.json" }
+    : {
+        node: {
+          class: "property",
+          properties: {
+            parcel_identifier: parcelId || null,
+          },
+        },
+      };
+
+  layouts.forEach((layout, index) => {
+    const layoutIdx = index + 1;
+    const layoutFile = `layout_${layoutIdx}.json`;
+    fs.writeFileSync(
+      path.join(dataDir, layoutFile),
+      JSON.stringify(layout, null, 2),
+      "utf8",
+    );
+
+    const rel = {
+      from: JSON.parse(JSON.stringify(propertyRef)),
+      to: {
+        node: {
+          class: "layout",
+          properties: JSON.parse(JSON.stringify(layout)),
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(
+        dataDir,
+        `relationship_property_has_layout_${layoutIdx}.json`,
+      ),
+      JSON.stringify(rel, null, 2),
+      "utf8",
+    );
+  });
 }
 
 if (require.main === module) {
