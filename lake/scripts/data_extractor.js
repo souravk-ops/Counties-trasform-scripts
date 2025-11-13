@@ -1311,19 +1311,6 @@ function main() {
     );
   });
 
-  // relationship_deed_has_file_*.json (deed -> file)
-  const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
-  for (let i = 0; i < deedFilePairCount; i++) {
-    const deedEntry = deedEntries[i];
-    const fileEntry = fileEntries[i];
-    const rel = {
-      from: { "/": `./${deedEntry.fileName}` },
-      to: { "/": `./${fileEntry.fileName}` },
-    };
-    const relName = `relationship_deed_has_file_${i + 1}.json`;
-    writeJSON(path.join(dataDir, relName), rel);
-  }
-
   // relationship_sales_history_has_deed_*.json (sale -> deed)
   const saleDeedPairCount = Math.min(
     salesEntries.length,
