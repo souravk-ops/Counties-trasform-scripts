@@ -379,7 +379,7 @@ function writeProperty($, parcelId) {
 
 function writeSalesDeedsFilesAndRelationships($) {
   const sales = extractSales($);
-  // Remove old deed/file and sales_deed relationships if present to avoid duplicates
+  // Remove old deed/file and sales artifacts if present to avoid duplicates
   try {
     fs.readdirSync("data").forEach((f) => {
       if (
@@ -387,6 +387,10 @@ function writeSalesDeedsFilesAndRelationships($) {
           f,
         )
       ) {
+        fs.unlinkSync(path.join("data", f));
+        return;
+      }
+      if (/^(sales_history|sales|deed|file)_\d+\.json$/.test(f)) {
         fs.unlinkSync(path.join("data", f));
       }
     });
@@ -398,21 +402,24 @@ function writeSalesDeedsFilesAndRelationships($) {
       ownership_transfer_date: parseDateToISO(s.saleDate),
       purchase_price_amount: parseCurrencyToNumber(s.salePrice),
     };
-    writeJSON(path.join("data", `sales_${idx}.json`), saleObj);
+    const saleFilename = `sales_history_${idx}.json`;
+    writeJSON(path.join("data", saleFilename), saleObj);
 
     const deedType = mapInstrumentToDeedType(s.instrument);
     const deed = { deed_type: deedType };
-    writeJSON(path.join("data", `deed_${idx}.json`), deed);
+    const deedFilename = `deed_${idx}.json`;
+    writeJSON(path.join("data", deedFilename), deed);
 
     const file = {
       name: s.bookPage ? `Deed ${s.bookPage}` : "Deed Document",
     };
-    writeJSON(path.join("data", `file_${idx}.json`), file);
+    const fileFilename = `file_${idx}.json`;
+    writeJSON(path.join("data", fileFilename), file);
 
     // Link the deed record to its supporting file asset.
     const relDeedFile = {
-      from: { "/": `./deed_${idx}.json` },
-      to: { "/": `./file_${idx}.json` },
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${fileFilename}` },
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -420,8 +427,8 @@ function writeSalesDeedsFilesAndRelationships($) {
     );
 
     const relSalesDeed = {
-      from: { "/": `./deed_${idx}.json` },
-      to: { "/": `./sales_${idx}.json` },
+      from: { "/": `./${saleFilename}` },
+      to: { "/": `./${deedFilename}` },
     };
     writeJSON(
       path.join(
@@ -535,7 +542,7 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
             ),
             {
               to: { "/": `./person_${pIdx}.json` },
-              from: { "/": `./sales_${idx + 1}.json` },
+              from: { "/": `./sales_history_${idx + 1}.json` },
             },
           );
         }
@@ -553,7 +560,7 @@ function writePersonCompaniesSalesRelationships(parcelId, sales) {
             ),
             {
               to: { "/": `./company_${cIdx}.json` },
-              from: { "/": `./sales_${idx + 1}.json` },
+              from: { "/": `./sales_history_${idx + 1}.json` },
             },
           );
         }
