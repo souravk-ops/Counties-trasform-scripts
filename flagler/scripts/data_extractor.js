@@ -432,13 +432,13 @@ function writeSalesDeedsFilesAndRelationships($) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
-    const relDeedHasFile = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
+    const relDeedFile = {
+      from: { "/": `./${fileFilename}` },
+      to: { "/": `./${deedFilename}` },
     };
     writeJSON(
-      path.join("data", `relationship_deed_has_file_${idx}.json`),
-      relDeedHasFile,
+      path.join("data", `relationship_deed_file_${idx}.json`),
+      relDeedFile,
     );
 
     if (hasPropertyFile) {
