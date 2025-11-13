@@ -62,6 +62,11 @@ function mapLandUseToPropertyType(landUseDescription) {
 
   const desc = landUseDescription.toUpperCase();
 
+  if (
+    /AGRIC|AG\s*\/|PASTURE|GROVE|CATTLE|HAY|FARM/.test(desc) ||
+    desc.includes("HOMESITE")
+  )
+    return "LandParcel";
   // Map Lake County land use codes to property types
   if (desc.includes("VACANT RESIDENTIAL")) return "VacantLand";
   if (desc.includes("SINGLE FAMILY")) return "SingleFamily";
@@ -328,20 +333,23 @@ function main() {
         purchase_price_amount: parseCurrency(salePriceRaw),
       };
 
-      out.sales.push(sale);
+      const hasSaleDate = !!sale.ownership_transfer_date;
+      const hasSalePrice = sale.purchase_price_amount != null;
+      if (hasSaleDate || hasSalePrice) {
+        out.sales.push(sale);
 
-      const deed = { deed_type: instrument || null };
-      out.deeds.push(deed);
+        const deed = { deed_type: instrument || null };
+        out.deeds.push(deed);
 
-      const fileObj = {
-        document_type: /Warranty Deed/i.test(instrument)
-          ? "ConveyanceDeedWarrantyDeed"
-          : null,
-        file_format: null,
-        ipfs_url: null,
-        name: bookPageText ? `Official Records ${bookPageText}` : null,
-      };
-      out.files.push(fileObj);
+        const fileObj = {
+          document_type: /Warranty Deed/i.test(instrument)
+            ? "ConveyanceDeedWarrantyDeed"
+            : null,
+          file_format: null,
+          name: bookPageText ? `Official Records ${bookPageText}` : null,
+        };
+        out.files.push(fileObj);
+      }
     });
 
     // Residential Building Characteristics (Sections) for stories and exterior wall types
@@ -400,13 +408,18 @@ function main() {
 
   function buildPropertyJson() {
     const propertyInfo = extractPropertyTypeFromLandData();
+    let propertyType = propertyInfo.propertyType || null;
+    if (!propertyType) {
+      if (bx.livingArea || bx.yearBuilt) propertyType = "SingleFamily";
+      else propertyType = "LandParcel";
+    }
 
     const property = {
       parcel_identifier: general.parcelNumber || propSeed.parcel_id || null,
       property_structure_built_year: bx.yearBuilt || null,
       livable_floor_area: bx.livingArea ? String(bx.livingArea) : null,
       property_legal_description_text: general.legalDescription || null,
-      property_type: propertyInfo.propertyType, // Now extracted from Land Data
+      property_type: propertyType,
       number_of_units_type: getUnitsType(propertyInfo.units), // Dynamic based on extracted units
       number_of_units: propertyInfo.units || 1, // Default to 1 if not found
       area_under_air: null,
@@ -807,6 +820,8 @@ function main() {
     }
 
     const countyName = addrSeed.county_jurisdiction || null;
+    const unnormalizedAddress =
+      addrSeed.full_address || general.propertyLocationRaw || null;
 
     return {
       street_number: street_number || null,
@@ -830,6 +845,7 @@ function main() {
       section: null,
       block: null,
       lot: null,
+      unnormalized_address: unnormalizedAddress,
     };
   }
 
@@ -861,6 +877,23 @@ function main() {
     lot_condition_issues: null,
   };
   writeJSON(path.join(dataDir, "lot.json"), lot);
+
+  // property relationships
+  const propertyRef = { "/": "./property.json" };
+  writeJSON(
+    path.join(dataDir, "relationship_property_address.json"),
+    {
+      from: propertyRef,
+      to: { "/": "./address.json" },
+    },
+  );
+  writeJSON(
+    path.join(dataDir, "relationship_property_lot.json"),
+    {
+      from: propertyRef,
+      to: { "/": "./lot.json" },
+    },
+  );
 
   // tax_*.json
   if (
@@ -1047,12 +1080,11 @@ function main() {
     fileFiles.push(fName);
   });
 
-  // relationship_deed_file_*.json (file -> deed)
+  // relationship_deed_file_*.json (deed -> file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
     const rel = {
-      // Orientation intentionally set to file -> deed to satisfy downstream expectations.
-      from: { "/": `./${fileFiles[i]}` },
-      to: { "/": `./${deedFiles[i]}` },
+      from: { "/": `./${deedFiles[i]}` },
+      to: { "/": `./${fileFiles[i]}` },
     };
     const relName = `relationship_deed_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);

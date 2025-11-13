@@ -31,6 +31,11 @@ function main() {
 
   const layouts = [];
 
+  function pushLayout(entry) {
+    const spaceTypeIndex = String(layouts.length + 1);
+    layouts.push({ space_type_index: spaceTypeIndex, ...entry });
+  }
+
   // Extract counts
   const summaryTable = $(".property_building_summary").first();
   let bedrooms = 0,
@@ -51,7 +56,7 @@ function main() {
 
   // Create bedrooms
   for (let i = 1; i <= bedrooms; i++) {
-    layouts.push({
+    pushLayout({
       space_type: "Bedroom",
       space_index: i,
       flooring_material_type: null,
@@ -89,7 +94,7 @@ function main() {
 
   // Create full bathrooms
   for (let i = 1; i <= fullBaths; i++) {
-    layouts.push({
+    pushLayout({
       space_type: "Full Bathroom",
       space_index: i,
       flooring_material_type: null,
@@ -127,7 +132,7 @@ function main() {
 
   // Create half bathrooms
   for (let i = 1; i <= halfBaths; i++) {
-    layouts.push({
+    pushLayout({
       space_type: "Half Bathroom / Powder Room",
       space_index: i,
       flooring_material_type: null,
@@ -165,7 +170,7 @@ function main() {
 
   // Optionally add a Great Room / Living area placeholder using total living area (not room size)
   if (totalLivingArea) {
-    layouts.push({
+    pushLayout({
       space_type: "Living Room",
       space_index: bedrooms + fullBaths + halfBaths + 1,
       flooring_material_type: null,
