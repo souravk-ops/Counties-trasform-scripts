@@ -432,6 +432,15 @@ function writeSalesDeedsFilesAndRelationships($) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
+    const relDeedHasFile = {
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${fileFilename}` },
+    };
+    writeJSON(
+      path.join("data", `relationship_deed_has_file_${idx}.json`),
+      relDeedHasFile,
+    );
+
     if (hasPropertyFile) {
       const relPropertyFile = {
         from: { "/": "./property.json" },
