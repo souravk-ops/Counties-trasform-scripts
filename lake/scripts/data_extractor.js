@@ -319,7 +319,6 @@ function main() {
       if (tds.length < 6) return;
       const bookPageLink = $(tds[0]).find("a");
       const bookPageText = bookPageLink.text().trim(); // e.g., "3072 / 319"
-      const docUrl = bookPageLink.attr("href") || null;
       const saleDateRaw = $(tds[1]).text().trim(); // mm/dd/yyyy
       const instrument = $(tds[2]).text().trim();
       const salePriceRaw = $(tds[5]).text().trim();
@@ -341,7 +340,6 @@ function main() {
         file_format: null,
         ipfs_url: null,
         name: bookPageText ? `Official Records ${bookPageText}` : null,
-        original_url: docUrl || null,
       };
       out.files.push(fileObj);
     });
@@ -1052,8 +1050,8 @@ function main() {
   // relationship_deed_file_*.json (deed ← file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
     const rel = {
-      to: { "/": `./${deedFiles[i]}` },
-      from: { "/": `./${fileFiles[i]}` },
+      from: { "/": `./${deedFiles[i]}` },
+      to: { "/": `./${fileFiles[i]}` },
     };
     const relName = `relationship_deed_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
@@ -1062,8 +1060,8 @@ function main() {
   // relationship_sales_deed_*.json (sales ← deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
     const rel = {
-      to: { "/": `./${salesFiles[i]}` },
-      from: { "/": `./${deedFiles[i]}` },
+      from: { "/": `./${salesFiles[i]}` },
+      to: { "/": `./${deedFiles[i]}` },
     };
     const relName = `relationship_sales_deed_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
