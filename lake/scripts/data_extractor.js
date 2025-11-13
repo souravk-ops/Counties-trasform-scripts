@@ -448,6 +448,14 @@ function main() {
       const instrument = $(tds[2]).text().trim();
       const salePriceRaw = $(tds[5]).text().trim();
 
+      let book = null;
+      let page = null;
+      if (bookPageText) {
+        const [bookRaw, pageRaw] = bookPageText.split("/");
+        if (bookRaw && bookRaw.trim()) book = bookRaw.trim();
+        if (pageRaw && pageRaw.trim()) page = pageRaw.trim();
+      }
+
       const sale = {
         ownership_transfer_date: toISODate(saleDateRaw),
         purchase_price_amount: parseCurrency(salePriceRaw),
@@ -465,6 +473,8 @@ function main() {
       const deedType = mapInstrumentToDeedType(instrument);
       const deed = {};
       if (deedType) deed.deed_type = deedType;
+      if (book) deed.book = book;
+      if (page) deed.page = page;
       out.deeds.push(deed);
 
       const fileObj = {};
@@ -544,22 +554,26 @@ function main() {
 
     const property = {
       parcel_identifier: general.parcelNumber || propSeed.parcel_id || null,
-      property_structure_built_year: bx.yearBuilt || null,
-      livable_floor_area: bx.livingArea ? String(bx.livingArea) : null,
       property_legal_description_text: general.legalDescription || null,
+      property_structure_built_year: bx.yearBuilt || null,
       property_type: propertyType,
-      number_of_units_type: getUnitsType(propertyInfo.units), // Dynamic based on extracted units
-      number_of_units: propertyInfo.units || 1, // Default to 1 if not found
-      area_under_air: null,
-      property_effective_built_year: null,
+      number_of_units:
+        propertyInfo.units != null && Number.isFinite(propertyInfo.units)
+          ? propertyInfo.units
+          : null,
       subdivision: null,
-      total_area: null,
       zoning: null,
+      request_identifier:
+        typeof propSeed.request_identifier === "string" &&
+        propSeed.request_identifier.trim() !== ""
+          ? propSeed.request_identifier.trim()
+          : null,
     };
 
-    // Remove undefined properties
     Object.keys(property).forEach((k) => {
-      if (property[k] === undefined) delete property[k];
+      if (property[k] === null || property[k] === undefined) {
+        delete property[k];
+      }
     });
 
     return property;
@@ -951,30 +965,25 @@ function main() {
     const unnormalizedAddress =
       addrSeed.full_address || general.propertyLocationRaw || null;
 
-    return {
+    const address = {
       street_number: street_number || null,
       street_name: street_name || null,
       street_suffix_type: street_suffix_type || null,
-      street_pre_directional_text: null,
-      street_post_directional_text: null,
       city_name: city_name || null,
-      municipality_name: null,
       state_code: state_code || null,
       postal_code: postal_code || null,
-      plus_four_postal_code: null,
       country_code: "US",
       county_name: countyName || null,
-      unit_identifier: null,
-      latitude: null,
-      longitude: null,
-      route_number: null,
-      township: null,
-      range: null,
-      section: null,
-      block: null,
-      lot: null,
-      unnormalized_address: unnormalizedAddress,
+      unnormalized_address: unnormalizedAddress || null,
     };
+
+    Object.keys(address).forEach((key) => {
+      if (address[key] === null || address[key] === undefined) {
+        delete address[key];
+      }
+    });
+
+    return address;
   }
 
   const addr = parseAddress();
