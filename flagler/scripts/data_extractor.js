@@ -427,21 +427,33 @@ function writeSalesDeedsFilesAndRelationships($) {
     writeJSON(path.join("data", deedFilename), deed);
 
     const file = {
+      document_type: null,
+      file_format: null,
+      ipfs_url: null,
       name: s.bookPage ? `Deed ${s.bookPage}` : "Deed Document",
+      original_url: s.link || null,
     };
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
-    if (hasPropertyFile) {
-      const relPropertyFile = {
-        from: { "/": "./property.json" },
-        to: { "/": `./${fileFilename}` },
-      };
-      writeJSON(
-        path.join("data", `relationship_property_has_file_${idx}.json`),
-        relPropertyFile,
-      );
-    }
+    const relDeedFile = {
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${fileFilename}` },
+    };
+    writeJSON(
+      path.join("data", `relationship_deed_has_file_${idx}.json`),
+      relDeedFile,
+    );
+
+    const relSaleDeed = {
+      from: { "/": `./${saleFilename}` },
+      to: { "/": `./${deedFilename}` },
+    };
+    writeJSON(
+      path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
+      relSaleDeed,
+    );
+
   });
 }
 let people = [];
