@@ -416,11 +416,11 @@ function writeSalesDeedsFilesAndRelationships($) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
-    // Link the deed record to its supporting file asset.
+    // Link the deed record to its supporting file asset. The downstream compiler swaps from/to,
+    // so reference the file on `from` to yield a deed->file relationship after processing.
     const relDeedFile = {
-      // Deed is the source entity for its supporting file record.
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
+      from: { "/": `./${fileFilename}` },
+      to: { "/": `./${deedFilename}` },
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -428,9 +428,8 @@ function writeSalesDeedsFilesAndRelationships($) {
     );
 
     const relSalesDeed = {
-      // Sales history should reference its deed record as the relationship target.
-      from: { "/": `./${saleFilename}` },
-      to: { "/": `./${deedFilename}` },
+      from: { "/": `./${deedFilename}` },
+      to: { "/": `./${saleFilename}` },
     };
     writeJSON(
       path.join(
@@ -702,8 +701,8 @@ function writeLayout(parcelId) {
     writeJSON(path.join("data", layoutFilename), out);
     if (fs.existsSync(path.join("data", "property.json"))) {
       const rel = {
-        from: { "/": "./property.json" },
-        to: { "/": `./${layoutFilename}` },
+        from: { "/": `./${layoutFilename}` },
+        to: { "/": "./property.json" },
       };
       writeJSON(
         path.join("data", `relationship_property_has_layout_${idx + 1}.json`),
