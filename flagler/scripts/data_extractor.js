@@ -524,8 +524,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
     const relDeedHasFile = {
       type: "deed_has_file",
-      from: fileRef,
-      to: deedRef,
+      from: deedRef,
+      to: fileRef,
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
