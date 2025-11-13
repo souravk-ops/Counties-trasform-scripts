@@ -379,11 +379,13 @@ function writeProperty($, parcelId) {
 
 function writeSalesDeedsFilesAndRelationships($) {
   const sales = extractSales($);
+  const propertyFilePath = path.join("data", "property.json");
+  const hasPropertyFile = fs.existsSync(propertyFilePath);
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   try {
     fs.readdirSync("data").forEach((f) => {
       if (
-        /^relationship_(deed_has_file|deed_file|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/.test(
+        /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/.test(
           f,
         )
       ) {
@@ -405,6 +407,20 @@ function writeSalesDeedsFilesAndRelationships($) {
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
 
+    if (hasPropertyFile) {
+      const relPropertySale = {
+        from: { "/": "./property.json" },
+        to: { "/": `./${saleFilename}` },
+      };
+      writeJSON(
+        path.join(
+          "data",
+          `relationship_property_has_sales_history_${idx}.json`,
+        ),
+        relPropertySale,
+      );
+    }
+
     const deedType = mapInstrumentToDeedType(s.instrument);
     const deed = { deed_type: deedType };
     const deedFilename = `deed_${idx}.json`;
@@ -416,28 +432,16 @@ function writeSalesDeedsFilesAndRelationships($) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
-    // Link the deed record to its supporting file asset. Keep the deed on `from`
-    // so validation resolves the correct schema for each side of the relationship.
-    const relDeedFile = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
-    };
-    writeJSON(
-      path.join("data", `relationship_deed_has_file_${idx}.json`),
-      relDeedFile,
-    );
-
-    const relSalesDeed = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${saleFilename}` },
-    };
-    writeJSON(
-      path.join(
-        "data",
-        `relationship_sales_history_has_deed_${idx}.json`,
-      ),
-      relSalesDeed,
-    );
+    if (hasPropertyFile) {
+      const relPropertyFile = {
+        from: { "/": "./property.json" },
+        to: { "/": `./${fileFilename}` },
+      };
+      writeJSON(
+        path.join("data", `relationship_property_has_file_${idx}.json`),
+        relPropertyFile,
+      );
+    }
   });
 }
 let people = [];
