@@ -475,9 +475,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   ]);
 
   const processedSales = [];
-  const propertyRef = hasPropertyFile
-    ? buildRelationshipRef("property.json")
-    : null;
   let saleCounter = 0;
   sales.forEach((s, i) => {
     const transferDate = normalizeSaleDate(s.saleDate);
@@ -577,16 +574,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const deedRef = buildRelationshipRef(deedFilename);
     const fileRef = buildRelationshipRef(fileFilename);
-    if (propertyRef && fileRef) {
-      const relPropertyFile = {
-        from: wrapRelationshipEndpoint("property", propertyRef),
-        to: wrapRelationshipEndpoint("file", fileRef),
-      };
-      writeJSON(
-        path.join("data", `relationship_property_has_file_${idx}.json`),
-        relPropertyFile,
-      );
-    }
+    const relDeedFile = {
+      from: wrapRelationshipEndpoint("deed", deedRef),
+      to: wrapRelationshipEndpoint("file", fileRef),
+    };
+    writeJSON(
+      path.join("data", `relationship_deed_has_file_${idx}.json`),
+      relDeedFile,
+    );
 
     const relSaleDeed = {
       from: wrapRelationshipEndpoint("sales_history", {
