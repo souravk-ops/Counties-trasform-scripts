@@ -137,42 +137,40 @@ function getUnitsType(units) {
   return null;
 }
 
-const PROPERTY_TYPE_VALUES = new Set([
-  "Cooperative",
-  "Condominium",
-  "Modular",
-  "ManufacturedHousingMultiWide",
-  "Pud",
-  "Timeshare",
-  "2Units",
-  "DetachedCondominium",
-  "Duplex",
-  "SingleFamily",
-  "MultipleFamily",
-  "3Units",
-  "ManufacturedHousing",
-  "ManufacturedHousingSingleWide",
-  "4Units",
-  "Townhouse",
-  "NonWarrantableCondo",
-  "VacantLand",
-  "Retirement",
-  "MiscellaneousResidential",
-  "ResidentialCommonElementsAreas",
-  "MobileHome",
-  "Apartment",
-  "MultiFamilyMoreThan10",
-  "MultiFamilyLessThan10",
+const PROPERTY_TYPE_ALLOWED = new Set([
   "LandParcel",
   "Building",
   "Unit",
   "ManufacturedHome",
 ]);
+const PROPERTY_TYPE_LAND_HINTS = new Set(["LandParcel", "VacantLand"]);
+const PROPERTY_TYPE_MANUFACTURED_HINTS = new Set([
+  "ManufacturedHome",
+  "ManufacturedHousing",
+  "ManufacturedHousingSingleWide",
+  "ManufacturedHousingMultiWide",
+  "MobileHome",
+  "Modular",
+]);
+const PROPERTY_TYPE_UNIT_HINTS = new Set([
+  "Condominium",
+  "DetachedCondominium",
+  "Timeshare",
+  "Cooperative",
+  "Unit",
+  "NonWarrantableCondo",
+]);
 
 function normalizePropertyType(value) {
   if (!value) return null;
   const normalized = String(value).trim();
-  return PROPERTY_TYPE_VALUES.has(normalized) ? normalized : null;
+  if (!normalized) return null;
+  if (PROPERTY_TYPE_ALLOWED.has(normalized)) return normalized;
+  if (PROPERTY_TYPE_LAND_HINTS.has(normalized)) return "LandParcel";
+  if (PROPERTY_TYPE_MANUFACTURED_HINTS.has(normalized))
+    return "ManufacturedHome";
+  if (PROPERTY_TYPE_UNIT_HINTS.has(normalized)) return "Unit";
+  return "Building";
 }
 
 function mapInstrumentToDeedType(instrument) {
@@ -563,11 +561,6 @@ function main() {
           : null,
       subdivision: null,
       zoning: null,
-      request_identifier:
-        typeof propSeed.request_identifier === "string" &&
-        propSeed.request_identifier.trim() !== ""
-          ? propSeed.request_identifier.trim()
-          : null,
     };
 
     if (
@@ -1339,14 +1332,9 @@ function main() {
   for (let i = 0; i < saleDeedPairCount; i++) {
     const saleEntry = salesEntries[i];
     const deedEntry = deedEntries[i];
-    const fromRef = { "/": `./${saleEntry.fileName}` };
-    if (saleEntry.ownership_transfer_date)
-      fromRef.ownership_transfer_date = saleEntry.ownership_transfer_date;
-    const toRef = { "/": `./${deedEntry.fileName}` };
-    if (deedEntry.deed_type) toRef.deed_type = deedEntry.deed_type;
     const rel = {
-      from: fromRef,
-      to: toRef,
+      from: { "/": `./${saleEntry.fileName}` },
+      to: { "/": `./${deedEntry.fileName}` },
     };
     const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
@@ -1356,12 +1344,9 @@ function main() {
   if (personFiles.length > 0 && salesEntries.length > 0) {
     const recentSale = salesEntries[0];
     personFiles.forEach((pf, idx) => {
-      const fromRef = { "/": `./${recentSale.fileName}` };
-      if (recentSale.ownership_transfer_date)
-        fromRef.ownership_transfer_date = recentSale.ownership_transfer_date;
       const rel = {
         to: { "/": `./${pf}` },
-        from: fromRef,
+        from: { "/": `./${recentSale.fileName}` },
       };
       const relName = `relationship_sales_history_has_person_${idx + 1}.json`;
       writeJSON(path.join(dataDir, relName), rel);
