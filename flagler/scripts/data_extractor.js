@@ -514,17 +514,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileObj = {
       document_type: "Title",
       name: s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`,
-      request_identifier: null,
     };
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    const fileRef = wrapRelationshipEndpoint("file", {
-      "/": `./${fileFilename}`,
-    });
+    const fileRef = { "/": `./${fileFilename}` };
     const relDeedHasFile = {
       type: "deed_has_file",
-      from: deedRef,
+      from: { "/": `./${deedFilename}` },
       to: fileRef,
     };
     writeJSON(
@@ -534,8 +531,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const relSalesHistoryHasDeed = {
       type: "sales_history_has_deed",
-      from: deedRef,
-      to: saleRef,
+      from: saleRef,
+      to: deedRef,
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
@@ -787,15 +784,18 @@ function writeLayout(parcelId, context) {
   removeFilesMatchingPatterns([
     /^relationship_property_has_layout(?:_\d+)?\.json$/i,
     /^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i,
+    /^relationship_file_has_fact_sheet(?:_\d+)?\.json$/i,
     /^fact_sheet(?:_\d+)?\.json$/i,
   ]);
-  record.forEach((l, idx) => {
+  let layoutCounter = 0;
+  record.forEach((l) => {
+    const fallbackIndex = layoutCounter + 1;
     let derivedIndex =
       l.space_type_index != null && `${l.space_type_index}`.trim() !== ""
         ? `${l.space_type_index}`.trim()
-        : String(idx + 1);
+        : String(fallbackIndex);
     if (!derivedIndex) {
-      derivedIndex = String(idx + 1);
+      derivedIndex = String(fallbackIndex);
     }
     const out = {
       space_type: l.space_type ?? null,
@@ -831,8 +831,12 @@ function writeLayout(parcelId, context) {
       pool_surface_type: l.pool_surface_type ?? null,
       pool_water_quality: l.pool_water_quality ?? null,
     };
+    if (!out.space_type_index) {
+      return;
+    }
+    layoutCounter += 1;
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
-    const layoutFilename = `layout_${idx + 1}.json`;
+    const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
     if (fs.existsSync(path.join("data", "property.json"))) {
       const rel = {
@@ -843,7 +847,7 @@ function writeLayout(parcelId, context) {
         }),
       };
       writeJSON(
-        path.join("data", `relationship_property_has_layout_${idx + 1}.json`),
+        path.join("data", `relationship_property_has_layout_${layoutCounter}.json`),
         rel,
       );
     }
