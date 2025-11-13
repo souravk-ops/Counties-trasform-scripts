@@ -570,6 +570,14 @@ function main() {
           : null,
     };
 
+    if (
+      !property.property_type ||
+      typeof property.property_type !== "string" ||
+      property.property_type.trim() === ""
+    ) {
+      property.property_type = "LandParcel";
+    }
+
     Object.keys(property).forEach((k) => {
       if (property[k] === null || property[k] === undefined) {
         delete property[k];
@@ -965,17 +973,23 @@ function main() {
     const unnormalizedAddress =
       addrSeed.full_address || general.propertyLocationRaw || null;
 
-    const address = {
-      street_number: street_number || null,
-      street_name: street_name || null,
-      street_suffix_type: street_suffix_type || null,
-      city_name: city_name || null,
-      state_code: state_code || null,
-      postal_code: postal_code || null,
-      country_code: "US",
-      county_name: countyName || null,
-      unnormalized_address: unnormalizedAddress || null,
-    };
+    const address = {};
+    if (unnormalizedAddress) {
+      address.unnormalized_address = unnormalizedAddress;
+      if (countyName) address.county_name = countyName;
+      if (state_code) address.state_code = state_code;
+      if (postal_code) address.postal_code = postal_code;
+      address.country_code = "US";
+    } else {
+      address.street_number = street_number || null;
+      address.street_name = street_name || null;
+      address.street_suffix_type = street_suffix_type || null;
+      address.city_name = city_name || null;
+      address.state_code = state_code || null;
+      address.postal_code = postal_code || null;
+      address.country_code = "US";
+      if (countyName) address.county_name = countyName;
+    }
 
     Object.keys(address).forEach((key) => {
       if (address[key] === null || address[key] === undefined) {
@@ -1281,8 +1295,8 @@ function main() {
   // relationship_deed_has_file_*.json (deed -> file)
   for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
     const rel = {
-      from: { "/": `./${deedFiles[i]}` },
-      to: { "/": `./${fileFiles[i]}` },
+      from: { "/": `./${fileFiles[i]}` },
+      to: { "/": `./${deedFiles[i]}` },
     };
     const relName = `relationship_deed_has_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
@@ -1291,8 +1305,8 @@ function main() {
   // relationship_sales_history_has_deed_*.json (sale -> deed)
   for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
     const rel = {
-      from: { "/": `./${salesFiles[i]}` },
-      to: { "/": `./${deedFiles[i]}` },
+      from: { "/": `./${deedFiles[i]}` },
+      to: { "/": `./${salesFiles[i]}` },
     };
     const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
