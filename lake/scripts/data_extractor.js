@@ -57,57 +57,184 @@ function properCaseName(s) {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
+const PROPERTY_TYPE_VALUES = new Set([
+  "Cooperative",
+  "Condominium",
+  "Modular",
+  "ManufacturedHousingMultiWide",
+  "Pud",
+  "Timeshare",
+  "2Units",
+  "DetachedCondominium",
+  "Duplex",
+  "SingleFamily",
+  "MultipleFamily",
+  "3Units",
+  "ManufacturedHousing",
+  "ManufacturedHousingSingleWide",
+  "4Units",
+  "Townhouse",
+  "NonWarrantableCondo",
+  "VacantLand",
+  "Retirement",
+  "MiscellaneousResidential",
+  "ResidentialCommonElementsAreas",
+  "MobileHome",
+  "Apartment",
+  "MultiFamilyMoreThan10",
+  "MultiFamilyLessThan10",
+  "LandParcel",
+  "Building",
+  "Unit",
+  "ManufacturedHome",
+]);
+
+function sanitizePropertyType(type) {
+  if (!type) return null;
+  return PROPERTY_TYPE_VALUES.has(type) ? type : null;
+}
+
+function mapInstrumentToDeedType(instrument) {
+  if (!instrument || typeof instrument !== "string") return null;
+  const t = instrument.trim().toLowerCase();
+  if (!t) return null;
+
+  const directMap = {
+    "warranty deed": "Warranty Deed",
+    "special warranty deed": "Special Warranty Deed",
+    "quit claim deed": "Quitclaim Deed",
+    "quitclaim deed": "Quitclaim Deed",
+    "grant deed": "Grant Deed",
+    "bargain and sale deed": "Bargain and Sale Deed",
+    "lady bird deed": "Lady Bird Deed",
+    "enhanced life estate deed": "Lady Bird Deed",
+    "transfer on death deed": "Transfer on Death Deed",
+    "sheriff's deed": "Sheriff's Deed",
+    "sheriff deed": "Sheriff's Deed",
+    "tax deed": "Tax Deed",
+    "trustee's deed": "Trustee's Deed",
+    "trustee deed": "Trustee's Deed",
+    "personal representative deed": "Personal Representative Deed",
+    "correction deed": "Correction Deed",
+    "corrective deed": "Correction Deed",
+    "deed in lieu of foreclosure": "Deed in Lieu of Foreclosure",
+    "life estate deed": "Life Estate Deed",
+    "joint tenancy deed": "Joint Tenancy Deed",
+    "tenancy in common deed": "Tenancy in Common Deed",
+    "community property deed": "Community Property Deed",
+    "gift deed": "Gift Deed",
+    "interspousal transfer deed": "Interspousal Transfer Deed",
+    "wild deed": "Wild Deed",
+    "special master's deed": "Special Master’s Deed",
+    "special master deed": "Special Master’s Deed",
+    "court order deed": "Court Order Deed",
+    "contract for deed": "Contract for Deed",
+    "quiet title deed": "Quiet Title Deed",
+    "administrator's deed": "Administrator's Deed",
+    "administrator deed": "Administrator's Deed",
+    "guardian's deed": "Guardian's Deed",
+    "guardian deed": "Guardian's Deed",
+    "receiver's deed": "Receiver's Deed",
+    "receiver deed": "Receiver's Deed",
+    "right of way deed": "Right of Way Deed",
+    "vacation of plat deed": "Vacation of Plat Deed",
+    "assignment of contract": "Assignment of Contract",
+    "release of contract": "Release of Contract",
+  };
+
+  if (directMap[t]) return directMap[t];
+
+  if (t.includes("warranty")) return "Warranty Deed";
+  if (t.includes("quit")) return "Quitclaim Deed";
+  if (t.includes("grant")) return "Grant Deed";
+  if (t.includes("bargain") && t.includes("sale"))
+    return "Bargain and Sale Deed";
+  if (t.includes("lady bird") || t.includes("enhanced life estate"))
+    return "Lady Bird Deed";
+  if (t.includes("transfer on death") || /\btod\b/.test(t))
+    return "Transfer on Death Deed";
+  if (t.includes("sheriff")) return "Sheriff's Deed";
+  if (t.includes("tax") && t.includes("deed")) return "Tax Deed";
+  if (t.includes("trustee")) return "Trustee's Deed";
+  if (t.includes("personal representative")) return "Personal Representative Deed";
+  if (t.includes("correction")) return "Correction Deed";
+  if (t.includes("lieu")) return "Deed in Lieu of Foreclosure";
+  if (t.includes("life estate")) return "Life Estate Deed";
+  if (t.includes("joint tenancy")) return "Joint Tenancy Deed";
+  if (t.includes("tenancy in common")) return "Tenancy in Common Deed";
+  if (t.includes("community property")) return "Community Property Deed";
+  if (t.includes("gift")) return "Gift Deed";
+  if (t.includes("interspousal")) return "Interspousal Transfer Deed";
+  if (t.includes("wild")) return "Wild Deed";
+  if (t.includes("special master")) return "Special Master’s Deed";
+  if (t.includes("court order")) return "Court Order Deed";
+  if (t.includes("contract for deed") || t.includes("land contract"))
+    return "Contract for Deed";
+  if (t.includes("quiet title")) return "Quiet Title Deed";
+  if (t.includes("administrator")) return "Administrator's Deed";
+  if (t.includes("guardian")) return "Guardian's Deed";
+  if (t.includes("receiver")) return "Receiver's Deed";
+  if (t.includes("right of way") || /\brow\b/.test(t))
+    return "Right of Way Deed";
+  if (t.includes("vacation of plat")) return "Vacation of Plat Deed";
+  if (t.includes("assignment")) return "Assignment of Contract";
+  if (t.includes("release")) return "Release of Contract";
+
+  return null;
+}
+
 function mapLandUseToPropertyType(landUseDescription) {
   if (!landUseDescription) return null;
 
   const desc = landUseDescription.toUpperCase();
+  const has = (needle) => desc.includes(needle);
 
-  // Map Lake County land use codes to property types
-  if (desc.includes("VACANT RESIDENTIAL")) return "VacantLand";
-  if (desc.includes("SINGLE FAMILY")) return "SingleFamily";
-  if (
-    desc.includes("MANUFACTURED HOME SUB") ||
-    desc.includes("MANUFACTURED SUB")
-  )
-    return "ManufacturedHousing";
-  if (desc.includes("MANUFACTURED HOME") && !desc.includes("SUB"))
-    return "MobileHome";
-  if (desc.includes("MULTI FAMILY >9") || desc.includes("MULTI FAMILY >=10"))
-    return "MultipleFamily";
-  if (
-    desc.includes("MULTI FAMILY <5") ||
-    desc.includes("MULTI FAMILY >4 AND <10") ||
-    desc.includes("MULTI FAMILY <=9")
-  )
-    return "TwoToFourFamily";
-  if (desc.includes("CONDOMINIUM") || desc.includes("CONDO"))
-    return "Condominium";
-  if (desc.includes("CO-OP")) return "Cooperative";
-  if (desc.includes("RETIREMENT HOME")) return "Retirement";
-  if (desc.includes("MISC RESIDENTIAL") || desc.includes("MIGRANT"))
-    return "MiscellaneousResidential";
-  if (desc.includes("TIMESHARE")) return "Timeshare";
-  if (desc.includes("TOWNHOUSE")) return "Townhouse";
-  if (desc.includes("DUPLEX")) return "Duplex";
-  if (desc.includes("PUD")) return "Pud";
-  if (desc.includes("MOBILE HOME")) return "MobileHome";
-  if (
-    desc.includes("RESIDENTIAL COMMON ELEMENTS") ||
-    desc.includes("COMMON ELEMENTS")
-  )
-    return "ResidentialCommonElementsAreas";
+  if (has("VACANT")) return "VacantLand";
+
+  if (has("RESIDENTIAL COMMON ELEMENT")) return "ResidentialCommonElementsAreas";
+  if (has("MISC RESIDENTIAL") || has("MIGRANT")) return "MiscellaneousResidential";
+
+  if (has("RETIREMENT")) return "Retirement";
+  if (has("TIMESHARE")) return "Timeshare";
+  if (has("PUD")) return "Pud";
+
+  if (has("CO-OP") || has("COOPERATIVE")) return "Cooperative";
+  if (has("DETACHED CONDO")) return "DetachedCondominium";
+  if (has("NON WARRANTABLE")) return "NonWarrantableCondo";
+  if (has("CONDOMINIUM") || has("CONDO")) return "Condominium";
+
+  if (has("TOWNHOUSE")) return "Townhouse";
+  if (has("APARTMENT")) return "Apartment";
+
+  if (has("SINGLE FAMILY")) return "SingleFamily";
+
+  if (has("DUPLEX")) return "Duplex";
+  if (/\b2\s*(FAMILY|UNIT)\b/.test(desc)) return "2Units";
+  if (/TRIPLEX|\b3\s*(FAMILY|UNIT)\b/.test(desc)) return "3Units";
+  if (/QUAD|FOURPLEX|\b4\s*(FAMILY|UNIT)\b/.test(desc)) return "4Units";
+
+  if (has("MULTI FAMILY >9") || has("MULTI FAMILY >=10") || has("MULTI FAMILY 10")) {
+    return "MultiFamilyMoreThan10";
+  }
+  if (has("MULTI FAMILY <5") || has("MULTI FAMILY <=9") || has("MULTI FAMILY >4 AND <10")) {
+    return "MultiFamilyLessThan10";
+  }
+  if (has("MULTI FAMILY")) return "MultipleFamily";
+
+  if (has("MANUFACTURED HOUSING MULTI")) return "ManufacturedHousingMultiWide";
+  if (has("MANUFACTURED HOUSING SINGLE")) return "ManufacturedHousingSingleWide";
+  if (has("MANUFACTURED HOUSING")) return "ManufacturedHousing";
+  if (has("MANUFACTURED HOME")) return "ManufacturedHome";
+
+  if (has("MOBILE HOME")) return "MobileHome";
+
+  if (has("MODULAR")) return "Modular";
+
+  if (/\bLAND\b/.test(desc)) return "LandParcel";
+  if (/\bBUILDING\b/.test(desc)) return "Building";
+  if (/\bUNIT\b/.test(desc)) return "Unit";
 
   // Default to null for non-residential or unrecognized codes
-  return null;
-}
-
-function getUnitsType(units) {
-  if (!units || units === 1) return "One";
-  if (units === 2) return "Two";
-  if (units === 3) return "Three";
-  if (units === 4) return "Four";
-  if (units >= 2 && units <= 4) return "TwoToFour";
-  if (units >= 1 && units <= 4) return "OneToFour";
   return null;
 }
 
@@ -319,7 +446,6 @@ function main() {
       if (tds.length < 6) return;
       const bookPageLink = $(tds[0]).find("a");
       const bookPageText = bookPageLink.text().trim(); // e.g., "3072 / 319"
-      const docUrl = bookPageLink.attr("href") || null;
       const saleDateRaw = $(tds[1]).text().trim(); // mm/dd/yyyy
       const instrument = $(tds[2]).text().trim();
       const salePriceRaw = $(tds[5]).text().trim();
@@ -331,18 +457,19 @@ function main() {
 
       out.sales.push(sale);
 
-      const deed = { deed_type: instrument || null };
+      const deedType = mapInstrumentToDeedType(instrument) || (instrument ? "Miscellaneous" : null);
+      const deed = {};
+      if (deedType) deed.deed_type = deedType;
       out.deeds.push(deed);
 
-      const fileObj = {
-        document_type: /Warranty Deed/i.test(instrument)
-          ? "ConveyanceDeedWarrantyDeed"
-          : null,
-        file_format: null,
-        ipfs_url: null,
-        name: bookPageText ? `Official Records ${bookPageText}` : null,
-        original_url: docUrl || null,
-      };
+      const fileObj = {};
+      if (bookPageText) {
+        fileObj.name = `Official Records ${bookPageText}`;
+      } else if (instrument) {
+        fileObj.name = `${instrument} Document`;
+      } else {
+        fileObj.name = "Recorded Document";
+      }
       out.files.push(fileObj);
     });
 
@@ -402,25 +529,22 @@ function main() {
 
   function buildPropertyJson() {
     const propertyInfo = extractPropertyTypeFromLandData();
+    const propertyType = sanitizePropertyType(propertyInfo.propertyType);
 
     const property = {
       parcel_identifier: general.parcelNumber || propSeed.parcel_id || null,
       property_structure_built_year: bx.yearBuilt || null,
       livable_floor_area: bx.livingArea ? String(bx.livingArea) : null,
       property_legal_description_text: general.legalDescription || null,
-      property_type: propertyInfo.propertyType, // Now extracted from Land Data
-      number_of_units_type: getUnitsType(propertyInfo.units), // Dynamic based on extracted units
-      number_of_units: propertyInfo.units || 1, // Default to 1 if not found
-      area_under_air: null,
-      property_effective_built_year: null,
-      subdivision: null,
-      total_area: null,
-      zoning: null,
     };
 
-    // Remove undefined properties
+    if (propertyType) property.property_type = propertyType;
+    if (Number.isFinite(propertyInfo.units)) {
+      property.number_of_units = propertyInfo.units;
+    }
+
     Object.keys(property).forEach((k) => {
-      if (property[k] === undefined) delete property[k];
+      if (property[k] == null) delete property[k];
     });
 
     return property;
@@ -432,10 +556,15 @@ function main() {
 
   // Address parsing
   function parseAddress() {
-    let raw = (general.propertyLocationRaw || addrSeed.full_address || "")
-      .replace(/\r/g, "")
-      .trim();
-    raw = raw.replace(/\n/g, ", ").replace(/\s+/g, " ").trim();
+    const seedAddress =
+      addrSeed && addrSeed.full_address
+        ? addrSeed.full_address.trim()
+        : null;
+    const locationRaw = general.propertyLocationRaw
+      ? general.propertyLocationRaw.replace(/\r/g, "").replace(/\n/g, ", ")
+      : null;
+    let raw = (seedAddress || locationRaw || "").trim();
+    raw = raw.replace(/\s+/g, " ").trim();
 
     let street_number = null,
       street_name = null,
@@ -809,30 +938,31 @@ function main() {
     }
 
     const countyName = addrSeed.county_jurisdiction || null;
+    const requestIdentifier = addrSeed.request_identifier || null;
+    const unnormalizedAddress =
+      seedAddress ||
+      (general.propertyLocationRaw
+        ? general.propertyLocationRaw.replace(/\r/g, "").replace(/\n/g, ", ").trim()
+        : null);
 
-    return {
+    const address = {
       street_number: street_number || null,
       street_name: street_name || null,
       street_suffix_type: street_suffix_type || null,
-      street_pre_directional_text: null,
-      street_post_directional_text: null,
       city_name: city_name || null,
-      municipality_name: null,
       state_code: state_code || null,
       postal_code: postal_code || null,
-      plus_four_postal_code: null,
-      country_code: "US",
+      country_code: unnormalizedAddress ? "US" : null,
       county_name: countyName || null,
-      unit_identifier: null,
-      latitude: null,
-      longitude: null,
-      route_number: null,
-      township: null,
-      range: null,
-      section: null,
-      block: null,
-      lot: null,
+      unnormalized_address: unnormalizedAddress || null,
+      request_identifier: requestIdentifier || null,
     };
+
+    Object.keys(address).forEach((key) => {
+      if (address[key] == null) delete address[key];
+    });
+
+    return address;
   }
 
   const addr = parseAddress();
