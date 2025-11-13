@@ -39,6 +39,11 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
 }
 
+function buildRelationshipRef(filename) {
+  if (!filename) return null;
+  return { "/": `./${filename}` };
+}
+
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const s = String(txt).trim();
@@ -426,22 +431,33 @@ function writeSalesDeedsFilesAndRelationships($) {
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deed);
 
-    const file = {
-      document_type: null,
-      file_format: null,
-      name: s.bookPage ? `Deed ${s.bookPage}` : "Deed Document",
-    };
+    const file = {};
+    if (s.fileFormat && typeof s.fileFormat === "string") {
+      const fmt = s.fileFormat.trim().toLowerCase();
+      if (fmt === "jpeg" || fmt === "png" || fmt === "txt") {
+        file.file_format = fmt;
+      }
+    }
+    const deedFileName =
+      s.bookPage && s.bookPage.trim()
+        ? `Deed ${s.bookPage.trim()}`
+        : "Deed Document";
+    file.name = deedFileName;
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), file);
 
-    const relDeedFile = {
-      from: { "/": `./${deedFilename}` },
-      to: { "/": `./${fileFilename}` },
-    };
-    writeJSON(
-      path.join("data", `relationship_deed_has_file_${idx}.json`),
-      relDeedFile,
-    );
+    const deedRef = buildRelationshipRef(deedFilename);
+    const fileRef = buildRelationshipRef(fileFilename);
+    if (deedRef && fileRef) {
+      const relDeedFile = {
+        from: deedRef,
+        to: fileRef,
+      };
+      writeJSON(
+        path.join("data", `relationship_deed_has_file_${idx}.json`),
+        relDeedFile,
+      );
+    }
 
     const relSaleDeed = {
       from: { "/": `./${saleFilename}` },
