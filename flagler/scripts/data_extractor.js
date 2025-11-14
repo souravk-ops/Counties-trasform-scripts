@@ -78,21 +78,38 @@ function createRef(refLike) {
 
 function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
-  if (!pointer) return null;
+  if (!pointer) {
+    return null;
+  }
+  const buildPathPointer = (value) => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const normalized = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+    return { "/": normalized };
+  };
   if (typeof pointer === "string") {
     const trimmed = pointer.trim();
-    return trimmed ? trimmed : null;
+    if (!trimmed) return null;
+    if (/^cid:/i.test(trimmed)) {
+      const cidValue = trimmed.slice(4).trim();
+      return cidValue ? { cid: cidValue } : null;
+    }
+    if (/^(?:baf)/i.test(trimmed)) {
+      return { cid: trimmed };
+    }
+    return buildPathPointer(trimmed);
   }
   if (typeof pointer === "object") {
+    if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+      const cidVal = pointer.cid.trim().replace(/^cid:/i, "").trim();
+      return cidVal ? { cid: cidVal } : null;
+    }
     if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-      return pointer["/"].trim();
+      return buildPathPointer(pointer["/"]);
     }
     if (typeof pointer.path === "string" && pointer.path.trim()) {
-      return createRelationshipPointer(pointer.path.trim());
-    }
-    if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-      const cidVal = pointer.cid.trim();
-      return cidVal ? (cidVal.toLowerCase().startsWith("cid:") ? cidVal : `cid:${cidVal}`) : null;
+      return buildPathPointer(pointer.path);
     }
     return null;
   }
