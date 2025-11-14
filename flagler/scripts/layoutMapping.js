@@ -28,25 +28,32 @@ function getParcelId($) {
 
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
+  if (typeof ref === "object") {
+    if (typeof ref["/"] === "string" && ref["/"].trim()) {
+      return { "/": ref["/"].trim() };
+    }
+    if (typeof ref.cid === "string" && ref.cid.trim()) {
+      const cidVal = ref.cid.trim();
+      const normalized = cidVal.replace(/^cid:/i, "").trim();
+      return normalized ? { cid: normalized } : { cid: cidVal };
+    }
+    if (typeof ref.path === "string" && ref.path.trim()) {
+      return { "/": ref.path.trim() };
+    }
+    return null;
+  }
   if (typeof ref === "string") {
     const trimmed = ref.trim();
     if (!trimmed) return null;
-    if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
-    return trimmed;
-  }
-  if (typeof ref === "object") {
-    if (typeof ref["/"] === "string") {
-      const val = ref["/"].trim();
-      return val || null;
+    if (/^cid:/i.test(trimmed)) {
+      const cidValue = trimmed.slice(4).trim();
+      return cidValue ? { cid: cidValue } : null;
     }
-    if (typeof ref.cid === "string") {
-      const cid = ref.cid.trim();
-      return cid || null;
+    if (/^(?:baf)/i.test(trimmed)) {
+      return { cid: trimmed };
     }
-    if (typeof ref.path === "string") {
-      const val = ref.path.trim();
-      return val || null;
-    }
+    const withPrefix = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+    return { "/": withPrefix };
   }
   return null;
 }
