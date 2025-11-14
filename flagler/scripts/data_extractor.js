@@ -617,11 +617,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (deedRef && fileRef) {
       const relDeedHasFile = {
         type: "deed_has_file",
-        // Downstream validation materializes nodes by swapping `from`/`to`.
-        // Emit the file pointer on `from` so the deed ends up on the `from`
-        // side after aggregation and the file on `to`.
-        from: fileRef,
-        to: deedRef,
+        // Schema expects the deed node on `from` and the file node on `to`.
+        from: deedRef,
+        to: fileRef,
       };
       writeJSON(
         path.join("data", `relationship_deed_has_file_${idx}.json`),
