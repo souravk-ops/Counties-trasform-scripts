@@ -190,25 +190,9 @@ function main() {
   } catch (err) {}
 
   const propertyPath = path.join(dataDir, "property.json");
-  let propertyRelationshipFrom;
-  if (fs.existsSync(propertyPath)) {
-    let propertyData = {};
-    try {
-      propertyData = JSON.parse(fs.readFileSync(propertyPath, "utf8"));
-    } catch (err) {
-      propertyData = {};
-    }
-    propertyRelationshipFrom = {
-      class: "property",
-      "/": "./property.json",
-      ...propertyData,
-    };
-  } else {
-    propertyRelationshipFrom = {
-      class: "property",
-      parcel_identifier: parcelId || null,
-    };
-  }
+  const propertyRelationshipFrom = fs.existsSync(propertyPath)
+    ? "./property.json"
+    : null;
 
   layouts.forEach((layout, index) => {
     const layoutIdx = index + 1;
@@ -219,23 +203,21 @@ function main() {
       "utf8",
     );
 
-    const rel = {
-      type: "property_has_layout",
-      from: JSON.parse(JSON.stringify(propertyRelationshipFrom)),
-      to: {
-        class: "layout",
-        "/": `./${layoutFile}`,
-        ...JSON.parse(JSON.stringify(layout)),
-      },
-    };
-    fs.writeFileSync(
-      path.join(
-        dataDir,
-        `relationship_property_has_layout_${layoutIdx}.json`,
-      ),
-      JSON.stringify(rel, null, 2),
-      "utf8",
-    );
+    if (propertyRelationshipFrom) {
+      const rel = {
+        type: "property_has_layout",
+        from: propertyRelationshipFrom,
+        to: `./${layoutFile}`,
+      };
+      fs.writeFileSync(
+        path.join(
+          dataDir,
+          `relationship_property_has_layout_${layoutIdx}.json`,
+        ),
+        JSON.stringify(rel, null, 2),
+        "utf8",
+      );
+    }
   });
 }
 
