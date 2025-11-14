@@ -81,21 +81,20 @@ function wrapRelationshipEndpoint(_classKey, ref) {
   if (typeof ref === "string") {
     const trimmed = ref.trim();
     if (!trimmed) return null;
-    if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
-    return { "/": trimmed };
+    return trimmed;
   }
   if (typeof ref === "object") {
-    if (ref["/"]) {
-      const val = String(ref["/"]).trim();
-      return val ? { "/": val } : null;
-    }
     if (ref.cid) {
       const cid = String(ref.cid).trim();
       return cid ? cid : null;
     }
+    if (ref["/"]) {
+      const val = String(ref["/"]).trim();
+      return val ? val : null;
+    }
     if (ref.path) {
       const val = String(ref.path).trim();
-      return val ? { "/": val } : null;
+      return val ? val : null;
     }
   }
   return null;
@@ -487,7 +486,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
-    const saleRef = { "/": `./${saleFilename}` };
+    const saleRef = wrapRelationshipEndpoint(
+      "sales_history",
+      `./${saleFilename}`,
+    );
     processedSales.push({
       source: s,
       idx,
