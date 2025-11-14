@@ -677,6 +677,9 @@ function main() {
       .trim();
     raw = raw.replace(/\n/g, ", ").replace(/\s+/g, " ").trim();
 
+    const unnormalizedAddress =
+      raw && raw.trim().length > 0 ? raw.trim() : null;
+
     let street_number = null,
       street_name = null,
       street_suffix_type = null,
@@ -1044,13 +1047,11 @@ function main() {
       XRDS: "Xrds",
     };
     if (street_suffix_type) {
-      const key = street_suffix_type.toUpperCase();
-      if (suffixMap[key]) street_suffix_type = suffixMap[key];
+      const key = street_suffix_type.toUpperCase().replace(/\./g, "");
+      street_suffix_type = suffixMap[key] || null;
     }
 
     const countyName = addrSeed.county_jurisdiction || null;
-    const unnormalizedAddress =
-      addrSeed.full_address || general.propertyLocationRaw || null;
 
     const address = {};
     if (
@@ -1060,10 +1061,6 @@ function main() {
     ) {
       address.unnormalized_address = unnormalizedAddress.trim();
       if (countyName) address.county_name = countyName;
-      if (addrSeed && typeof addrSeed.latitude === "number")
-        address.latitude = addrSeed.latitude;
-      if (addrSeed && typeof addrSeed.longitude === "number")
-        address.longitude = addrSeed.longitude;
       address.country_code = "US";
     } else {
       address.street_number = street_number || null;
