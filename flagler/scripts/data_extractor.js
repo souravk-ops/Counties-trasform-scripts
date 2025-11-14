@@ -526,6 +526,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
+    const deedRef = wrapRelationshipEndpoint("deed", `./${deedFilename}`);
 
     const fileObj = {
       document_type: "Title",
@@ -550,6 +551,26 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         relPropertyFile,
       );
     }
+
+    const relSalesToDeed = {
+      type: "sales_history_has_deed",
+      from: saleRef,
+      to: deedRef,
+    };
+    writeJSON(
+      path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
+      relSalesToDeed,
+    );
+
+    const relDeedToFile = {
+      type: "deed_has_file",
+      from: deedRef,
+      to: fileRef,
+    };
+    writeJSON(
+      path.join("data", `relationship_deed_has_file_${idx}.json`),
+      relDeedToFile,
+    );
 
   });
   return processedSales;
@@ -788,16 +809,17 @@ function writeLayout(parcelId, context) {
   let layoutCounter = 0;
   record.forEach((l) => {
     const fallbackIndex = layoutCounter + 1;
-    let derivedIndex =
+    const rawIndex =
       l.space_type_index != null && `${l.space_type_index}`.trim() !== ""
         ? `${l.space_type_index}`.trim()
         : String(fallbackIndex);
-    if (!derivedIndex) {
-      derivedIndex = String(fallbackIndex);
-    }
+    const normalizedIndex =
+      rawIndex != null && `${rawIndex}`.trim() !== ""
+        ? `${rawIndex}`.trim()
+        : null;
     const out = {
       space_type: l.space_type ?? null,
-      space_type_index: derivedIndex,
+      space_type_index: normalizedIndex,
       flooring_material_type: l.flooring_material_type ?? null,
       size_square_feet: l.size_square_feet ?? null,
       floor_level: l.floor_level ?? null,
