@@ -568,6 +568,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
+    if (deedRef && fileRef) {
+      const relDeedFile = {
+        type: "deed_has_file",
+        from: deedRef,
+        to: fileRef,
+      };
+      writeJSON(
+        path.join("data", `relationship_deed_has_file_${idx}.json`),
+        relDeedFile,
+      );
+    }
     if (deedRef && saleRef) {
       const relSalesDeed = {
         type: "sales_history_has_deed",
