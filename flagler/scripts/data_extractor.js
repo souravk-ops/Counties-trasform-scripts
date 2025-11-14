@@ -53,10 +53,27 @@ function attachSourceHttpRequest(target, request) {
   target.source_http_request = cloneDeep(request);
 }
 
-function createRef(filename) {
-  if (!filename) return null;
-  const normalized = filename.startsWith("./") ? filename : `./${filename}`;
-  return { "/": normalized };
+function createRef(refLike) {
+  if (!refLike) return null;
+  if (typeof refLike === "string") {
+    const trimmed = refLike.trim();
+    if (!trimmed) return null;
+    if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
+    return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+  }
+  if (typeof refLike === "object") {
+    if (typeof refLike["/"] === "string") {
+      return createRef(refLike["/"]);
+    }
+    if (typeof refLike.cid === "string") {
+      const cid = refLike.cid.trim();
+      return cid || null;
+    }
+    if (typeof refLike.path === "string") {
+      return createRef(refLike.path);
+    }
+  }
+  return null;
 }
 
 function normalizeSaleDate(value) {
