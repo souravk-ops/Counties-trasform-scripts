@@ -604,19 +604,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     }
 
     const deedRef = createRelationshipPointer(deedPointer);
-    const fileRef = createRelationshipPointer(filePointer);
-    if (deedRef && fileRef) {
-      const relDeedHasFile = {
-        type: "deed_has_file",
-        // Schema expects the deed node on `from` and the file node on `to`.
-        from: deedRef,
-        to: fileRef,
-      };
-      writeJSON(
-        path.join("data", `relationship_deed_has_file_${idx}.json`),
-        relDeedHasFile,
-      );
-    }
 
     const saleRef = createRelationshipPointer(salePointer);
     if (saleRef && deedRef) {
