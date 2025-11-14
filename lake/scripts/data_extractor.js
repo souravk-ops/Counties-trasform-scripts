@@ -21,6 +21,32 @@ try {
   cheerio = null;
 }
 
+const FILE_ALLOWED_KEYS = new Set(["name"]);
+const DEED_ALLOWED_KEYS = new Set([
+  "deed_type",
+  "book",
+  "page",
+  "instrument_number",
+  "volume",
+]);
+const SALES_HISTORY_ALLOWED_KEYS = new Set([
+  "ownership_transfer_date",
+  "purchase_price_amount",
+]);
+
+function pickAllowed(source, allowedKeys) {
+  const result = {};
+  for (const key of allowedKeys) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = source[key];
+      if (value !== undefined && value !== null) {
+        result[key] = value;
+      }
+    }
+  }
+  return result;
+}
+
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
@@ -138,6 +164,31 @@ function getUnitsType(units) {
 }
 
 const PROPERTY_TYPE_ALLOWED = new Set([
+  "Cooperative",
+  "Condominium",
+  "Modular",
+  "ManufacturedHousingMultiWide",
+  "Pud",
+  "Timeshare",
+  "2Units",
+  "DetachedCondominium",
+  "Duplex",
+  "SingleFamily",
+  "MultipleFamily",
+  "3Units",
+  "ManufacturedHousing",
+  "ManufacturedHousingSingleWide",
+  "4Units",
+  "Townhouse",
+  "NonWarrantableCondo",
+  "VacantLand",
+  "Retirement",
+  "MiscellaneousResidential",
+  "ResidentialCommonElementsAreas",
+  "MobileHome",
+  "Apartment",
+  "MultiFamilyMoreThan10",
+  "MultiFamilyLessThan10",
   "LandParcel",
   "Building",
   "Unit",
@@ -212,15 +263,62 @@ function mapInstrumentToDeedType(instrument) {
 
 function buildFilePayload(rawFile, idx) {
   const file = rawFile && typeof rawFile === "object" ? rawFile : {};
-  const name =
+  const nameCandidate =
     typeof file.name === "string" && file.name.trim().length > 0
       ? file.name.trim()
       : null;
-
-  // The downstream process populates canonical URs, so avoid emitting stubs here.
-  return {
-    name: name || `Recorded Deed ${idx}`,
+  const candidate = {
+    name: nameCandidate || `Recorded Deed ${idx}`,
   };
+  return pickAllowed(candidate, FILE_ALLOWED_KEYS);
+}
+
+function buildDeedPayload(raw) {
+  const deed = raw && typeof raw === "object" ? raw : {};
+  const cleaned = {
+    deed_type:
+      typeof deed.deed_type === "string" && deed.deed_type.trim()
+        ? deed.deed_type.trim()
+        : undefined,
+    book:
+      typeof deed.book === "string" && deed.book.trim()
+        ? deed.book.trim()
+        : undefined,
+    page:
+      typeof deed.page === "string" && deed.page.trim()
+        ? deed.page.trim()
+        : undefined,
+    instrument_number:
+      typeof deed.instrument_number === "string" &&
+      deed.instrument_number.trim()
+        ? deed.instrument_number.trim()
+        : undefined,
+    volume:
+      typeof deed.volume === "string" && deed.volume.trim()
+        ? deed.volume.trim()
+        : undefined,
+  };
+  return pickAllowed(cleaned, DEED_ALLOWED_KEYS);
+}
+
+function buildSalesHistoryPayload(raw) {
+  const sale = raw && typeof raw === "object" ? raw : {};
+  const ownershipDate =
+    typeof sale.ownership_transfer_date === "string"
+      ? sale.ownership_transfer_date.trim()
+      : sale.ownership_transfer_date != null
+        ? String(sale.ownership_transfer_date).trim()
+        : "";
+  const amount =
+    typeof sale.purchase_price_amount === "number" &&
+    Number.isFinite(sale.purchase_price_amount)
+      ? Number(sale.purchase_price_amount)
+      : undefined;
+  const cleaned = {
+    ownership_transfer_date: ownershipDate || undefined,
+    purchase_price_amount: amount,
+  };
+  return pickAllowed(cleaned, SALES_HISTORY_ALLOWED_KEYS);
 }
 
 function main() {
@@ -1220,33 +1318,20 @@ function main() {
   const deedEntries = [];
   const fileEntries = [];
   bx.sales.forEach((s, i) => {
-    if (!s || !s.ownership_transfer_date) return;
+    const saleObj = buildSalesHistoryPayload(s);
+    if (!saleObj.ownership_transfer_date) return;
     const idx = i + 1;
     const sName = `sales_history_${idx}.json`;
-    const ownershipDate =
-      typeof s.ownership_transfer_date === "string"
-        ? s.ownership_transfer_date
-        : String(s.ownership_transfer_date);
-    const saleObj = {
-      ownership_transfer_date: ownershipDate,
-    };
-    if (s.purchase_price_amount != null)
-      saleObj.purchase_price_amount = s.purchase_price_amount;
     writeJSON(path.join(dataDir, sName), saleObj);
     salesEntries.push({
       fileName: sName,
-      ownership_transfer_date: ownershipDate,
+      ownership_transfer_date: saleObj.ownership_transfer_date,
     });
   });
   bx.deeds.forEach((d, i) => {
+    const deedObj = buildDeedPayload(d);
     const idx = i + 1;
     const dName = `deed_${idx}.json`;
-    const deedObj = {};
-    if (d.deed_type) deedObj.deed_type = d.deed_type;
-    if (d.book) deedObj.book = d.book;
-    if (d.page) deedObj.page = d.page;
-    if (d.instrument_number) deedObj.instrument_number = d.instrument_number;
-    if (d.volume) deedObj.volume = d.volume;
     writeJSON(path.join(dataDir, dName), deedObj);
     deedEntries.push({
       fileName: dName,
