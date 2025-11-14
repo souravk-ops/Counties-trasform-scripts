@@ -1104,7 +1104,7 @@ function main() {
 
   const makeRef = (fileName) => {
     const target = fileName.startsWith("./") ? fileName : `./${fileName}`;
-    return { "/": target };
+    return target;
   };
 
   const makePropertyRef = () => makeRef("property.json");
@@ -1360,6 +1360,16 @@ function main() {
       },
     );
   });
+  const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
+  for (let i = 0; i < deedFilePairCount; i++) {
+    writeJSON(
+      path.join(dataDir, `relationship_deed_has_file_${i + 1}.json`),
+      {
+        from: makeRef(deedEntries[i].fileName),
+        to: makeRef(fileEntries[i].fileName),
+      },
+    );
+  }
   layoutFiles.forEach((layoutEntry, idx) => {
     writeJSON(
       path.join(dataDir, `relationship_property_has_layout_${idx + 1}.json`),
