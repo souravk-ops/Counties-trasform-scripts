@@ -1360,14 +1360,6 @@ function main() {
       },
     );
   });
-  const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
-  for (let i = 0; i < deedFilePairCount; i++) {
-    const deedRef = makeRef(deedEntries[i].fileName);
-    const fileRef = makeRef(fileEntries[i].fileName);
-    const rel = { from: deedRef, to: fileRef };
-    const relName = `relationship_deed_has_file_${i + 1}.json`;
-    writeJSON(path.join(dataDir, relName), rel);
-  }
   layoutFiles.forEach((layoutEntry, idx) => {
     writeJSON(
       path.join(dataDir, `relationship_property_has_layout_${idx + 1}.json`),
