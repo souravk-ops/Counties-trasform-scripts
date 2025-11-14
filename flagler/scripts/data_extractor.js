@@ -107,6 +107,25 @@ function createRelationshipPointer(refLike) {
   return { "/": trimmed.startsWith("./") ? trimmed : `./${trimmed}` };
 }
 
+function writeRelationship(type, fromRefLike, toRefLike, suffix) {
+  const fromRef = createRelationshipPointer(fromRefLike);
+  const toRef = createRelationshipPointer(toRefLike);
+  if (!fromRef || !toRef) return;
+  const relationship = {
+    type,
+    from: fromRef,
+    to: toRef,
+  };
+  const suffixPortion =
+    suffix === undefined || suffix === null || suffix === ""
+      ? ""
+      : `_${suffix}`;
+  writeJSON(
+    path.join("data", `relationship_${type}${suffixPortion}.json`),
+    relationship,
+  );
+}
+
 function normalizeSaleDate(value) {
   const iso = parseDateToISO(value);
   if (iso) return iso;
@@ -530,22 +549,12 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleNode: saleObj,
     });
     if (hasPropertyFile && context && context.propertyFile && saleRef) {
-      const fromRef = createRelationshipPointer(context.propertyFile);
-      const toRef = saleRef;
-      if (fromRef && toRef) {
-        const relPropertySale = {
-          type: "property_has_sales_history",
-          from: fromRef,
-          to: toRef,
-        };
-        writeJSON(
-          path.join(
-            "data",
-            `relationship_property_has_sales_history_${idx}.json`,
-          ),
-          relPropertySale,
-        );
-      }
+      writeRelationship(
+        "property_has_sales_history",
+        context.propertyFile,
+        saleRef,
+        idx,
+      );
     }
 
     const deedType = mapInstrumentToDeedType(s.instrument);
@@ -569,40 +578,13 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
     if (deedRef && fileRef) {
-      const relDeedFile = {
-        type: "deed_has_file",
-        from: deedRef,
-        to: fileRef,
-      };
-      writeJSON(
-        path.join("data", `relationship_deed_has_file_${idx}.json`),
-        relDeedFile,
-      );
+      writeRelationship("deed_has_file", deedRef, fileRef, idx);
     }
     if (deedRef && saleRef) {
-      const relSalesDeed = {
-        type: "sales_history_has_deed",
-        from: saleRef,
-        to: deedRef,
-      };
-      writeJSON(
-        path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
-        relSalesDeed,
-      );
+      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx);
     }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
-      const fromRef = createRelationshipPointer(context.propertyFile);
-      if (fromRef) {
-        const relPropertyFile = {
-          type: "property_has_file",
-          from: fromRef,
-          to: fileRef,
-        };
-        writeJSON(
-          path.join("data", `relationship_property_has_file_${idx}.json`),
-          relPropertyFile,
-        );
-      }
+      writeRelationship("property_has_file", context.propertyFile, fileRef, idx);
     }
 
   });
@@ -898,22 +880,12 @@ function writeLayout(parcelId, context) {
       context &&
       context.propertyFile
     ) {
-      const propertyRef = createRelationshipPointer(context.propertyFile);
-      const layoutRef = createRelationshipPointer(layoutFilename);
-      if (propertyRef && layoutRef) {
-        const rel = {
-          type: "property_has_layout",
-          from: propertyRef,
-          to: layoutRef,
-        };
-        writeJSON(
-          path.join(
-            "data",
-            `relationship_property_has_layout_${layoutCounter}.json`,
-          ),
-          rel,
-        );
-      }
+      writeRelationship(
+        "property_has_layout",
+        context.propertyFile,
+        layoutFilename,
+        layoutCounter,
+      );
     }
   });
 }
