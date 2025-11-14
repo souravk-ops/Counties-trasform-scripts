@@ -85,19 +85,45 @@ function wrapRelationshipEndpoint(_classKey, ref) {
     return trimmed === "" ? null : trimmed;
   };
 
+  const buildRef = (key, value) => {
+    const normalized = normalizeRefString(value);
+    if (!normalized) return null;
+    const targetKey = key === "path" ? "/" : key;
+    return { [targetKey]: normalized };
+  };
+
   if (typeof ref === "string") {
-    return normalizeRefString(ref);
+    return buildRef("/", ref);
   }
 
   if (typeof ref === "object") {
-    if (Object.prototype.hasOwnProperty.call(ref, "cid")) {
-      return normalizeRefString(ref.cid);
+    const priorityKeys = ["cid", "id", "/", "path"];
+    for (const key of priorityKeys) {
+      if (Object.prototype.hasOwnProperty.call(ref, key)) {
+        const built = buildRef(key, ref[key]);
+        if (built) return built;
+      }
     }
-    if (Object.prototype.hasOwnProperty.call(ref, "/")) {
-      return normalizeRefString(ref["/"]);
-    }
+    const sanitized = {};
+    let hasValue = false;
+    ["/", "cid", "id"].forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(ref, key)) {
+        const normalized = normalizeRefString(ref[key]);
+        if (normalized) {
+          sanitized[key] = normalized;
+          hasValue = true;
+        }
+      }
+    });
     if (Object.prototype.hasOwnProperty.call(ref, "path")) {
-      return normalizeRefString(ref.path);
+      const normalized = normalizeRefString(ref.path);
+      if (normalized) {
+        sanitized["/"] = normalized;
+        hasValue = true;
+      }
+    }
+    if (hasValue) {
+      return sanitized;
     }
   }
 
