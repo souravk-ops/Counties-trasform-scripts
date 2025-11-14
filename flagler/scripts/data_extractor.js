@@ -543,6 +543,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         (context && context.propertyRef) || "./property.json",
       );
       const relPropertyFile = {
+        type: "property_has_file",
         from: propertyRef,
         to: fileRef,
       };
@@ -553,6 +554,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     }
 
     const relDeedHasFile = {
+      type: "deed_has_file",
       from: deedRef,
       to: fileRef,
     };
@@ -562,6 +564,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     );
 
     const relSalesHistoryHasDeed = {
+      type: "sales_history_has_deed",
       from: saleRef,
       to: deedRef,
     };
