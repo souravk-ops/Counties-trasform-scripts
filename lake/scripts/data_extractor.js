@@ -1032,8 +1032,10 @@ function main() {
     writeJSON(path.join(dataDir, "lot.json"), lot);
   }
 
-  const makeRef = (fileName) =>
-    fileName.startsWith("./") ? fileName : `./${fileName}`;
+  const makeRef = (fileName) => {
+    const target = fileName.startsWith("./") ? fileName : `./${fileName}`;
+    return { "/": target };
+  };
 
   const makePropertyRef = () => makeRef("property.json");
   const taxFiles = [];
