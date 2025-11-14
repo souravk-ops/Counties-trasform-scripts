@@ -27,25 +27,25 @@ function getParcelId($) {
 }
 
 function makeRelationshipPointer(ref) {
-  if (!ref) return null;
+  if (ref == null) return null;
   if (typeof ref === "string") {
     const trimmed = ref.trim();
     if (!trimmed) return null;
     if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
-    return { "/": trimmed };
+    return trimmed;
   }
   if (typeof ref === "object") {
     if (typeof ref["/"] === "string") {
       const val = ref["/"].trim();
-      return val ? { "/": val } : null;
+      return val || null;
     }
     if (typeof ref.cid === "string") {
       const cid = ref.cid.trim();
-      return cid ? cid : null;
+      return cid || null;
     }
     if (typeof ref.path === "string") {
       const val = ref.path.trim();
-      return val ? { "/": val } : null;
+      return val || null;
     }
   }
   return null;

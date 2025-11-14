@@ -77,31 +77,27 @@ function parseBookAndPage(raw) {
 }
 
 function wrapRelationshipEndpoint(_classKey, ref) {
-  if (!ref) return null;
+  if (ref == null) return null;
 
   const normalizeRefString = (value) => {
     if (value == null) return null;
     const trimmed = String(value).trim();
-    return trimmed ? trimmed : null;
+    return trimmed === "" ? null : trimmed;
   };
 
   if (typeof ref === "string") {
-    const normalized = normalizeRefString(ref);
-    return normalized ? { "/": normalized } : null;
+    return normalizeRefString(ref);
   }
 
   if (typeof ref === "object") {
     if (Object.prototype.hasOwnProperty.call(ref, "cid")) {
-      const cid = normalizeRefString(ref.cid);
-      return cid ? { cid } : null;
+      return normalizeRefString(ref.cid);
     }
     if (Object.prototype.hasOwnProperty.call(ref, "/")) {
-      const viaSlash = normalizeRefString(ref["/"]);
-      return viaSlash ? { "/": viaSlash } : null;
+      return normalizeRefString(ref["/"]);
     }
     if (Object.prototype.hasOwnProperty.call(ref, "path")) {
-      const viaPath = normalizeRefString(ref.path);
-      return viaPath ? { "/": viaPath } : null;
+      return normalizeRefString(ref.path);
     }
   }
 
