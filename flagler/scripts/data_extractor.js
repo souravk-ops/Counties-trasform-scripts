@@ -510,9 +510,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedRef = wrapRelationshipEndpoint("deed", {
       "/": `./${deedFilename}`,
     });
-    const deedRelationshipEndpoint = wrapRelationshipEndpoint("deed", {
-      node: deed,
-    });
 
     const fileObj = {
       document_type: "Title",
@@ -521,13 +518,13 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    const fileRelationshipEndpoint = wrapRelationshipEndpoint("file", {
-      node: fileObj,
+    const fileRef = wrapRelationshipEndpoint("file", {
+      "/": `./${fileFilename}`,
     });
     const relDeedHasFile = {
       type: "deed_has_file",
-      from: deedRelationshipEndpoint,
-      to: fileRelationshipEndpoint,
+      from: deedRef,
+      to: fileRef,
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -548,7 +545,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       const relPropertyFile = {
         type: "property_has_file",
         from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
-        to: wrapRelationshipEndpoint("file", { node: fileObj }),
+        to: fileRef,
       };
       writeJSON(
         path.join("data", `relationship_property_has_file_${idx}.json`),
