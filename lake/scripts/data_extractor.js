@@ -1002,12 +1002,12 @@ function main() {
     writeJSON(path.join(dataDir, "lot.json"), lot);
   }
 
-  const makeRef = (fileName, className, extra = {}) => {
+  const makeRef = (fileName, extra = {}) => {
     const pathRef = fileName.startsWith("./") ? fileName : `./${fileName}`;
-    return { class: className, "/": pathRef, ...extra };
+    return { "/": pathRef, ...extra };
   };
 
-  const makePropertyRef = () => makeRef("property.json", "property");
+  const makePropertyRef = () => makeRef("property.json");
   const taxFiles = [];
 
   // tax_*.json
@@ -1232,7 +1232,7 @@ function main() {
       path.join(dataDir, "relationship_property_has_address.json"),
       {
         from: makePropertyRef(),
-        to: makeRef("address.json", "address"),
+        to: makeRef("address.json"),
       },
     );
   }
@@ -1241,7 +1241,7 @@ function main() {
       path.join(dataDir, "relationship_property_has_lot.json"),
       {
         from: makePropertyRef(),
-        to: makeRef("lot.json", "lot"),
+        to: makeRef("lot.json"),
       },
     );
   }
@@ -1253,7 +1253,7 @@ function main() {
       ),
       {
         from: makePropertyRef(),
-        to: makeRef(saleEntry.fileName, "sales_history"),
+        to: makeRef(saleEntry.fileName),
       },
     );
   });
@@ -1262,21 +1262,21 @@ function main() {
       path.join(dataDir, `relationship_property_has_file_${idx + 1}.json`),
       {
         from: makePropertyRef(),
-        to: makeRef(fileEntry.fileName, "file"),
+        to: makeRef(fileEntry.fileName),
       },
     );
   });
   const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
   for (let i = 0; i < deedFilePairCount; i++) {
     const rel = {
-      from: makeRef(deedEntries[i].fileName, "deed"),
-      to: makeRef(fileEntries[i].fileName, "file"),
+      from: makeRef(deedEntries[i].fileName),
+      to: makeRef(fileEntries[i].fileName),
     };
     const relName = `relationship_deed_has_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
   }
   layoutFiles.forEach((layoutEntry, idx) => {
-    const layoutRef = makeRef(layoutEntry.fileName, "layout", {
+    const layoutRef = makeRef(layoutEntry.fileName, {
       space_type_index: layoutEntry.space_type_index,
     });
     writeJSON(
@@ -1292,7 +1292,7 @@ function main() {
       path.join(dataDir, `relationship_property_has_tax_${idx + 1}.json`),
       {
         from: makePropertyRef(),
-        to: makeRef(taxFile, "tax"),
+        to: makeRef(taxFile),
       },
     );
   });
@@ -1306,8 +1306,8 @@ function main() {
     const saleEntry = salesEntries[i];
     const deedEntry = deedEntries[i];
     const rel = {
-      from: makeRef(saleEntry.fileName, "sales_history"),
-      to: makeRef(deedEntry.fileName, "deed"),
+      from: makeRef(saleEntry.fileName),
+      to: makeRef(deedEntry.fileName),
     };
     const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
@@ -1318,8 +1318,8 @@ function main() {
     const recentSale = salesEntries[0];
     personFiles.forEach((pf, idx) => {
       const rel = {
-        to: makeRef(pf, "person"),
-        from: makeRef(recentSale.fileName, "sales_history"),
+        to: makeRef(pf),
+        from: makeRef(recentSale.fileName),
       };
       const relName = `relationship_sales_history_has_person_${idx + 1}.json`;
       writeJSON(path.join(dataDir, relName), rel);
