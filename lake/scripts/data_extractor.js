@@ -1032,17 +1032,12 @@ function main() {
     writeJSON(path.join(dataDir, "lot.json"), lot);
   }
 
-  const propertyRefExtras =
-    property.property_type && typeof property.property_type === "string"
-      ? { property_type: property.property_type }
-      : {};
-
   const makeRef = (fileName, extra = {}) => {
     const pathRef = fileName.startsWith("./") ? fileName : `./${fileName}`;
     return { "/": pathRef, ...extra };
   };
 
-  const makePropertyRef = () => makeRef("property.json", propertyRefExtras);
+  const makePropertyRef = () => makeRef("property.json");
   const taxFiles = [];
 
   // tax_*.json
@@ -1273,7 +1268,6 @@ function main() {
     writeJSON(
       path.join(dataDir, "relationship_property_has_address.json"),
       {
-        type: "property_has_address",
         from: makePropertyRef(),
         to: makeRef("address.json"),
       },
@@ -1283,7 +1277,6 @@ function main() {
     writeJSON(
       path.join(dataDir, "relationship_property_has_lot.json"),
       {
-        type: "property_has_lot",
         from: makePropertyRef(),
         to: makeRef("lot.json"),
       },
@@ -1296,7 +1289,6 @@ function main() {
         `relationship_property_has_sales_history_${idx + 1}.json`,
       ),
       {
-        type: "property_has_sales_history",
         from: makePropertyRef(),
         to: makeRef(saleEntry.fileName),
       },
@@ -1306,7 +1298,6 @@ function main() {
     writeJSON(
       path.join(dataDir, `relationship_property_has_file_${idx + 1}.json`),
       {
-        type: "property_has_file",
         from: makePropertyRef(),
         to: makeRef(fileEntry.fileName),
       },
@@ -1315,7 +1306,6 @@ function main() {
   const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
   for (let i = 0; i < deedFilePairCount; i++) {
     const rel = {
-      type: "deed_has_file",
       from: makeRef(deedEntries[i].fileName),
       to: makeRef(fileEntries[i].fileName),
     };
@@ -1329,7 +1319,6 @@ function main() {
     writeJSON(
       path.join(dataDir, `relationship_property_has_layout_${idx + 1}.json`),
       {
-        type: "property_has_layout",
         from: makePropertyRef(),
         to: layoutRef,
       },
@@ -1339,7 +1328,6 @@ function main() {
     writeJSON(
       path.join(dataDir, `relationship_property_has_tax_${idx + 1}.json`),
       {
-        type: "property_has_tax",
         from: makePropertyRef(),
         to: makeRef(taxFile),
       },
@@ -1355,8 +1343,9 @@ function main() {
     const saleEntry = salesEntries[i];
     const deedEntry = deedEntries[i];
     const rel = {
-      type: "sales_history_has_deed",
-      from: makeRef(saleEntry.fileName),
+      from: makeRef(saleEntry.fileName, {
+        ownership_transfer_date: saleEntry.ownership_transfer_date,
+      }),
       to: makeRef(deedEntry.fileName),
     };
     const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
@@ -1368,7 +1357,6 @@ function main() {
     const recentSale = salesEntries[0];
     personFiles.forEach((pf, idx) => {
       const rel = {
-        type: "sales_history_has_person",
         to: makeRef(pf),
         from: makeRef(recentSale.fileName),
       };
