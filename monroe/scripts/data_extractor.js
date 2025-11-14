@@ -2071,14 +2071,6 @@ function main() {
   const acres = parseAcres($);
   const propertyUseRaw = parsePropertyUseCode($);
   const propertyUse = mapPropertyUseCode(propertyUseRaw);
-  const totalAreaSqFt = parseIntSafe(binfo.totalArea);
-  const heatedAreaSqFt = parseIntSafe(binfo.heatedArea);
-  const formatAreaField = (value) => {
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 10) {
-      return null;
-    }
-    return String(value);
-  };
   const requestIdentifier =
     (unaddr && unaddr.request_identifier) ||
     (seed && seed.request_identifier) ||
@@ -2168,36 +2160,26 @@ function main() {
     build_status: propertyUse.build_status || null,
     structure_form: propertyUse.structure_form || null,
     property_usage_type: propertyUse.property_usage_type || null,
-    property_type: propertyUse.property_type,
-    number_of_units_type:
-      binfo.type === "DUPLEX"
-        ? "Two"
-        : binfo.type === "TRI/QUADRAPLEX"
-        ? "TwoToFour"
-        : "One",
-    property_structure_built_year: parseIntSafe(binfo.actYear),
-    property_effective_built_year: parseIntSafe(binfo.effYear),
-    livable_floor_area: formatAreaField(heatedAreaSqFt),
-    total_area: formatAreaField(totalAreaSqFt),
-    area_under_air: formatAreaField(heatedAreaSqFt),
+  property_type: propertyUse.property_type,
+  number_of_units_type: binfo.type === "DUPLEX" ? "Two" :
+                        binfo.type === "TRI/QUADRAPLEX" ? "TwoToFour" : "One",
+  property_structure_built_year: parseIntSafe(binfo.actYear),
+  property_effective_built_year: parseIntSafe(binfo.effYear),
+    livable_floor_area: binfo.heatedArea ? `${parseIntSafe(binfo.heatedArea).toLocaleString()} sq ft` : null,
+    total_area: binfo.totalArea ? `${parseIntSafe(binfo.totalArea).toLocaleString()} sq ft` : null,
+    area_under_air: binfo.heatedArea ? `${parseIntSafe(binfo.heatedArea).toLocaleString()} sq ft` : null,
     property_legal_description_text: legalDesc || null,
     subdivision: subdivision && subdivision.length ? subdivision : null,
     zoning: zoning || null,
-    number_of_units:
-      binfo.type === "DUPLEX"
-        ? 2
-        : binfo.type === "TRI/QUADRAPLEX"
-        ? 3
-        : 1,
-    historic_designation: false,
-    source_http_request: clone(defaultSourceHttpRequest),
-    request_identifier: requestIdentifier,
-  };
+  number_of_units: binfo.type === "DUPLEX" ? 2 :
+                   binfo.type === "TRI/QUADRAPLEX" ? 3 : 1,
+  historic_designation: false,
+  source_http_request: clone(defaultSourceHttpRequest),
+  request_identifier: requestIdentifier
+};
   if (property.property_type === "LandParcel") {
     property.number_of_units = null;
     property.number_of_units_type = null;
-    property.livable_floor_area = null;
-    property.area_under_air = null;
   }
   const propertyFilename = "property.json";
   const propertyPath = `./${propertyFilename}`;
@@ -2623,6 +2605,8 @@ const structureItems = (() => {
   };
 
   const propertyIsLand = property.property_type === "LandParcel";
+  const totalAreaSqFt = parseIntSafe(binfo.totalArea);
+  const heatedAreaSqFt = parseIntSafe(binfo.heatedArea);
 
   const normalizedBuildings = Array.isArray(layoutBuildings)
     ? layoutBuildings.map((building, idx) => {
