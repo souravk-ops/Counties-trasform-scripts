@@ -405,22 +405,6 @@ function mapInstrumentToDeedType(instr) {
   // };
 }
 
-function mapFileDocumentTypeFromDeedType(deedType) {
-  if (!deedType) return null;
-  switch (deedType) {
-    case "Warranty Deed":
-      return "ConveyanceDeedWarrantyDeed";
-    case "Special Warranty Deed":
-      return "ConveyanceDeed";
-    case "Quitclaim Deed":
-      return "ConveyanceDeedQuitClaimDeed";
-    case "Tax Deed":
-      return "ConveyanceDeed";
-    default:
-      return "ConveyanceDeed";
-  }
-}
-
 function extractValuation($) {
   const table = $(VALUATION_TABLE_SELECTOR);
   if (table.length === 0) return [];
@@ -577,24 +561,11 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
-    const mappedDocumentType = mapFileDocumentTypeFromDeedType(deedType);
-    if (mappedDocumentType) fileObj.document_type = mappedDocumentType;
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
-    if (deedRef && fileRef) {
-      const relDeedFile = {
-        type: "deed_has_file",
-        from: deedRef,
-        to: fileRef,
-      };
-      writeJSON(
-        path.join("data", `relationship_deed_has_file_${idx}.json`),
-        relDeedFile,
-      );
-    }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
       const fromRef = createRelationshipPointer(context.propertyFile);
       if (fromRef) {
@@ -610,20 +581,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       }
     }
 
-    const saleRefForDeed = createRelationshipPointer(
-      salePointer || saleFilename,
-    );
-    if (saleRefForDeed && deedRef) {
-      const relSaleDeed = {
-        type: "sales_history_has_deed",
-        from: saleRefForDeed,
-        to: deedRef,
-      };
-      writeJSON(
-        path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
-        relSaleDeed,
-      );
-    }
   });
   return processedSales;
 }
