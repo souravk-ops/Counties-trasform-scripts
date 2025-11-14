@@ -631,9 +631,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (saleRef && deedRef) {
       const relSalesHistoryHasDeed = {
         type: "sales_history_has_deed",
-        // Emit deed on `from` so aggregation places sales history there.
-        from: deedRef,
-        to: saleRef,
+        from: saleRef,
+        to: deedRef,
       };
       writeJSON(
         path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
