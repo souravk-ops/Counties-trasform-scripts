@@ -552,7 +552,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         context.propertyFile,
         saleRef,
         idx,
-        { swapEndpoints: true },
       );
     }
 
@@ -577,14 +576,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
     if (deedRef && fileRef) {
-      writeRelationship("deed_has_file", deedRef, fileRef, idx, {
-        swapEndpoints: true,
-      });
+      writeRelationship("deed_has_file", deedRef, fileRef, idx);
     }
     if (deedRef && saleRef) {
-      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx, {
-        swapEndpoints: true,
-      });
+      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx);
     }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
       writeRelationship(
@@ -592,7 +587,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         context.propertyFile,
         fileRef,
         idx,
-        { swapEndpoints: true },
       );
     }
 
@@ -894,7 +888,6 @@ function writeLayout(parcelId, context) {
         context.propertyFile,
         layoutFilename,
         layoutCounter,
-        { swapEndpoints: true },
       );
     }
   });
