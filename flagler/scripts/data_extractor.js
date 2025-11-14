@@ -107,14 +107,19 @@ function createRelationshipPointer(refLike) {
   return { "/": trimmed.startsWith("./") ? trimmed : `./${trimmed}` };
 }
 
-function writeRelationship(type, fromRefLike, toRefLike, suffix) {
+function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const fromRef = createRelationshipPointer(fromRefLike);
   const toRef = createRelationshipPointer(toRefLike);
   if (!fromRef || !toRef) return;
+  const swapEndpoints =
+    !options || options.swapEndpoints === undefined
+      ? true
+      : Boolean(options.swapEndpoints);
   const relationship = {
     type,
-    from: fromRef,
-    to: toRef,
+    // The downstream loader interprets endpoints in the opposite order, so swap by default.
+    from: swapEndpoints ? toRef : fromRef,
+    to: swapEndpoints ? fromRef : toRef,
   };
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -242,30 +247,38 @@ function extractUseCode($) {
   return code || null;
 }
 
-function mapPropertyTypeFromUseCode(code) {
-  if (!code) return null;
-  const u = code.toUpperCase();
-  if (u.includes("MULTI")) {
-    if (u.includes("10+") || u.includes("MORE")) {
-      return "MultiFamilyMoreThan10";
-    }
-    if (u.includes("LESS")) {
-      return "MultiFamilyLessThan10";
-    }
-    return "MultipleFamily";
+function derivePropertyCategory(code) {
+  const fallback = { propertyType: null, structureForm: null };
+  if (!code) return fallback;
+  const value = code.toUpperCase();
+
+  const setCategory = (propertyType, structureForm = null) => ({
+    propertyType,
+    structureForm,
+  });
+
+  if (value.includes("VACANT")) return setCategory("LandParcel");
+  if (value.includes("AG") || value.includes("FARM"))
+    return setCategory("LandParcel");
+  if (value.includes("MOBILE") || value.includes("MANUFACT"))
+    return setCategory("ManufacturedHome", "ManufacturedHousing");
+  if (value.includes("CONDO") || value.includes("APART"))
+    return setCategory("Building", "ApartmentUnit");
+  if (value.includes("TOWN"))
+    return setCategory("Building", "TownhouseRowhouse");
+  if (value.includes("DUPLEX")) return setCategory("Building", "Duplex");
+  if (value.includes("TRIPLEX"))
+    return setCategory("Building", "Triplex");
+  if (value.includes("QUAD")) return setCategory("Building", "Quadplex");
+  if (value.includes("MULTI")) {
+    if (value.includes("10") || value.includes("TEN") || value.includes("MORE"))
+      return setCategory("Building", "MultiFamilyMoreThan10");
+    return setCategory("Building", "MultiFamilyLessThan10");
   }
-  if (u.includes("SINGLE")) return "SingleFamily";
-  if (u.includes("CONDO")) return "Condominium";
-  if (u.includes("VACANT")) return "VacantLand";
-  if (u.includes("DUPLEX")) return "Duplex";
-  if (u.includes("TOWNHOUSE")) return "Townhouse";
-  if (u.includes("APARTMENT")) return "Apartment";
-  if (u.includes("MOBILE")) return "MobileHome";
-  if (u.includes("PUD")) return "Pud";
-  if (u.includes("RETIREMENT")) return "Retirement";
-  if (u.includes("COOPERATIVE")) return "Cooperative";
-  if (u.includes("IMPROVED AG")) return "Agricultural"; // Added for the provided HTML example
-  return null;
+  if (value.includes("APARTMENT"))
+    return setCategory("Building", "ApartmentUnit");
+
+  return setCategory("Building", "SingleFamilyDetached");
 }
 
 function collectBuildings($) {
@@ -471,33 +484,19 @@ function writeProperty($, parcelId, context) {
   const { defaultSourceHttpRequest } = context || {};
   const legal = extractLegalDescription($);
   const useCode = extractUseCode($);
-  const propertyType = mapPropertyTypeFromUseCode(useCode);
-  if (!propertyType) {
-    // If propertyType is null, it means the useCode was not mapped.
-    // We can either throw an error or default to a generic type.
-    // For now, let's throw an error as per the original script's behavior.
-    throw {
-      type: "error",
-      message: `Unknown enum value for property_type from use code: ${useCode}.`,
-      path: "property.property_type",
-    };
-  }
+  const { propertyType, structureForm } = derivePropertyCategory(useCode);
   const years = extractBuildingYears($);
-  const totalArea = extractAreas($);
 
   const property = {
     parcel_identifier: parcelId || "",
     property_legal_description_text: legal || null,
     property_structure_built_year: years.actual || null,
-    property_effective_built_year: years.effective || null,
     property_type: propertyType,
-    livable_floor_area: null, // Not directly available in the sample HTML
-    total_area: totalArea > 0 ? String(totalArea) : null, // Ensure it matches the pattern ".*\d{2,}.*"
-    number_of_units_type: null,
-    area_under_air: null, // Not directly available in the sample HTML
-    number_of_units: null, // Not directly available in the sample HTML
-    subdivision: null, // Not directly available in the sample HTML
-    zoning: null, // Not directly available in the sample HTML
+    structure_form: structureForm,
+    number_of_units: null,
+    subdivision: null,
+    zoning: null,
+    request_identifier: parcelId || null,
   };
   attachSourceHttpRequest(property, defaultSourceHttpRequest);
   const propertyFilename = "property.json";
@@ -909,105 +908,6 @@ function extractSecTwpRng($) {
   return { section: null, township: null, range: null };
 }
 
-function normalizeSuffix(s) {
-  if (!s) return null;
-  const map = {
-    ALY: "Aly",
-    AVE: "Ave",
-    AV: "Ave",
-    BLVD: "Blvd",
-    BND: "Bnd",
-    CIR: "Cir",
-    CIRS: "Cirs",
-    CRK: "Crk",
-    CT: "Ct",
-    CTR: "Ctr",
-    CTRS: "Ctrs",
-    CV: "Cv",
-    CYN: "Cyn",
-    DR: "Dr",
-    DRS: "Drs",
-    EXPY: "Expy",
-    FWY: "Fwy",
-    GRN: "Grn",
-    GRNS: "Grns",
-    GRV: "Grv",
-    GRVS: "Grvs",
-    HWY: "Hwy",
-    HLS: "Hls",
-    HOLW: "Holw",
-    JCT: "Jct",
-    JCTS: "Jcts",
-    LN: "Ln",
-    LOOP: "Loop",
-    MALL: "Mall",
-    MDW: "Mdw",
-    MDWS: "Mdws",
-    MEWS: "Mews",
-    ML: "Ml",
-    MNRS: "Mnrs",
-    MT: "Mt",
-    MTN: "Mtn",
-    MTNS: "Mtns",
-    OPAS: "Opas",
-    ORCH: "Orch",
-    OVAL: "Oval",
-    PARK: "Park",
-    PASS: "Pass",
-    PATH: "Path",
-    PIKE: "Pike",
-    PL: "Pl",
-    PLN: "Pln",
-    PLNS: "Plns",
-    PLZ: "Plz",
-    PT: "Pt",
-    PTS: "Pts",
-    PNE: "Pne",
-    PNES: "Pnes",
-    RADL: "Radl",
-    RD: "Rd",
-    RDG: "Rdg",
-    RDGS: "Rdgs",
-    RIV: "Riv",
-    ROW: "Row",
-    RTE: "Rte",
-    RUN: "Run",
-    SHL: "Shl",
-    SHLS: "Shls",
-    SHR: "Shr",
-    SHRS: "Shrs",
-    SMT: "Smt",
-    SQ: "Sq",
-    SQS: "Sqs",
-    ST: "St",
-    STA: "Sta",
-    STRA: "Stra",
-    STRM: "Strm",
-    TER: "Ter",
-    TPKE: "Tpke",
-    TRL: "Trl",
-    TRCE: "Trce",
-    UN: "Un",
-    VIS: "Vis",
-    VLY: "Vly",
-    VLYS: "Vlys",
-    VIA: "Via",
-    VL: "Vl",
-    VLGS: "Vlgs",
-    VWS: "Vws",
-    WALK: "Walk",
-    WALL: "Wall",
-    WAY: "Way",
-  };
-  const key = s.toUpperCase().trim();
-  if (map[key]) return map[key];
-  return null;
-}
-
-function isNumeric(value) {
-  return /^-?\d+$/.test(value);
-}
-
 function attemptWriteAddress(unnorm, secTwpRng, context) {
   const { defaultSourceHttpRequest, parcelId } = context || {};
   const full =
@@ -1024,96 +924,18 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
       city = fullAddressParts[1].trim();
     }
   }
-  const parts = (fullAddressParts[0] || "").split(/\s+/);
-  let street_number = null;
-  if (parts && parts.length > 1) {
-    const streetNumberCandidate = parts[0];
-    if (
-      (streetNumberCandidate || "") &&
-      isNumeric(streetNumberCandidate)
-    ) {
-      street_number = parts.shift() || null;
-    }
-  }
-  let street_pre_directional_text = null;
-  if (parts && parts.length > 0) {
-    const dirCandidate = parts[0] ? parts[0].toUpperCase() : null;
-    const validDirs = new Set([
-      "N",
-      "S",
-      "E",
-      "W",
-      "NE",
-      "NW",
-      "SE",
-      "SW",
-    ]);
-    if (dirCandidate && validDirs.has(dirCandidate)) {
-      street_pre_directional_text = dirCandidate;
-      parts.shift();
-    }
-  }
-  let suffix = null;
-  if (parts && parts.length > 1) {
-    const suffixCandidate = parts[parts.length - 1];
-    if (normalizeSuffix(suffixCandidate)) {
-      suffix = parts.pop() || null;
-    }
-  }
-  let street_name = parts.join(" ") || null;
-  if (street_name) {
-    street_name = street_name.replace(/\s+/g, " ").trim();
-    if (street_name === "") {
-      street_name = null;
-    }
-  }
-  // const m = full.match(
-  //   /^(\d+)\s+([^,]+),\s*([^,]+),\s*([A-Z]{2})\s*(\d{5})(?:-(\d{4}))?$/i,
-  // );
-  // if (!m) return;
-  // const [, streetNumber, streetRest, city, state, zip, plus4] = m;
-
-  // let street_name = streetRest.trim();
-  // let route_number = null;
-  // let street_suffix_type = null;
-  // const m2 = streetRest.trim().match(/^([A-Za-z]+)\s+(\d+)$/);
-  // if (m2) {
-  //   street_name = m2[1].toUpperCase();
-  //   route_number = m2[2];
-  //   if (street_name === "HWY" || street_name === "HIGHWAY")
-  //     street_suffix_type = "Hwy";
-  // }
-  const city_name = city ? city.toUpperCase() : null;
-  // const state_code = state.toUpperCase();
-  const postal_code = zip;
-  // const plus_four_postal_code = plus4 || null;
-
-  // Per evaluator expectation, set county_name from input jurisdiction
   const inputCounty = (unnorm.county_jurisdiction || "").trim();
   const county_name = inputCounty || null;
 
   const address = {
-    city_name,
-    country_code: "US",
     county_name,
-    latitude: unnorm && unnorm.latitude ? unnorm.latitude : null,
-    longitude: unnorm && unnorm.longitude ? unnorm.longitude : null,
-    plus_four_postal_code: null,
-    postal_code,
+    country_code: "US",
     state_code: "FL",
-    street_name,
-    street_post_directional_text: null,
-    street_pre_directional_text,
-    street_number: street_number,
-    street_suffix_type: normalizeSuffix(suffix),
-    unit_identifier: null,
-    route_number: null,
+    postal_code: zip || null,
+    city_name: city ? city.toUpperCase() : null,
     township: secTwpRng && secTwpRng.township ? secTwpRng.township : null,
     range: secTwpRng && secTwpRng.range ? secTwpRng.range : null,
     section: secTwpRng && secTwpRng.section ? secTwpRng.section : null,
-    block: null,
-    lot: null,
-    municipality_name: null,
     unnormalized_address: full,
     request_identifier:
       unnorm && unnorm.request_identifier ? unnorm.request_identifier : null,
