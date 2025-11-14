@@ -538,11 +538,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileRef = wrapRelationshipEndpoint("file", `./${fileFilename}`);
     const relDeedHasFile = {
       type: "deed_has_file",
-      // Relationship validation expects deed to be the logical source node.
-      // The downstream loader currently swaps endpoints, so we emit file here
-      // so that the deed ends up on the `from` side after resolution.
-      from: fileRef,
-      to: deedRef,
+      from: deedRef,
+      to: fileRef,
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -551,9 +548,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const relSalesHistoryHasDeed = {
       type: "sales_history_has_deed",
-      // Same swap strategy as above: ensure the sale node resolves as `from`.
-      from: deedRef,
-      to: saleRef,
+      from: saleRef,
+      to: deedRef,
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
