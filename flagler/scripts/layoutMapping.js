@@ -189,16 +189,26 @@ function main() {
     });
   } catch (err) {}
 
-  const propertyRef = fs.existsSync(path.join(dataDir, "property.json"))
-    ? { "/": "./property.json" }
-    : {
-        node: {
-          class: "property",
-          properties: {
-            parcel_identifier: parcelId || null,
-          },
-        },
-      };
+  const propertyPath = path.join(dataDir, "property.json");
+  let propertyRelationshipFrom;
+  if (fs.existsSync(propertyPath)) {
+    let propertyData = {};
+    try {
+      propertyData = JSON.parse(fs.readFileSync(propertyPath, "utf8"));
+    } catch (err) {
+      propertyData = {};
+    }
+    propertyRelationshipFrom = {
+      class: "property",
+      "/": "./property.json",
+      ...propertyData,
+    };
+  } else {
+    propertyRelationshipFrom = {
+      class: "property",
+      parcel_identifier: parcelId || null,
+    };
+  }
 
   layouts.forEach((layout, index) => {
     const layoutIdx = index + 1;
@@ -210,8 +220,13 @@ function main() {
     );
 
     const rel = {
-      from: JSON.parse(JSON.stringify(propertyRef)),
-      to: { "/": `./${layoutFile}` },
+      type: "property_has_layout",
+      from: JSON.parse(JSON.stringify(propertyRelationshipFrom)),
+      to: {
+        class: "layout",
+        "/": `./${layoutFile}`,
+        ...JSON.parse(JSON.stringify(layout)),
+      },
     };
     fs.writeFileSync(
       path.join(

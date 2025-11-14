@@ -78,17 +78,19 @@ function parseBookAndPage(raw) {
 
 function wrapRelationshipEndpoint(classKey, ref) {
   if (!ref) return null;
+  const endpoint = {};
+  if (classKey) endpoint.class = classKey;
+  if (ref["/"]) endpoint["/"] = ref["/"];
+  if (ref.path) endpoint["/"] = ref.path;
   if (ref.node && typeof ref.node === "object") {
     const nodeCopy = JSON.parse(JSON.stringify(ref.node));
-    if (classKey && !nodeCopy.class) {
-      nodeCopy.class = classKey;
+    if (nodeCopy.class) {
+      if (!endpoint.class) endpoint.class = nodeCopy.class;
+      delete nodeCopy.class;
     }
-    return { node: nodeCopy };
+    Object.assign(endpoint, nodeCopy);
   }
-  if (ref["/"]) {
-    return { "/": ref["/"] };
-  }
-  return null;
+  return Object.keys(endpoint).length ? endpoint : null;
 }
 
 function removeFilesMatchingPatterns(patterns) {
@@ -443,6 +445,10 @@ function writeProperty($, parcelId, context) {
   };
   attachSourceHttpRequest(property, defaultSourceHttpRequest);
   writeJSON(path.join("data", "property.json"), property);
+  if (context) {
+    context.propertyNode = property;
+    context.propertyRef = "./property.json";
+  }
 }
 
 function writeSalesDeedsFilesAndRelationships($, sales, context) {
@@ -475,17 +481,23 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", saleFilename), saleObj);
     const saleRef = wrapRelationshipEndpoint("sales_history", {
       "/": `./${saleFilename}`,
+      node: saleObj,
     });
     processedSales.push({
       source: s,
       idx,
       saleFilename,
       transferDate,
+      saleNode: saleObj,
     });
     if (hasPropertyFile) {
       const relPropertySale = {
         type: "property_has_sales_history",
-        from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
+        from: wrapRelationshipEndpoint("property", {
+          "/":
+            (context && context.propertyRef) || "./property.json",
+          node: context && context.propertyNode ? context.propertyNode : null,
+        }),
         to: saleRef,
       };
       writeJSON(
@@ -509,6 +521,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", deedFilename), deed);
     const deedRef = wrapRelationshipEndpoint("deed", {
       "/": `./${deedFilename}`,
+      node: deed,
     });
 
     const fileObj = {
@@ -520,6 +533,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const fileRef = wrapRelationshipEndpoint("file", {
       "/": `./${fileFilename}`,
+      node: fileObj,
     });
     const relDeedHasFile = {
       type: "deed_has_file",
@@ -544,7 +558,11 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (hasPropertyFile) {
       const relPropertyFile = {
         type: "property_has_file",
-        from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
+        from: wrapRelationshipEndpoint("property", {
+          "/":
+            (context && context.propertyRef) || "./property.json",
+          node: context && context.propertyNode ? context.propertyNode : null,
+        }),
         to: fileRef,
       };
       writeJSON(
@@ -664,9 +682,11 @@ function writePersonCompaniesSalesRelationships(
             {
               to: wrapRelationshipEndpoint("person", {
                 "/": `./person_${pIdx}.json`,
+                node: people[pIdx - 1] || null,
               }),
               from: wrapRelationshipEndpoint("sales_history", {
                 "/": `./${rec.saleFilename}`,
+                node: rec.saleNode || null,
               }),
             },
           );
@@ -686,9 +706,11 @@ function writePersonCompaniesSalesRelationships(
             {
               to: wrapRelationshipEndpoint("company", {
                 "/": `./company_${cIdx}.json`,
+                node: companies[cIdx - 1] || null,
               }),
               from: wrapRelationshipEndpoint("sales_history", {
                 "/": `./${rec.saleFilename}`,
+                node: rec.saleNode || null,
               }),
             },
           );
@@ -843,9 +865,14 @@ function writeLayout(parcelId, context) {
     if (fs.existsSync(path.join("data", "property.json"))) {
       const rel = {
         type: "property_has_layout",
-        from: wrapRelationshipEndpoint("property", { "/": "./property.json" }),
+        from: wrapRelationshipEndpoint("property", {
+          "/":
+            (context && context.propertyRef) || "./property.json",
+          node: context && context.propertyNode ? context.propertyNode : null,
+        }),
         to: wrapRelationshipEndpoint("layout", {
           "/": `./${layoutFilename}`,
+          node: out,
         }),
       };
       writeJSON(
