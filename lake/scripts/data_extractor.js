@@ -21,32 +21,6 @@ try {
   cheerio = null;
 }
 
-const FILE_ALLOWED_KEYS = new Set(["name"]);
-const DEED_ALLOWED_KEYS = new Set([
-  "deed_type",
-  "book",
-  "page",
-  "instrument_number",
-  "volume",
-]);
-const SALES_HISTORY_ALLOWED_KEYS = new Set([
-  "ownership_transfer_date",
-  "purchase_price_amount",
-]);
-
-function pickAllowed(source, allowedKeys) {
-  const result = {};
-  for (const key of allowedKeys) {
-    if (Object.prototype.hasOwnProperty.call(source, key)) {
-      const value = source[key];
-      if (value !== undefined && value !== null) {
-        result[key] = value;
-      }
-    }
-  }
-  return result;
-}
-
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
@@ -88,66 +62,40 @@ function mapLandUseToPropertyType(landUseDescription) {
 
   const desc = landUseDescription.toUpperCase();
 
-  if (
-    /AGRIC|AG\s*\/|PASTURE|GROVE|CATTLE|HAY|FARM/.test(desc) ||
-    desc.includes("HOMESITE")
-  )
-    return "LandParcel";
-  if (desc.includes("VACANT")) return "VacantLand";
+  // Map Lake County land use codes to property types
+  if (desc.includes("VACANT RESIDENTIAL")) return "VacantLand";
   if (desc.includes("SINGLE FAMILY")) return "SingleFamily";
-  if (desc.includes("DETACHED CONDO")) return "DetachedCondominium";
-  if (desc.includes("CONDOMINIUM") || desc.includes("CONDO"))
-    return "Condominium";
-  if (desc.includes("NON WARRANTABLE")) return "NonWarrantableCondo";
-  if (desc.includes("CO-OP")) return "Cooperative";
   if (
     desc.includes("MANUFACTURED HOME SUB") ||
     desc.includes("MANUFACTURED SUB")
   )
-    return "ManufacturedHousingMultiWide";
+    return "ManufacturedHousing";
   if (desc.includes("MANUFACTURED HOME") && !desc.includes("SUB"))
-    return "ManufacturedHome";
-  if (desc.includes("MOBILE HOME")) return "MobileHome";
-  if (desc.includes("MODULAR")) return "Modular";
+    return "MobileHome";
+  if (desc.includes("MULTI FAMILY >9") || desc.includes("MULTI FAMILY >=10"))
+    return "MultipleFamily";
+  if (
+    desc.includes("MULTI FAMILY <5") ||
+    desc.includes("MULTI FAMILY >4 AND <10") ||
+    desc.includes("MULTI FAMILY <=9")
+  )
+    return "TwoToFourFamily";
+  if (desc.includes("CONDOMINIUM") || desc.includes("CONDO"))
+    return "Condominium";
+  if (desc.includes("CO-OP")) return "Cooperative";
+  if (desc.includes("RETIREMENT HOME")) return "Retirement";
+  if (desc.includes("MISC RESIDENTIAL") || desc.includes("MIGRANT"))
+    return "MiscellaneousResidential";
   if (desc.includes("TIMESHARE")) return "Timeshare";
   if (desc.includes("TOWNHOUSE")) return "Townhouse";
+  if (desc.includes("DUPLEX")) return "Duplex";
   if (desc.includes("PUD")) return "Pud";
-  if (desc.includes("RETIREMENT")) return "Retirement";
-  if (desc.includes("MISC") || desc.includes("MIGRANT"))
-    return "MiscellaneousResidential";
+  if (desc.includes("MOBILE HOME")) return "MobileHome";
   if (
     desc.includes("RESIDENTIAL COMMON ELEMENTS") ||
     desc.includes("COMMON ELEMENTS")
   )
     return "ResidentialCommonElementsAreas";
-  if (desc.includes("APARTMENT")) return "Apartment";
-  if (desc.includes("DUPLEX") || desc.includes(" TWO FAMILY")) return "Duplex";
-  if (desc.includes("TRIPLEX") || desc.includes("3 PLEX")) return "3Units";
-  if (desc.includes("4PLEX") || desc.includes("4 PLEX")) return "4Units";
-  if (desc.includes("2 UNIT")) return "2Units";
-  if (
-    (desc.includes("MULTI FAMILY") || desc.includes("MULTIFAMILY")) &&
-    (desc.includes(">9") ||
-      desc.includes(">=10") ||
-      desc.includes(" 10 ") ||
-      desc.includes("10+") ||
-      desc.includes("APARTMENT"))
-  )
-    return "MultiFamilyMoreThan10";
-  if (
-    desc.includes("MULTI FAMILY") ||
-    desc.includes("MULTIFAMILY") ||
-    desc.includes("MULTI-FAMILY")
-  ) {
-    if (
-      desc.includes("<5") ||
-      desc.includes("<=9") ||
-      desc.includes(">4 AND <10") ||
-      desc.includes("<=4")
-    )
-      return "MultiFamilyLessThan10";
-    return "MultipleFamily";
-  }
 
   // Default to null for non-residential or unrecognized codes
   return null;
@@ -161,139 +109,6 @@ function getUnitsType(units) {
   if (units >= 2 && units <= 4) return "TwoToFour";
   if (units >= 1 && units <= 4) return "OneToFour";
   return null;
-}
-
-const ELEPHANT_PROPERTY_TYPES = new Set([
-  "LandParcel",
-  "Building",
-  "Unit",
-  "ManufacturedHome",
-]);
-const PROPERTY_TYPE_LAND_HINTS = new Set(["LANDPARCEL", "VACANTLAND"]);
-const PROPERTY_TYPE_MANUFACTURED_HINTS = new Set([
-  "MANUFACTUREDHOME",
-  "MANUFACTUREDHOUSING",
-  "MANUFACTUREDHOUSINGSINGLEWIDE",
-  "MANUFACTUREDHOUSINGMULTIWIDE",
-  "MOBILEHOME",
-  "MODULAR",
-]);
-const PROPERTY_TYPE_UNIT_HINTS = new Set([
-  "CONDOMINIUM",
-  "DETACHEDCONDOMINIUM",
-  "TIMESHARE",
-  "COOPERATIVE",
-  "UNIT",
-  "NONWARRANTABLECONDO",
-]);
-
-function normalizePropertyType(value) {
-  if (!value) return null;
-  const normalized = String(value).trim();
-  if (!normalized) return null;
-  if (ELEPHANT_PROPERTY_TYPES.has(normalized)) return normalized;
-  const upper = normalized.toUpperCase();
-  if (PROPERTY_TYPE_LAND_HINTS.has(upper)) return "LandParcel";
-  if (PROPERTY_TYPE_MANUFACTURED_HINTS.has(upper)) return "ManufacturedHome";
-  if (PROPERTY_TYPE_UNIT_HINTS.has(upper)) return "Unit";
-  return "Building";
-}
-
-function mapInstrumentToDeedType(instrument) {
-  if (!instrument) return null;
-  const raw = instrument.trim().toLowerCase();
-  if (!raw) return null;
-  const simple = raw.replace(/\./g, "");
-  if (/(^|\s)sw(d| deed)?\b/.test(simple) || simple.includes("special warranty"))
-    return "Special Warranty Deed";
-  if (/(^|\s)wd\b/.test(simple) || simple.includes("warranty deed"))
-    return "Warranty Deed";
-  if (/(^|\s)q(cd|uitclaim)?\b/.test(simple) || simple.includes("quit"))
-    return "Quitclaim Deed";
-  if (simple.includes("bargain") || simple.includes("sale deed"))
-    return "Bargain and Sale Deed";
-  if (simple.includes("grant deed")) return "Grant Deed";
-  if (simple.includes("trustee")) return "Trustee's Deed";
-  if (simple.includes("tax deed")) return "Tax Deed";
-  if (simple.includes("sheriff")) return "Sheriff's Deed";
-  if (simple.includes("personal representative") || /\bprd?\b/.test(simple))
-    return "Personal Representative Deed";
-  if (simple.includes("administrator")) return "Administrator's Deed";
-  if (simple.includes("guardian")) return "Guardian's Deed";
-  if (simple.includes("lady bird")) return "Lady Bird Deed";
-  if (simple.includes("life estate")) return "Life Estate Deed";
-  if (simple.includes("court order")) return "Court Order Deed";
-  if (simple.includes("transfer on death")) return "Transfer on Death Deed";
-  if (simple.includes("gift deed")) return "Gift Deed";
-  if (simple.includes("interspousal")) return "Interspousal Transfer Deed";
-  if (simple.includes("joint tenancy")) return "Joint Tenancy Deed";
-  if (simple.includes("tenancy in common")) return "Tenancy in Common Deed";
-  if (simple.includes("community property")) return "Community Property Deed";
-  if (simple.includes("release")) return "Release of Contract";
-  if (simple.includes("assignment")) return "Assignment of Contract";
-  if (simple.includes("contract for deed")) return "Contract for Deed";
-  if (simple.includes("quiet title")) return "Quiet Title Deed";
-  return "Miscellaneous";
-}
-
-function buildFilePayload(rawFile, idx) {
-  const file = rawFile && typeof rawFile === "object" ? rawFile : {};
-  const nameCandidate =
-    typeof file.name === "string" && file.name.trim().length > 0
-      ? file.name.trim()
-      : null;
-  const candidate = {
-    name: nameCandidate || `Recorded Deed ${idx}`,
-  };
-  return pickAllowed(candidate, FILE_ALLOWED_KEYS);
-}
-
-function buildDeedPayload(raw) {
-  const deed = raw && typeof raw === "object" ? raw : {};
-  const cleaned = {
-    deed_type:
-      typeof deed.deed_type === "string" && deed.deed_type.trim()
-        ? deed.deed_type.trim()
-        : undefined,
-    book:
-      typeof deed.book === "string" && deed.book.trim()
-        ? deed.book.trim()
-        : undefined,
-    page:
-      typeof deed.page === "string" && deed.page.trim()
-        ? deed.page.trim()
-        : undefined,
-    instrument_number:
-      typeof deed.instrument_number === "string" &&
-      deed.instrument_number.trim()
-        ? deed.instrument_number.trim()
-        : undefined,
-    volume:
-      typeof deed.volume === "string" && deed.volume.trim()
-        ? deed.volume.trim()
-        : undefined,
-  };
-  return pickAllowed(cleaned, DEED_ALLOWED_KEYS);
-}
-
-function buildSalesHistoryPayload(raw) {
-  const sale = raw && typeof raw === "object" ? raw : {};
-  const ownershipDate =
-    typeof sale.ownership_transfer_date === "string"
-      ? sale.ownership_transfer_date.trim()
-      : sale.ownership_transfer_date != null
-        ? String(sale.ownership_transfer_date).trim()
-        : "";
-  const amount =
-    typeof sale.purchase_price_amount === "number" &&
-    Number.isFinite(sale.purchase_price_amount)
-      ? Number(sale.purchase_price_amount)
-      : undefined;
-  const cleaned = {
-    ownership_transfer_date: ownershipDate || undefined,
-    purchase_price_amount: amount,
-  };
-  return pickAllowed(cleaned, SALES_HISTORY_ALLOWED_KEYS);
 }
 
 function main() {
@@ -504,43 +319,29 @@ function main() {
       if (tds.length < 6) return;
       const bookPageLink = $(tds[0]).find("a");
       const bookPageText = bookPageLink.text().trim(); // e.g., "3072 / 319"
+      const docUrl = bookPageLink.attr("href") || null;
       const saleDateRaw = $(tds[1]).text().trim(); // mm/dd/yyyy
       const instrument = $(tds[2]).text().trim();
       const salePriceRaw = $(tds[5]).text().trim();
-
-      let book = null;
-      let page = null;
-      if (bookPageText) {
-        const [bookRaw, pageRaw] = bookPageText.split("/");
-        if (bookRaw && bookRaw.trim()) book = bookRaw.trim();
-        if (pageRaw && pageRaw.trim()) page = pageRaw.trim();
-      }
 
       const sale = {
         ownership_transfer_date: toISODate(saleDateRaw),
         purchase_price_amount: parseCurrency(salePriceRaw),
       };
 
-      if (!sale.ownership_transfer_date) return;
+      out.sales.push(sale);
 
-      const saleEntry = {
-        ownership_transfer_date: sale.ownership_transfer_date,
-      };
-      if (sale.purchase_price_amount != null)
-        saleEntry.purchase_price_amount = sale.purchase_price_amount;
-      out.sales.push(saleEntry);
-
-      const deedType = mapInstrumentToDeedType(instrument);
-      const deed = {};
-      if (deedType) deed.deed_type = deedType;
-      if (book) deed.book = book;
-      if (page) deed.page = page;
+      const deed = { deed_type: instrument || null };
       out.deeds.push(deed);
 
       const fileObj = {
-        name: bookPageText
-          ? `Official Records ${bookPageText}`
-          : "Recorded Deed",
+        document_type: /Warranty Deed/i.test(instrument)
+          ? "ConveyanceDeedWarrantyDeed"
+          : null,
+        file_format: null,
+        ipfs_url: null,
+        name: bookPageText ? `Official Records ${bookPageText}` : null,
+        original_url: docUrl || null,
       };
       out.files.push(fileObj);
     });
@@ -601,41 +402,25 @@ function main() {
 
   function buildPropertyJson() {
     const propertyInfo = extractPropertyTypeFromLandData();
-    let propertyType = normalizePropertyType(propertyInfo.propertyType);
-    if (!propertyType) {
-      propertyType =
-        bx.livingArea || bx.yearBuilt ? "SingleFamily" : "LandParcel";
-    }
-    propertyType = normalizePropertyType(propertyType) || "LandParcel";
-    if (typeof propertyType !== "string" || propertyType.length === 0) {
-      propertyType = "LandParcel";
-    }
 
     const property = {
       parcel_identifier: general.parcelNumber || propSeed.parcel_id || null,
-      property_legal_description_text: general.legalDescription || null,
       property_structure_built_year: bx.yearBuilt || null,
-      property_type: propertyType,
-      number_of_units:
-        propertyInfo.units != null && Number.isFinite(propertyInfo.units)
-          ? propertyInfo.units
-          : null,
+      livable_floor_area: bx.livingArea ? String(bx.livingArea) : null,
+      property_legal_description_text: general.legalDescription || null,
+      property_type: propertyInfo.propertyType, // Now extracted from Land Data
+      number_of_units_type: getUnitsType(propertyInfo.units), // Dynamic based on extracted units
+      number_of_units: propertyInfo.units || 1, // Default to 1 if not found
+      area_under_air: null,
+      property_effective_built_year: null,
       subdivision: null,
+      total_area: null,
       zoning: null,
     };
 
-    if (
-      !property.property_type ||
-      typeof property.property_type !== "string" ||
-      property.property_type.trim() === ""
-    ) {
-      property.property_type = "LandParcel";
-    }
-
+    // Remove undefined properties
     Object.keys(property).forEach((k) => {
-      if (property[k] === null || property[k] === undefined) {
-        delete property[k];
-      }
+      if (property[k] === undefined) delete property[k];
     });
 
     return property;
@@ -651,9 +436,6 @@ function main() {
       .replace(/\r/g, "")
       .trim();
     raw = raw.replace(/\n/g, ", ").replace(/\s+/g, " ").trim();
-
-    const unnormalizedAddress =
-      raw && raw.trim().length > 0 ? raw.trim() : null;
 
     let street_number = null,
       street_name = null,
@@ -1022,39 +804,35 @@ function main() {
       XRDS: "Xrds",
     };
     if (street_suffix_type) {
-      const key = street_suffix_type.toUpperCase().replace(/\./g, "");
-      street_suffix_type = suffixMap[key] || null;
+      const key = street_suffix_type.toUpperCase();
+      if (suffixMap[key]) street_suffix_type = suffixMap[key];
     }
 
     const countyName = addrSeed.county_jurisdiction || null;
 
-    const address = {};
-    if (
-      unnormalizedAddress &&
-      typeof unnormalizedAddress === "string" &&
-      unnormalizedAddress.trim() !== ""
-    ) {
-      address.unnormalized_address = unnormalizedAddress.trim();
-      if (countyName) address.county_name = countyName;
-      address.country_code = "US";
-    } else {
-      address.street_number = street_number || null;
-      address.street_name = street_name || null;
-      address.street_suffix_type = street_suffix_type || null;
-      address.city_name = city_name || null;
-      address.state_code = state_code || null;
-      address.postal_code = postal_code || null;
-      address.country_code = "US";
-      if (countyName) address.county_name = countyName;
-    }
-
-    Object.keys(address).forEach((key) => {
-      if (address[key] === null || address[key] === undefined) {
-        delete address[key];
-      }
-    });
-
-    return address;
+    return {
+      street_number: street_number || null,
+      street_name: street_name || null,
+      street_suffix_type: street_suffix_type || null,
+      street_pre_directional_text: null,
+      street_post_directional_text: null,
+      city_name: city_name || null,
+      municipality_name: null,
+      state_code: state_code || null,
+      postal_code: postal_code || null,
+      plus_four_postal_code: null,
+      country_code: "US",
+      county_name: countyName || null,
+      unit_identifier: null,
+      latitude: null,
+      longitude: null,
+      route_number: null,
+      township: null,
+      range: null,
+      section: null,
+      block: null,
+      lot: null,
+    };
   }
 
   const addr = parseAddress();
@@ -1064,17 +842,6 @@ function main() {
 
   // property.json
   const property = buildPropertyJson();
-  if (
-    !property.property_type ||
-    typeof property.property_type !== "string" ||
-    property.property_type.trim() === ""
-  ) {
-    property.property_type = "LandParcel";
-  } else {
-    const normalizedType =
-      normalizePropertyType(property.property_type) || "LandParcel";
-    property.property_type = String(normalizedType);
-  }
   Object.keys(property).forEach((k) => {
     if (property[k] === undefined) delete property[k];
   });
@@ -1095,21 +862,7 @@ function main() {
     driveway_condition: null,
     lot_condition_issues: null,
   };
-  const hasLotData = Object.values(lot).some(
-    (value) => value !== null && value !== undefined,
-  );
-  if (hasLotData) {
-    writeJSON(path.join(dataDir, "lot.json"), lot);
-  }
-
-  const makeRef = (fileName) => {
-    const trimmed = typeof fileName === "string" ? fileName.trim() : "";
-    if (!trimmed) return null;
-    return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-  };
-
-  const makePropertyRef = () => makeRef("property.json");
-  const taxFiles = [];
+  writeJSON(path.join(dataDir, "lot.json"), lot);
 
   // tax_*.json
   if (
@@ -1140,12 +893,9 @@ function main() {
     };
     const taxName = `tax_${tax.tax_year || "1"}.json`;
     writeJSON(path.join(dataDir, taxName), tax);
-    taxFiles.push(taxName);
     if (tax.tax_year && fs.existsSync(path.join(dataDir, "tax_1.json"))) {
       try {
         fs.unlinkSync(path.join(dataDir, "tax_1.json"));
-        const placeholderIndex = taxFiles.indexOf("tax_1.json");
-        if (placeholderIndex !== -1) taxFiles.splice(placeholderIndex, 1);
       } catch (e) {}
     }
   }
@@ -1214,7 +964,6 @@ function main() {
   }
 
   // layout_*.json from layout_data
-  const layoutFiles = [];
   if (
     layoutData &&
     ownerKey &&
@@ -1224,18 +973,7 @@ function main() {
     const layouts = layoutData[ownerKey].layouts;
     layouts.forEach((lay, idx) => {
       const name = `layout_${idx + 1}.json`;
-      const layoutObj = { ...lay };
-      const indexValue =
-        layoutObj.space_type_index != null &&
-        String(layoutObj.space_type_index).trim() !== ""
-          ? String(layoutObj.space_type_index).trim()
-          : String(idx + 1);
-      layoutObj.space_type_index = indexValue;
-      writeJSON(path.join(dataDir, name), layoutObj);
-      layoutFiles.push({
-        fileName: name,
-        space_type_index: indexValue,
-      });
+      writeJSON(path.join(dataDir, name), lay);
     });
   }
 
@@ -1286,172 +1024,61 @@ function main() {
     }
   }
 
-  // sales_history_*.json, deed_*.json, file_*.json + relationships
-  const salesEntries = [];
-  const deedEntries = [];
-  const fileEntries = [];
+  // sales_*.json, deed_*.json, file_*.json + relationships
+  const salesFiles = [];
+  const deedFiles = [];
+  const fileFiles = [];
   bx.sales.forEach((s, i) => {
-    const saleObj = buildSalesHistoryPayload(s);
-    if (!saleObj.ownership_transfer_date) return;
-    const idx = i + 1;
-    const sName = `sales_history_${idx}.json`;
-    writeJSON(path.join(dataDir, sName), saleObj);
-    salesEntries.push({
-      fileName: sName,
-      ownership_transfer_date: saleObj.ownership_transfer_date,
+    const sName = `sales_${i + 1}.json`;
+    writeJSON(path.join(dataDir, sName), {
+      ownership_transfer_date: s.ownership_transfer_date || null,
+      purchase_price_amount:
+        s.purchase_price_amount != null ? s.purchase_price_amount : null,
     });
+    salesFiles.push(sName);
   });
   bx.deeds.forEach((d, i) => {
-    const deedObj = buildDeedPayload(d);
-    const idx = i + 1;
-    const dName = `deed_${idx}.json`;
-    writeJSON(path.join(dataDir, dName), deedObj);
-    deedEntries.push({
-      fileName: dName,
-      deed_type: deedObj.deed_type || null,
-    });
+    const dName = `deed_${i + 1}.json`;
+    writeJSON(path.join(dataDir, dName), { deed_type: d.deed_type || null });
+    deedFiles.push(dName);
   });
   bx.files.forEach((f, i) => {
-    const idx = i + 1;
-    const fName = `file_${idx}.json`;
-    const fileObj = buildFilePayload(f, idx);
-    writeJSON(path.join(dataDir, fName), fileObj);
-    fileEntries.push({
-      fileName: fName,
-    });
+    const fName = `file_${i + 1}.json`;
+    const obj = { ...f };
+    writeJSON(path.join(dataDir, fName), obj);
+    fileFiles.push(fName);
   });
 
-  // property relationships and additional linkage
-  if (addr && Object.keys(addr).length > 0) {
-    const fromRef = makePropertyRef();
-    const toRef = makeRef("address.json");
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(dataDir, "relationship_property_has_address.json"),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  }
-  if (hasLotData) {
-    const fromRef = makePropertyRef();
-    const toRef = makeRef("lot.json");
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(dataDir, "relationship_property_has_lot.json"),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  }
-  salesEntries.forEach((saleEntry, idx) => {
-    const fromRef = makePropertyRef();
-    const toRef = makeRef(saleEntry.fileName);
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(
-          dataDir,
-          `relationship_property_has_sales_history_${idx + 1}.json`,
-        ),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  });
-  fileEntries.forEach((fileEntry, idx) => {
-    const fromRef = makePropertyRef();
-    const toRef = makeRef(fileEntry.fileName);
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(dataDir, `relationship_property_has_file_${idx + 1}.json`),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  });
-  const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
-  for (let i = 0; i < deedFilePairCount; i++) {
-    const fromRef = makeRef(deedEntries[i].fileName);
-    const toRef = makeRef(fileEntries[i].fileName);
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(dataDir, `relationship_deed_has_file_${i + 1}.json`),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  }
-  layoutFiles.forEach((layoutEntry, idx) => {
-    const fromRef = makePropertyRef();
-    const toRef = makeRef(layoutEntry.fileName);
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(dataDir, `relationship_property_has_layout_${idx + 1}.json`),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  });
-  taxFiles.forEach((taxFile, idx) => {
-    const fromRef = makePropertyRef();
-    const toRef = makeRef(taxFile);
-    if (fromRef && toRef) {
-      writeJSON(
-        path.join(dataDir, `relationship_property_has_tax_${idx + 1}.json`),
-        {
-          from: fromRef,
-          to: toRef,
-        },
-      );
-    }
-  });
-
-  // relationship_sales_history_has_deed_*.json (sale -> deed)
-  const saleDeedPairCount = Math.min(
-    salesEntries.length,
-    deedEntries.length,
-  );
-  for (let i = 0; i < saleDeedPairCount; i++) {
-    const saleEntry = salesEntries[i];
-    const deedEntry = deedEntries[i];
-    const fromRef = makeRef(saleEntry.fileName);
-    const toRef = makeRef(deedEntry.fileName);
-    if (fromRef && toRef) {
-      const rel = {
-        from: fromRef,
-        to: toRef,
-      };
-      const relName = `relationship_sales_history_has_deed_${i + 1}.json`;
-      writeJSON(path.join(dataDir, relName), rel);
-    }
+  // relationship_deed_file_*.json (deed ← file)
+  for (let i = 0; i < Math.min(deedFiles.length, fileFiles.length); i++) {
+    const rel = {
+      to: { "/": `./${deedFiles[i]}` },
+      from: { "/": `./${fileFiles[i]}` },
+    };
+    const relName = `relationship_deed_file_${i + 1}.json`;
+    writeJSON(path.join(dataDir, relName), rel);
   }
 
-  // relationship_sales_history_has_person_*.json for current owners to most recent sale
-  if (personFiles.length > 0 && salesEntries.length > 0) {
-    const recentSale = salesEntries[0];
+  // relationship_sales_deed_*.json (sales ← deed)
+  for (let i = 0; i < Math.min(salesFiles.length, deedFiles.length); i++) {
+    const rel = {
+      to: { "/": `./${salesFiles[i]}` },
+      from: { "/": `./${deedFiles[i]}` },
+    };
+    const relName = `relationship_sales_deed_${i + 1}.json`;
+    writeJSON(path.join(dataDir, relName), rel);
+  }
+
+  // relationship_sales_person_*.json for current owners to most recent sale
+  if (personFiles.length > 0 && salesFiles.length > 0) {
+    const recentSalesFile = salesFiles[0];
     personFiles.forEach((pf, idx) => {
-      const toRef = makeRef(pf);
-      const fromRef = makeRef(recentSale.fileName);
-      if (toRef && fromRef) {
-        const rel = {
-          to: toRef,
-          from: fromRef,
-        };
-        const relName = `relationship_sales_history_has_person_${idx + 1}.json`;
-        writeJSON(path.join(dataDir, relName), rel);
-      }
+      const rel = {
+        to: { "/": `./${pf}` },
+        from: { "/": `./${recentSalesFile}` },
+      };
+      const relName = `relationship_sales_person_${idx + 1}.json`;
+      writeJSON(path.join(dataDir, relName), rel);
     });
   }
 }
