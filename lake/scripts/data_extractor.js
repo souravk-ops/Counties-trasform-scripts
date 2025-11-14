@@ -1104,7 +1104,7 @@ function main() {
 
   const makeRef = (fileName) => {
     const target = fileName.startsWith("./") ? fileName : `./${fileName}`;
-    return target;
+    return { "/": target };
   };
 
   const makePropertyRef = () => makeRef("property.json");
