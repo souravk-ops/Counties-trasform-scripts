@@ -77,36 +77,34 @@ function createRef(refLike) {
 }
 
 function createRelationshipPointer(refLike) {
+  if (!refLike) return null;
+
+  if (typeof refLike === "object" && !Array.isArray(refLike)) {
+    if (typeof refLike["/"] === "string" && refLike["/"].trim()) {
+      const normalized = createRef(refLike["/"]);
+      return normalized ? { "/": normalized } : null;
+    }
+    if (typeof refLike.cid === "string" && refLike.cid.trim()) {
+      const cidVal = refLike.cid.trim();
+      return { cid: cidVal.startsWith("cid:") ? cidVal : `cid:${cidVal}` };
+    }
+    if (typeof refLike.path === "string" && refLike.path.trim()) {
+      const normalized = createRef(refLike.path);
+      return normalized ? { "/": normalized } : null;
+    }
+  }
+
   const pointer = createRef(refLike);
-  if (!pointer) {
-    return null;
+  if (!pointer || typeof pointer !== "string") return null;
+  const trimmed = pointer.trim();
+  if (!trimmed) return null;
+
+  if (/^(?:cid:|baf)/i.test(trimmed)) {
+    const cidVal = trimmed.startsWith("cid:") ? trimmed : `cid:${trimmed}`;
+    return { cid: cidVal };
   }
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed)) {
-      return trimmed;
-    }
-    if (/^(?:baf)/i.test(trimmed)) {
-      return trimmed;
-    }
-    return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-  }
-  if (typeof pointer === "object") {
-    if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-      const cidVal = pointer.cid.trim();
-      return cidVal.startsWith("cid:") ? cidVal : `cid:${cidVal}`;
-    }
-    if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-      const pathVal = pointer["/"].trim();
-      return pathVal.startsWith("./") ? pathVal : `./${pathVal}`;
-    }
-    if (typeof pointer.path === "string" && pointer.path.trim()) {
-      const pathVal = pointer.path.trim();
-      return pathVal.startsWith("./") ? pathVal : `./${pathVal}`;
-    }
-  }
-  return null;
+
+  return { "/": trimmed.startsWith("./") ? trimmed : `./${trimmed}` };
 }
 
 function normalizeSaleDate(value) {
