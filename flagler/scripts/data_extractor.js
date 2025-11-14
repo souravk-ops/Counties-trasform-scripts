@@ -487,10 +487,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
-    const saleRef = wrapRelationshipEndpoint(
-      "sales_history",
-      `./${saleFilename}`,
-    );
+    const saleRef = { "/": `./${saleFilename}` };
     processedSales.push({
       source: s,
       idx,
@@ -526,7 +523,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    const deedRef = wrapRelationshipEndpoint("deed", `./${deedFilename}`);
+    const deedRef = { "/": `./${deedFilename}` };
 
     const fileObj = {
       document_type: "Title",
@@ -535,15 +532,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    const fileRef = wrapRelationshipEndpoint("file", `./${fileFilename}`);
+    const fileRef = { "/": `./${fileFilename}` };
 
     if (hasPropertyFile) {
       const relPropertyFile = {
-        type: "property_has_file",
-        from: wrapRelationshipEndpoint(
-          "property",
-          (context && context.propertyRef) || "./property.json",
-        ),
+        from: {
+          "/":
+            (context && context.propertyRef) || "./property.json",
+        },
         to: fileRef,
       };
       writeJSON(
@@ -553,7 +549,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     }
 
     const relSalesToDeed = {
-      type: "sales_history_has_deed",
       from: saleRef,
       to: deedRef,
     };
@@ -563,7 +558,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     );
 
     const relDeedToFile = {
-      type: "deed_has_file",
       from: deedRef,
       to: fileRef,
     };
