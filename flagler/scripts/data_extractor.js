@@ -53,6 +53,12 @@ function attachSourceHttpRequest(target, request) {
   target.source_http_request = cloneDeep(request);
 }
 
+function createRef(filename) {
+  if (!filename) return null;
+  const normalized = filename.startsWith("./") ? filename : `./${filename}`;
+  return { "/": normalized };
+}
+
 function normalizeSaleDate(value) {
   const iso = parseDateToISO(value);
   if (iso) return iso;
@@ -427,10 +433,12 @@ function writeProperty($, parcelId, context) {
     zoning: null, // Not directly available in the sample HTML
   };
   attachSourceHttpRequest(property, defaultSourceHttpRequest);
-  writeJSON(path.join("data", "property.json"), property);
+  const propertyFilename = "property.json";
+  writeJSON(path.join("data", propertyFilename), property);
   if (context) {
     context.propertyNode = property;
-    context.propertyRef = "./property.json";
+    context.propertyFile = propertyFilename;
+    context.propertyPointer = createRef(propertyFilename);
   }
 }
 
@@ -462,18 +470,20 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
+    const salePointer = createRef(saleFilename);
     processedSales.push({
       source: s,
       idx,
       saleFilename,
       transferDate,
+      salePointer,
       saleNode: saleObj,
     });
-    if (hasPropertyFile && context && context.propertyNode) {
+    if (hasPropertyFile && context && context.propertyFile && salePointer) {
       const relPropertySale = {
         type: "property_has_sales_history",
-        from: cloneDeep(context.propertyNode),
-        to: cloneDeep(saleObj),
+        from: createRef(context.propertyFile),
+        to: salePointer,
       };
       writeJSON(
         path.join(
@@ -494,6 +504,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
+    const deedPointer = createRef(deedFilename);
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
@@ -502,11 +513,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    if (hasPropertyFile && context && context.propertyNode) {
+    const filePointer = createRef(fileFilename);
+    if (
+      hasPropertyFile &&
+      context &&
+      context.propertyFile &&
+      filePointer
+    ) {
       const relPropertyFile = {
         type: "property_has_file",
-        from: cloneDeep(context.propertyNode),
-        to: cloneDeep(fileObj),
+        from: createRef(context.propertyFile),
+        to: filePointer,
       };
       writeJSON(
         path.join("data", `relationship_property_has_file_${idx}.json`),
@@ -516,8 +533,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const relDeedHasFile = {
       type: "deed_has_file",
-      from: cloneDeep(deed),
-      to: cloneDeep(fileObj),
+      from: deedPointer,
+      to: filePointer,
     };
     writeJSON(
       path.join("data", `relationship_deed_has_file_${idx}.json`),
@@ -526,8 +543,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     const relSalesHistoryHasDeed = {
       type: "sales_history_has_deed",
-      from: cloneDeep(saleObj),
-      to: cloneDeep(deed),
+      from: salePointer,
+      to: deedPointer,
     };
     writeJSON(
       path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
@@ -630,11 +647,14 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
+    const saleRef = rec.salePointer || createRef(rec.saleFilename);
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
+          const personRef = createRef(`person_${pIdx}.json`);
+          if (!saleRef || !personRef) return;
           relPersonCounter++;
           writeJSON(
             path.join(
@@ -642,8 +662,8 @@ function writePersonCompaniesSalesRelationships(
               `relationship_sales_person_${relPersonCounter}.json`,
             ),
             {
-              to: cloneDeep(people[pIdx - 1]),
-              from: cloneDeep(rec.saleNode),
+              to: personRef,
+              from: saleRef,
             },
           );
         }
@@ -653,6 +673,8 @@ function writePersonCompaniesSalesRelationships(
       .forEach((o) => {
         const cIdx = findCompanyIndexByName(o.name);
         if (cIdx) {
+          const companyRef = createRef(`company_${cIdx}.json`);
+          if (!saleRef || !companyRef) return;
           relCompanyCounter++;
           writeJSON(
             path.join(
@@ -660,8 +682,8 @@ function writePersonCompaniesSalesRelationships(
               `relationship_sales_company_${relCompanyCounter}.json`,
             ),
             {
-              to: cloneDeep(companies[cIdx - 1]),
-              from: cloneDeep(rec.saleNode),
+              to: companyRef,
+              from: saleRef,
             },
           );
         }
@@ -813,11 +835,18 @@ function writeLayout(parcelId, context) {
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
-    if (fs.existsSync(path.join("data", "property.json")) && context && context.propertyNode) {
+    if (
+      fs.existsSync(path.join("data", "property.json")) &&
+      context &&
+      context.propertyFile
+    ) {
+      const propertyRef = createRef(context.propertyFile);
+      const layoutRef = createRef(layoutFilename);
+      if (!propertyRef || !layoutRef) return;
       const rel = {
         type: "property_has_layout",
-        from: cloneDeep(context.propertyNode),
-        to: cloneDeep(out),
+        from: propertyRef,
+        to: layoutRef,
       };
       writeJSON(
         path.join("data", `relationship_property_has_layout_${layoutCounter}.json`),
