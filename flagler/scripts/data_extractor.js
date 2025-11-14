@@ -78,25 +78,33 @@ function parseBookAndPage(raw) {
 
 function wrapRelationshipEndpoint(_classKey, ref) {
   if (!ref) return null;
+
+  const normalizeRefString = (value) => {
+    if (value == null) return null;
+    const trimmed = String(value).trim();
+    return trimmed ? trimmed : null;
+  };
+
   if (typeof ref === "string") {
-    const trimmed = ref.trim();
-    if (!trimmed) return null;
-    return trimmed;
+    const normalized = normalizeRefString(ref);
+    return normalized ? { "/": normalized } : null;
   }
+
   if (typeof ref === "object") {
-    if (ref.cid) {
-      const cid = String(ref.cid).trim();
-      return cid ? cid : null;
+    if (Object.prototype.hasOwnProperty.call(ref, "cid")) {
+      const cid = normalizeRefString(ref.cid);
+      return cid ? { cid } : null;
     }
-    if (ref["/"]) {
-      const val = String(ref["/"]).trim();
-      return val ? val : null;
+    if (Object.prototype.hasOwnProperty.call(ref, "/")) {
+      const viaSlash = normalizeRefString(ref["/"]);
+      return viaSlash ? { "/": viaSlash } : null;
     }
-    if (ref.path) {
-      const val = String(ref.path).trim();
-      return val ? val : null;
+    if (Object.prototype.hasOwnProperty.call(ref, "path")) {
+      const viaPath = normalizeRefString(ref.path);
+      return viaPath ? { "/": viaPath } : null;
     }
   }
+
   return null;
 }
 
