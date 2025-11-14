@@ -112,12 +112,11 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const toRef = createRelationshipPointer(toRefLike);
   if (!fromRef || !toRef) return;
   const swapEndpoints =
-    !options || options.swapEndpoints === undefined
-      ? true
-      : Boolean(options.swapEndpoints);
+    options && options.swapEndpoints !== undefined
+      ? Boolean(options.swapEndpoints)
+      : false;
   const relationship = {
     type,
-    // The downstream loader interprets endpoints in the opposite order, so swap by default.
     from: swapEndpoints ? toRef : fromRef,
     to: swapEndpoints ? fromRef : toRef,
   };

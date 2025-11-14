@@ -238,8 +238,8 @@ function main() {
     if (propertyRelationshipFrom) {
       const rel = {
         type: "property_has_layout",
-        from: makeRelationshipPointer(`./${layoutFile}`),
-        to: makeRelationshipPointer(propertyRelationshipFrom),
+        from: makeRelationshipPointer(propertyRelationshipFrom),
+        to: makeRelationshipPointer(`./${layoutFile}`),
       };
       fs.writeFileSync(
         path.join(
