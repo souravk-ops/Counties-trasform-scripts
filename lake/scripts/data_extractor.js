@@ -163,64 +163,39 @@ function getUnitsType(units) {
   return null;
 }
 
-const PROPERTY_TYPE_ALLOWED = new Set([
-  "Cooperative",
-  "Condominium",
-  "Modular",
-  "ManufacturedHousingMultiWide",
-  "Pud",
-  "Timeshare",
-  "2Units",
-  "DetachedCondominium",
-  "Duplex",
-  "SingleFamily",
-  "MultipleFamily",
-  "3Units",
-  "ManufacturedHousing",
-  "ManufacturedHousingSingleWide",
-  "4Units",
-  "Townhouse",
-  "NonWarrantableCondo",
-  "VacantLand",
-  "Retirement",
-  "MiscellaneousResidential",
-  "ResidentialCommonElementsAreas",
-  "MobileHome",
-  "Apartment",
-  "MultiFamilyMoreThan10",
-  "MultiFamilyLessThan10",
+const ELEPHANT_PROPERTY_TYPES = new Set([
   "LandParcel",
   "Building",
   "Unit",
   "ManufacturedHome",
 ]);
-const PROPERTY_TYPE_LAND_HINTS = new Set(["LandParcel", "VacantLand"]);
+const PROPERTY_TYPE_LAND_HINTS = new Set(["LANDPARCEL", "VACANTLAND"]);
 const PROPERTY_TYPE_MANUFACTURED_HINTS = new Set([
-  "ManufacturedHome",
-  "ManufacturedHousing",
-  "ManufacturedHousingSingleWide",
-  "ManufacturedHousingMultiWide",
-  "MobileHome",
-  "Modular",
+  "MANUFACTUREDHOME",
+  "MANUFACTUREDHOUSING",
+  "MANUFACTUREDHOUSINGSINGLEWIDE",
+  "MANUFACTUREDHOUSINGMULTIWIDE",
+  "MOBILEHOME",
+  "MODULAR",
 ]);
 const PROPERTY_TYPE_UNIT_HINTS = new Set([
-  "Condominium",
-  "DetachedCondominium",
-  "Timeshare",
-  "Cooperative",
-  "Unit",
-  "NonWarrantableCondo",
+  "CONDOMINIUM",
+  "DETACHEDCONDOMINIUM",
+  "TIMESHARE",
+  "COOPERATIVE",
+  "UNIT",
+  "NONWARRANTABLECONDO",
 ]);
 
 function normalizePropertyType(value) {
   if (!value) return null;
   const normalized = String(value).trim();
   if (!normalized) return null;
-  if (PROPERTY_TYPE_ALLOWED.has(normalized)) return normalized;
-  if (PROPERTY_TYPE_LAND_HINTS.has(normalized)) return "LandParcel";
-  if (PROPERTY_TYPE_MANUFACTURED_HINTS.has(normalized))
-    return "ManufacturedHome";
-  if (PROPERTY_TYPE_UNIT_HINTS.has(normalized)) return "Unit";
+  if (ELEPHANT_PROPERTY_TYPES.has(normalized)) return normalized;
+  const upper = normalized.toUpperCase();
+  if (PROPERTY_TYPE_LAND_HINTS.has(upper)) return "LandParcel";
+  if (PROPERTY_TYPE_MANUFACTURED_HINTS.has(upper)) return "ManufacturedHome";
+  if (PROPERTY_TYPE_UNIT_HINTS.has(upper)) return "Unit";
   return "Building";
 }
 
@@ -1387,10 +1362,9 @@ function main() {
   });
   const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
   for (let i = 0; i < deedFilePairCount; i++) {
-    const rel = {
-      from: makeRef(fileEntries[i].fileName),
-      to: makeRef(deedEntries[i].fileName),
-    };
+    const deedRef = makeRef(deedEntries[i].fileName);
+    const fileRef = makeRef(fileEntries[i].fileName);
+    const rel = { from: deedRef, to: fileRef };
     const relName = `relationship_deed_has_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
   }
