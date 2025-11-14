@@ -26,6 +26,31 @@ function getParcelId($) {
   return null;
 }
 
+function makeRelationshipPointer(ref) {
+  if (!ref) return null;
+  if (typeof ref === "string") {
+    const trimmed = ref.trim();
+    if (!trimmed) return null;
+    if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
+    return { "/": trimmed };
+  }
+  if (typeof ref === "object") {
+    if (typeof ref["/"] === "string") {
+      const val = ref["/"].trim();
+      return val ? { "/": val } : null;
+    }
+    if (typeof ref.cid === "string") {
+      const cid = ref.cid.trim();
+      return cid ? cid : null;
+    }
+    if (typeof ref.path === "string") {
+      const val = ref.path.trim();
+      return val ? { "/": val } : null;
+    }
+  }
+  return null;
+}
+
 function collectBuildings($) {
   const buildings = [];
   const section = $("section")
@@ -206,8 +231,8 @@ function main() {
     if (propertyRelationshipFrom) {
       const rel = {
         type: "property_has_layout",
-        from: propertyRelationshipFrom,
-        to: `./${layoutFile}`,
+        from: makeRelationshipPointer(propertyRelationshipFrom),
+        to: makeRelationshipPointer(`./${layoutFile}`),
       };
       fs.writeFileSync(
         path.join(

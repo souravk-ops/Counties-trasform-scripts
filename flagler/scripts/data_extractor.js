@@ -80,15 +80,23 @@ function wrapRelationshipEndpoint(_classKey, ref) {
   if (!ref) return null;
   if (typeof ref === "string") {
     const trimmed = ref.trim();
-    return trimmed.length ? trimmed : null;
+    if (!trimmed) return null;
+    if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
+    return { "/": trimmed };
   }
-  if (ref["/"]) {
-    const val = String(ref["/"]).trim();
-    return val.length ? val : null;
-  }
-  if (ref.path) {
-    const val = String(ref.path).trim();
-    return val.length ? val : null;
+  if (typeof ref === "object") {
+    if (ref["/"]) {
+      const val = String(ref["/"]).trim();
+      return val ? { "/": val } : null;
+    }
+    if (ref.cid) {
+      const cid = String(ref.cid).trim();
+      return cid ? cid : null;
+    }
+    if (ref.path) {
+      const val = String(ref.path).trim();
+      return val ? { "/": val } : null;
+    }
   }
   return null;
 }
