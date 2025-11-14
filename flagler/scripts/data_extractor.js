@@ -572,6 +572,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
+    const deedPointer = createRef(deedFilename);
+    const deedRef = createRelationshipPointer(deedPointer);
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
@@ -582,6 +584,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
+    if (deedRef && fileRef) {
+      const relDeedFile = {
+        type: "deed_has_file",
+        from: deedRef,
+        to: fileRef,
+      };
+      writeJSON(
+        path.join("data", `relationship_deed_has_file_${idx}.json`),
+        relDeedFile,
+      );
+    }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
       const fromRef = createRelationshipPointer(context.propertyFile);
       if (fromRef) {
@@ -597,6 +610,20 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       }
     }
 
+    const saleRefForDeed = createRelationshipPointer(
+      salePointer || saleFilename,
+    );
+    if (saleRefForDeed && deedRef) {
+      const relSaleDeed = {
+        type: "sales_history_has_deed",
+        from: saleRefForDeed,
+        to: deedRef,
+      };
+      writeJSON(
+        path.join("data", `relationship_sales_history_has_deed_${idx}.json`),
+        relSaleDeed,
+      );
+    }
   });
   return processedSales;
 }
