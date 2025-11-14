@@ -1388,8 +1388,8 @@ function main() {
   const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
   for (let i = 0; i < deedFilePairCount; i++) {
     const rel = {
-      from: makeRef(deedEntries[i].fileName),
-      to: makeRef(fileEntries[i].fileName),
+      from: makeRef(fileEntries[i].fileName),
+      to: makeRef(deedEntries[i].fileName),
     };
     const relName = `relationship_deed_has_file_${i + 1}.json`;
     writeJSON(path.join(dataDir, relName), rel);
