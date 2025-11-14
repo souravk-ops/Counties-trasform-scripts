@@ -210,6 +210,19 @@ function mapInstrumentToDeedType(instrument) {
   return "Miscellaneous";
 }
 
+function buildFilePayload(rawFile, idx) {
+  const file = rawFile && typeof rawFile === "object" ? rawFile : {};
+  const name =
+    typeof file.name === "string" && file.name.trim().length > 0
+      ? file.name.trim()
+      : null;
+
+  // The downstream process populates canonical URs, so avoid emitting stubs here.
+  return {
+    name: name || `Recorded Deed ${idx}`,
+  };
+}
+
 function main() {
   const dataDir = path.join(".", "data");
   ensureDir(dataDir);
@@ -1208,6 +1221,10 @@ function main() {
     const dName = `deed_${idx}.json`;
     const deedObj = {};
     if (d.deed_type) deedObj.deed_type = d.deed_type;
+    if (d.book) deedObj.book = d.book;
+    if (d.page) deedObj.page = d.page;
+    if (d.instrument_number) deedObj.instrument_number = d.instrument_number;
+    if (d.volume) deedObj.volume = d.volume;
     writeJSON(path.join(dataDir, dName), deedObj);
     deedEntries.push({
       fileName: dName,
@@ -1217,10 +1234,8 @@ function main() {
   bx.files.forEach((f, i) => {
     const idx = i + 1;
     const fName = `file_${idx}.json`;
-    const obj = {
-      name: f.name || `Recorded Deed ${idx}`,
-    };
-    writeJSON(path.join(dataDir, fName), obj);
+    const fileObj = buildFilePayload(f, idx);
+    writeJSON(path.join(dataDir, fName), fileObj);
     fileEntries.push({
       fileName: fName,
     });
@@ -1269,6 +1284,7 @@ function main() {
   const deedFilePairCount = Math.min(deedEntries.length, fileEntries.length);
   for (let i = 0; i < deedFilePairCount; i++) {
     const rel = {
+      type: "deed_has_file",
       from: makeRef(deedEntries[i].fileName),
       to: makeRef(fileEntries[i].fileName),
     };
