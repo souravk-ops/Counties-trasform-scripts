@@ -576,10 +576,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
     if (deedRef && fileRef) {
-      writeRelationship("deed_has_file", deedRef, fileRef, idx);
+      writeRelationship("deed_has_file", fileRef, deedRef, idx);
     }
     if (deedRef && saleRef) {
-      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx);
+      writeRelationship("sales_history_has_deed", deedRef, saleRef, idx);
     }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
       writeRelationship(
