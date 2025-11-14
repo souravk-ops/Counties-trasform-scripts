@@ -79,30 +79,22 @@ function createRef(refLike) {
 function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
   if (!pointer) return null;
+  if (typeof pointer === "string") {
+    const trimmed = pointer.trim();
+    return trimmed ? trimmed : null;
+  }
   if (typeof pointer === "object") {
     if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-      return { "/": pointer["/"].trim() };
+      return pointer["/"].trim();
+    }
+    if (typeof pointer.path === "string" && pointer.path.trim()) {
+      return createRelationshipPointer(pointer.path.trim());
     }
     if (typeof pointer.cid === "string" && pointer.cid.trim()) {
       const cidVal = pointer.cid.trim();
-      return cidVal ? { cid: cidVal.replace(/^cid:/i, "") || cidVal } : null;
-    }
-    if (typeof pointer.path === "string" && pointer.path.trim()) {
-      return { "/": pointer.path.trim() };
+      return cidVal ? (cidVal.toLowerCase().startsWith("cid:") ? cidVal : `cid:${cidVal}`) : null;
     }
     return null;
-  }
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed)) {
-      const cidValue = trimmed.slice(4).trim();
-      return cidValue ? { cid: cidValue } : null;
-    }
-    if (/^(?:baf)/i.test(trimmed)) {
-      return { cid: trimmed };
-    }
-    return { "/": trimmed };
   }
   return null;
 }
