@@ -582,19 +582,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
-    if (
-      hasPropertyFile &&
-      context &&
-      context.propertyFile &&
-      filePointer
-    ) {
+    const fileRef = createRelationshipPointer(filePointer);
+    if (hasPropertyFile && context && context.propertyFile && fileRef) {
       const fromRef = createRelationshipPointer(context.propertyFile);
-      const toRef = createRelationshipPointer(filePointer);
-      if (fromRef && toRef) {
+      if (fromRef) {
         const relPropertyFile = {
           type: "property_has_file",
           from: fromRef,
-          to: toRef,
+          to: fileRef,
         };
         writeJSON(
           path.join("data", `relationship_property_has_file_${idx}.json`),
@@ -604,6 +599,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     }
 
     const deedRef = createRelationshipPointer(deedPointer);
+    if (deedRef && fileRef) {
+      const relDeedHasFile = {
+        type: "deed_has_file",
+        from: deedRef,
+        to: fileRef,
+      };
+      writeJSON(
+        path.join("data", `relationship_deed_has_file_${idx}.json`),
+        relDeedHasFile,
+      );
+    }
 
     const saleRef = createRelationshipPointer(salePointer);
     if (saleRef && deedRef) {
