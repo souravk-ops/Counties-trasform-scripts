@@ -586,17 +586,18 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
+      // Schema expects deed as the relationship origin and file as the target.
       writeRelationship(
         "deed_file",
-        filePointer,
         deedPointer,
+        filePointer,
         idx,
         { omitType: true },
       );
     }
     if (salePointer && deedPointer) {
       writeRelationship(
-        "sales_deed",
+        "sales_history_has_deed",
         salePointer,
         deedPointer,
         idx,
