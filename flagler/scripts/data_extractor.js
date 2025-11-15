@@ -628,16 +628,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         deedPointer = filePointer;
         filePointer = tmpPointer;
       }
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
-        inlineFrom: cloneDeep(deed),
-        inlineTo: cloneDeep(fileObj),
-      });
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
     if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx, {
-        inlineFrom: cloneDeep(saleObj),
-        inlineTo: cloneDeep(deed),
-      });
+      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
     }
     if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
       writeRelationship(
@@ -645,9 +639,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         filePointer,
         idx,
-        {
-          inlineTo: cloneDeep(fileObj),
-        },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && salePointer) {
@@ -656,9 +647,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         salePointer,
         idx,
-        {
-          inlineTo: cloneDeep(saleObj),
-        },
       );
     }
   });
@@ -967,9 +955,6 @@ function writeLayout(parcelId, context) {
         context.propertyPointer,
         layoutPointer,
         layoutCounter,
-        {
-          inlineTo: cloneDeep(out),
-        },
       );
     }
   });
