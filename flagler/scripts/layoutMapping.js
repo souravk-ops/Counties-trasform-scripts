@@ -238,6 +238,7 @@ function main() {
 
     if (propertyRelationshipFrom) {
       const rel = {
+        type: "property_has_layout",
         from: makeRelationshipPointer(propertyRelationshipFrom),
         to: makeRelationshipPointer(`./${layoutFile}`),
       };

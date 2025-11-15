@@ -121,6 +121,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     options && options.swapEndpoints !== undefined
       ? Boolean(options.swapEndpoints)
       : false;
+  if (typeof type !== "string" || type.trim() === "") return;
+  const normalizedType = type.trim();
   const fromPointer = resolveRelationshipParticipant(
     swapEndpoints ? toRefLike : fromRefLike,
   );
@@ -129,6 +131,7 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   );
   if (!fromPointer || !toPointer) return;
   const relationship = {
+    type: normalizedType,
     from: fromPointer,
     to: toPointer,
   };
@@ -137,7 +140,7 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? ""
       : `_${suffix}`;
   writeJSON(
-    path.join("data", `relationship_${type}${suffixPortion}.json`),
+    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
     relationship,
   );
 }
