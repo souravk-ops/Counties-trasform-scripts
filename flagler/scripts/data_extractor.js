@@ -563,14 +563,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
     if (deedRef && fileRef) {
-      writeRelationship("deed_has_file", deedRef, fileRef, idx, {
-        swapEndpoints: true,
-      });
+      writeRelationship("deed_has_file", deedRef, fileRef, idx);
     }
     if (saleRef && deedRef) {
-      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx, {
-        swapEndpoints: true,
-      });
+      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx);
     }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
       writeRelationship(
@@ -879,7 +875,6 @@ function writeLayout(parcelId, context) {
         context.propertyFile,
         layoutFilename,
         layoutCounter,
-        { swapEndpoints: true },
       );
     }
   });
