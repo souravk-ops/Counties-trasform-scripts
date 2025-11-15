@@ -586,9 +586,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
-        swapEndpoints: true,
-      });
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
     if (salePointer && deedPointer) {
       writeRelationship(
@@ -596,7 +594,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         deedPointer,
         idx,
-        { swapEndpoints: true },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
@@ -605,7 +602,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         filePointer,
         idx,
-        { swapEndpoints: true },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && salePointer) {
@@ -614,7 +610,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         salePointer,
         idx,
-        { swapEndpoints: true },
       );
     }
   });
@@ -923,7 +918,6 @@ function writeLayout(parcelId, context) {
         context.propertyPointer,
         layoutPointer,
         layoutCounter,
-        { swapEndpoints: true },
       );
     }
   });
