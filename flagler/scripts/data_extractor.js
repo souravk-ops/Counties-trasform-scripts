@@ -587,7 +587,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
-    // Skip emitting deed_has_file relationship objects; these are populated later in the pipeline.
+    if (deedPointer && filePointer) {
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+    }
     if (salePointer && deedPointer) {
       writeRelationship(
         "sales_history_has_deed",
