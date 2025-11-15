@@ -88,6 +88,30 @@ function createRef(refLike) {
   return null;
 }
 
+function pointerTargetBasename(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    return pointer.cid.trim();
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    const pathValue = pointer["/"].trim().replace(/^\.?\//, "");
+    const segments = pathValue.split("/");
+    return segments[segments.length - 1] || null;
+  }
+  return null;
+}
+
+function pointerTargetType(pointer) {
+  const base = pointerTargetBasename(pointer);
+  if (!base) return null;
+  if (/^deed[_-]/i.test(base)) return "deed";
+  if (/^file[_-]/i.test(base)) return "file";
+  if (/^sales_history[_-]/i.test(base)) return "sales_history";
+  if (/^property[_-]/i.test(base)) return "property";
+  if (/^layout[_-]/i.test(base)) return "layout";
+  return null;
+}
+
 function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
   if (!pointer || typeof pointer !== "object") return null;
@@ -124,10 +148,20 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     options && options.swapEndpoints !== undefined
       ? Boolean(options.swapEndpoints)
       : false;
-  const relationship = {
+  let relationship = {
     from: swapEndpoints ? toParticipant : fromParticipant,
     to: swapEndpoints ? fromParticipant : toParticipant,
   };
+  if (type === "deed_has_file") {
+    const fromType = pointerTargetType(relationship.from);
+    const toType = pointerTargetType(relationship.to);
+    if (fromType === "file" && toType === "deed") {
+      relationship = {
+        from: relationship.to,
+        to: relationship.from,
+      };
+    }
+  }
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
