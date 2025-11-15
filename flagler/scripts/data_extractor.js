@@ -617,8 +617,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = `./${fileFilename}`;
-    writeRelationship("deed_has_file", deedPointer, filePointer, idx);
-    writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+    writeRelationship("deed_has_file", filePointer, deedPointer, idx);
+    writeRelationship("sales_history_has_deed", deedPointer, salePointer, idx);
     if (hasPropertyFile && normalizedPropertyPointer) {
       writeRelationship(
         "property_has_file",
