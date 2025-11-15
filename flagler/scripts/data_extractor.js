@@ -291,8 +291,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (!fromValue || !toValue) return;
 
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = fromParticipant;
-  relationship.to = toParticipant;
+  relationship.from = fromValue;
+  relationship.to = toValue;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
