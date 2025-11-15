@@ -54,24 +54,32 @@ function attachSourceHttpRequest(target, request) {
 }
 
 function createRef(refLike) {
-  if (!refLike) return null;
+  if (refLike == null) return null;
   if (typeof refLike === "string") {
     const trimmed = refLike.trim();
     if (!trimmed) return null;
-    if (/^(?:baf|cid:)/i.test(trimmed)) return trimmed;
-    return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+    if (/^cid:/i.test(trimmed)) {
+      const cidVal = trimmed.slice(4).trim();
+      return cidVal ? { cid: cidVal } : null;
+    }
+    if (/^(?:baf)/i.test(trimmed)) {
+      return { cid: trimmed.trim() };
+    }
+    const pointerPath = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+    return { "/": pointerPath };
   }
   if (typeof refLike === "object") {
     if (typeof refLike["/"] === "string") {
-      return createRef(refLike["/"]);
+      const innerPath = refLike["/"].trim();
+      if (!innerPath) return null;
+      const pointerPath = innerPath.startsWith("./")
+        ? innerPath
+        : `./${innerPath}`;
+      return { "/": pointerPath };
     }
     if (typeof refLike.cid === "string") {
-      const cid = refLike.cid.trim();
-      if (!cid) return null;
-      if (/^(?:cid:|baf)/i.test(cid)) {
-        return cid.startsWith("cid:") ? cid : cid;
-      }
-      return `cid:${cid}`;
+      const cidVal = refLike.cid.replace(/^cid:/i, "").trim();
+      return cidVal ? { cid: cidVal } : null;
     }
     if (typeof refLike.path === "string") {
       return createRef(refLike.path);
@@ -82,20 +90,28 @@ function createRef(refLike) {
 
 function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
-  if (!pointer) return null;
-  const trimmed = pointer.trim();
-  return trimmed ? trimmed : null;
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer["/"] === "string") {
+    const normalized = pointer["/"].trim();
+    if (!normalized) return null;
+    return { "/": normalized.startsWith("./") ? normalized : `./${normalized}` };
+  }
+  if (typeof pointer.cid === "string") {
+    const normalizedCid = pointer.cid.trim();
+    return normalizedCid ? { cid: normalizedCid } : null;
+  }
+  return null;
 }
 
 function resolveRelationshipParticipant(refLike) {
   if (refLike == null) return null;
-  const isPointerObject =
-    typeof refLike === "object" &&
-    (typeof refLike["/"] === "string" ||
-      typeof refLike.cid === "string" ||
-      typeof refLike.path === "string");
-  if (typeof refLike === "string" || isPointerObject) {
-    return createRelationshipPointer(refLike);
+  const pointer = createRelationshipPointer(refLike);
+  if (!pointer) return null;
+  if (
+    (typeof pointer["/"] === "string" && pointer["/"].trim() !== "") ||
+    (typeof pointer.cid === "string" && pointer.cid.trim() !== "")
+  ) {
+    return pointer;
   }
   return null;
 }
