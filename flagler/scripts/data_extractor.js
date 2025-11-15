@@ -130,11 +130,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     swapEndpoints ? fromRefLike : toRefLike,
   );
   if (!fromPointer || !toPointer) return;
-  const relationship = {
-    type: normalizedType,
-    from: fromPointer,
-    to: toPointer,
-  };
+  const omitType =
+    options && Object.prototype.hasOwnProperty.call(options, "omitType")
+      ? Boolean(options.omitType)
+      : false;
+  const relationship = omitType
+    ? {}
+    : {
+        type: normalizedType,
+      };
+  relationship.from = fromPointer;
+  relationship.to = toPointer;
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
@@ -590,18 +596,20 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const filePointer = createRef(fileFilename);
     if (deedPointer && filePointer) {
       writeRelationship(
-        "deed_has_file",
+        "deed_file",
         deedPointer,
         filePointer,
         idx,
+        { omitType: true },
       );
     }
     if (salePointer && deedPointer) {
       writeRelationship(
-        "sales_history_has_deed",
+        "sales_deed",
         salePointer,
         deedPointer,
         idx,
+        { omitType: true },
       );
     }
     if (hasPropertyFile && propertyPointer && filePointer) {
