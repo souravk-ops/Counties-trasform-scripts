@@ -588,15 +588,11 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
-      // Relationships are validated against a schema that expects the deed node
-      // on the `from` side after the pipeline's downstream normalization step.
-      // The downstream step currently flips the endpoints, so we intentionally
-      // emit the file pointer on the `from` side here to keep the final payload
-      // compliant (the normalized data will end up as deed -> file).
+      // Schema expects the deed as the relationship origin and the file as the target.
       writeRelationship(
         "deed_has_file",
-        filePointer,
         deedPointer,
+        filePointer,
         idx,
       );
     }
