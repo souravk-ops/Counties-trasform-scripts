@@ -85,23 +85,27 @@ function createRelationshipPointer(refLike) {
   if (!pointer) return null;
   const trimmed = pointer.trim();
   if (!trimmed) return null;
-  if (/^cid:/i.test(trimmed)) return trimmed;
-  if (/^baf/i.test(trimmed)) return trimmed;
-  return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+  if (/^cid:/i.test(trimmed)) {
+    return { cid: trimmed.slice(4) };
+  }
+  if (/^baf/i.test(trimmed)) {
+    return { cid: trimmed };
+  }
+  const normalized = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
+  return { "/": normalized };
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
-  const fromRef = createRelationshipPointer(fromRefLike);
-  const toRef = createRelationshipPointer(toRefLike);
-  if (!fromRef || !toRef) return;
+  const fromPointer = createRelationshipPointer(fromRefLike);
+  const toPointer = createRelationshipPointer(toRefLike);
+  if (!fromPointer || !toPointer) return;
   const swapEndpoints =
     options && options.swapEndpoints !== undefined
       ? Boolean(options.swapEndpoints)
       : false;
   const relationship = {
-    type,
-    from: swapEndpoints ? toRef : fromRef,
-    to: swapEndpoints ? fromRef : toRef,
+    from: swapEndpoints ? toPointer : fromPointer,
+    to: swapEndpoints ? fromPointer : toPointer,
   };
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""

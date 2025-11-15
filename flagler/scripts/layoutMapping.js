@@ -34,10 +34,10 @@ function makeRelationshipPointer(ref) {
     }
     if (typeof ref.cid === "string" && ref.cid.trim()) {
       const cidVal = ref.cid.trim();
-      if (/^(?:cid:|baf)/i.test(cidVal)) {
-        return cidVal.startsWith("cid:") ? cidVal : cidVal;
+      if (/^cid:/i.test(cidVal)) {
+        return { cid: cidVal.slice(4) };
       }
-      return `cid:${cidVal}`;
+      return { cid: cidVal };
     }
     if (typeof ref.path === "string" && ref.path.trim()) {
       return makeRelationshipPointer(ref.path);
@@ -48,13 +48,13 @@ function makeRelationshipPointer(ref) {
     const trimmed = ref.trim();
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
-      return trimmed;
+      return { cid: trimmed.slice(4) };
     }
     if (/^(?:baf)/i.test(trimmed)) {
-      return trimmed;
+      return { cid: trimmed };
     }
     const withPrefix = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-    return withPrefix;
+    return { "/": withPrefix };
   }
   return null;
 }
@@ -238,7 +238,6 @@ function main() {
 
     if (propertyRelationshipFrom) {
       const rel = {
-        type: "property_has_layout",
         from: makeRelationshipPointer(propertyRelationshipFrom),
         to: makeRelationshipPointer(`./${layoutFile}`),
       };
