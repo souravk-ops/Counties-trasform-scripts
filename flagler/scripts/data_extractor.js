@@ -189,6 +189,7 @@ const FILE_FIELDS_BLOCKLIST = new Set([
   "document_type",
   "file_format",
   "ipfs_url",
+  "name",
   "original_url",
   "uri",
   "url",
@@ -575,14 +576,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     }
     saleCounter += 1;
     const idx = saleCounter;
+    const purchasePrice = parseCurrencyToNumber(s.salePrice);
     const saleObj = {
       ownership_transfer_date: transferDate,
-      purchase_price_amount: parseCurrencyToNumber(s.salePrice),
     };
+    if (purchasePrice != null) {
+      saleObj.purchase_price_amount = purchasePrice;
+    }
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
-    const salePointer = createRelationshipPointer(`./${saleFilename}`);
+    const salePointer = `./${saleFilename}`;
     processedSales.push({
       source: s,
       idx,
@@ -594,47 +598,34 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedType = mapInstrumentToDeedType(s.instrument);
     const { book, page } = parseBookAndPage(s.bookPage);
     const deedFilename = `deed_${idx}.json`;
-    const deed = {
-      deed_type: deedType,
-      book,
-      page,
-    };
+    const deed = {};
+    if (deedType) deed.deed_type = deedType;
+    if (book) deed.book = book;
+    if (page) deed.page = page;
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    let deedPointer = createRelationshipPointer(`./${deedFilename}`);
-    const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
+    const deedPointer = `./${deedFilename}`;
     const fileObj = {};
-    if (fileName) fileObj.name = fileName;
+    const fileFilename = `file_${idx}.json`;
+    const parcelIdForRequest =
+      parcelId != null ? String(parcelId).trim() : "";
+    const fileRequestIdentifier = parcelIdForRequest
+      ? `${parcelIdForRequest}-deed-file-${idx}`
+      : `deed-file-${idx}`;
+    fileObj.request_identifier = fileRequestIdentifier;
     sanitizeFileMetadata(fileObj);
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
-    const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    let filePointer = createRelationshipPointer(`./${fileFilename}`);
-    if (deedPointer && filePointer) {
-      if (
-        deedPointer["/"] &&
-        filePointer["/"] &&
-        /file_\d+\.json$/i.test(deedPointer["/"].trim()) &&
-        /deed_\d+\.json$/i.test(filePointer["/"].trim())
-      ) {
-        const tmpPointer = deedPointer;
-        deedPointer = filePointer;
-        filePointer = tmpPointer;
-      }
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
-    }
-    if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
-    }
-    if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
+    const filePointer = `./${fileFilename}`;
+    writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+    writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+    if (hasPropertyFile && normalizedPropertyPointer) {
       writeRelationship(
         "property_has_file",
         normalizedPropertyPointer,
         filePointer,
         idx,
       );
-    }
-    if (hasPropertyFile && normalizedPropertyPointer && salePointer) {
       writeRelationship(
         "property_has_sales_history",
         normalizedPropertyPointer,
