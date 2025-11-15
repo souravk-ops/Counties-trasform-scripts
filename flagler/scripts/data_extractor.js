@@ -532,6 +532,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const { parcelId, defaultSourceHttpRequest } = context || {};
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
+  const normalizedPropertyPointer =
+    context && context.propertyPointer
+      ? createRelationshipPointer(context.propertyPointer)
+      : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   removeFilesMatchingPatterns([
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/i,
@@ -556,7 +560,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
-    const salePointer = createRef(saleFilename);
+    const salePointer = createRelationshipPointer(`./${saleFilename}`);
     processedSales.push({
       source: s,
       idx,
@@ -565,17 +569,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       salePointer,
       saleNode: saleObj,
     });
-    const propertyPointer =
-      context && context.propertyPointer ? context.propertyPointer : null;
-    if (hasPropertyFile && propertyPointer && salePointer) {
-      writeRelationship(
-        "property_has_sales_history",
-        propertyPointer,
-        salePointer,
-        idx,
-      );
-    }
-
     const deedType = mapInstrumentToDeedType(s.instrument);
     const { book, page } = parseBookAndPage(s.bookPage);
     const deedFilename = `deed_${idx}.json`;
@@ -586,14 +579,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    const deedPointer = createRef(deedFilename);
+    const deedPointer = createRelationshipPointer(`./${deedFilename}`);
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    const filePointer = createRef(fileFilename);
+    const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
       writeRelationship(
         "deed_has_file",
@@ -610,15 +603,22 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         idx,
       );
     }
-    if (hasPropertyFile && propertyPointer && filePointer) {
+    if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
       writeRelationship(
         "property_has_file",
-        propertyPointer,
+        normalizedPropertyPointer,
         filePointer,
         idx,
       );
     }
-
+    if (hasPropertyFile && normalizedPropertyPointer && salePointer) {
+      writeRelationship(
+        "property_has_sales_history",
+        normalizedPropertyPointer,
+        salePointer,
+        idx,
+      );
+    }
   });
   return processedSales;
 }
