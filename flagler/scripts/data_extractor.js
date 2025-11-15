@@ -95,17 +95,33 @@ function createRelationshipPointer(refLike) {
   return { "/": normalized };
 }
 
+function resolveRelationshipParticipant(refLike) {
+  if (refLike == null) return null;
+  const isPointerObject =
+    typeof refLike === "object" &&
+    (typeof refLike["/"] === "string" ||
+      typeof refLike.cid === "string" ||
+      typeof refLike.path === "string");
+  if (typeof refLike === "string" || isPointerObject) {
+    return createRelationshipPointer(refLike);
+  }
+  if (typeof refLike === "object") {
+    return cloneDeep(refLike);
+  }
+  return null;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
-  const fromPointer = createRelationshipPointer(fromRefLike);
-  const toPointer = createRelationshipPointer(toRefLike);
-  if (!fromPointer || !toPointer) return;
+  const fromParticipant = resolveRelationshipParticipant(fromRefLike);
+  const toParticipant = resolveRelationshipParticipant(toRefLike);
+  if (!fromParticipant || !toParticipant) return;
   const swapEndpoints =
     options && options.swapEndpoints !== undefined
       ? Boolean(options.swapEndpoints)
       : false;
   const relationship = {
-    from: swapEndpoints ? toPointer : fromPointer,
-    to: swapEndpoints ? fromPointer : toPointer,
+    from: swapEndpoints ? toParticipant : fromParticipant,
+    to: swapEndpoints ? fromParticipant : toParticipant,
   };
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -552,8 +568,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    const deedPointer = createRef(deedFilename);
-    const deedRef = createRelationshipPointer(deedPointer);
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
@@ -562,11 +576,11 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
     const fileRef = createRelationshipPointer(filePointer);
-    if (deedRef && fileRef) {
-      writeRelationship("deed_has_file", deedRef, fileRef, idx);
+    if (deed && fileObj) {
+      writeRelationship("deed_has_file", deed, fileObj, idx);
     }
-    if (saleRef && deedRef) {
-      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx);
+    if (saleObj && deed) {
+      writeRelationship("sales_history_has_deed", saleObj, deed, idx);
     }
     if (hasPropertyFile && context && context.propertyFile && fileRef) {
       writeRelationship(
