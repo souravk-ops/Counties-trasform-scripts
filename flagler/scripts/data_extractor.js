@@ -144,24 +144,84 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const fromParticipant = resolveRelationshipParticipant(fromRefLike);
   const toParticipant = resolveRelationshipParticipant(toRefLike);
   if (!fromParticipant || !toParticipant) return;
+  const normalizedType = typeof type === "string" ? type.toLowerCase() : "";
+  const defaultExpectations = {
+    deed_has_file: { from: "deed", to: "file" },
+    property_has_file: { from: "property", to: "file" },
+    property_has_sales_history: { from: "property", to: "sales_history" },
+    sales_history_has_deed: { from: "sales_history", to: "deed" },
+  };
+  const defaults = defaultExpectations[normalizedType] || {};
+  const expectedFromType =
+    options && typeof options.expectedFromType === "string"
+      ? options.expectedFromType.toLowerCase()
+      : defaults.from || null;
+  const expectedToType =
+    options && typeof options.expectedToType === "string"
+      ? options.expectedToType.toLowerCase()
+      : defaults.to || null;
   const swapEndpoints =
     options && options.swapEndpoints !== undefined
       ? Boolean(options.swapEndpoints)
       : false;
-  let relationship = {
-    from: swapEndpoints ? toParticipant : fromParticipant,
-    to: swapEndpoints ? fromParticipant : toParticipant,
+  const participants = [
+    {
+      role: "from",
+      pointer: fromParticipant,
+      type: pointerTargetType(fromParticipant),
+    },
+    {
+      role: "to",
+      pointer: toParticipant,
+      type: pointerTargetType(toParticipant),
+    },
+  ];
+  const available = participants.slice();
+  const removeFromAvailable = (pointer) => {
+    const idx = available.findIndex((item) => item.pointer === pointer);
+    if (idx !== -1) available.splice(idx, 1);
   };
-  if (type === "deed_has_file") {
-    const fromType = pointerTargetType(relationship.from);
-    const toType = pointerTargetType(relationship.to);
-    if (fromType === "file" && toType === "deed") {
-      relationship = {
-        from: relationship.to,
-        to: relationship.from,
-      };
+  const pickByType = (expectedType) => {
+    if (!expectedType) return null;
+    const idx = available.findIndex(
+      (item) =>
+        typeof item.type === "string" &&
+        item.type.toLowerCase() === expectedType.toLowerCase(),
+    );
+    if (idx === -1) return null;
+    const [match] = available.splice(idx, 1);
+    return match.pointer;
+  };
+  let fromPointer = pickByType(expectedFromType);
+  if (!fromPointer) {
+    fromPointer = fromParticipant;
+    removeFromAvailable(fromPointer);
+  }
+  let toPointer = pickByType(expectedToType);
+  if (!toPointer) {
+    if (available.length > 0) {
+      toPointer = available.shift().pointer;
+    } else {
+      toPointer = toParticipant;
+    }
+  } else {
+    removeFromAvailable(toPointer);
+  }
+  if (fromPointer === toPointer) {
+    const fallback =
+      participants.find((item) => item.pointer !== fromPointer) || null;
+    if (fallback) {
+      if (!expectedFromType && expectedToType) {
+        fromPointer = fallback.pointer;
+      } else {
+        toPointer = fallback.pointer;
+      }
     }
   }
+  let relationship = {
+    from: swapEndpoints ? toPointer : fromPointer,
+    to: swapEndpoints ? fromPointer : toPointer,
+  };
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
