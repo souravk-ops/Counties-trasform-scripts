@@ -588,11 +588,10 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (deedPointer && filePointer) {
       // Schema expects deed as the relationship origin and file as the target.
       writeRelationship(
-        "deed_file",
+        "deed_has_file",
         deedPointer,
         filePointer,
         idx,
-        { omitType: true },
       );
     }
     if (salePointer && deedPointer) {
@@ -601,7 +600,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         deedPointer,
         idx,
-        { omitType: true },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
