@@ -34,7 +34,7 @@ function makeRelationshipPointer(ref) {
     }
     if (typeof ref.cid === "string" && ref.cid.trim()) {
       const cidVal = ref.cid.trim().replace(/^cid:/i, "");
-      return cidVal ? { cid: cidVal } : null;
+      return cidVal ? `cid:${cidVal}` : null;
     }
     if (typeof ref.path === "string" && ref.path.trim()) {
       return makeRelationshipPointer(ref.path);
@@ -46,13 +46,18 @@ function makeRelationshipPointer(ref) {
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
       const cidVal = trimmed.slice(4).trim();
-      return cidVal ? { cid: cidVal } : null;
+      return cidVal ? `cid:${cidVal}` : null;
     }
     if (/^(?:baf)/i.test(trimmed)) {
-      return { cid: trimmed };
+      return trimmed;
     }
-    const withPrefix = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-    return { "/": withPrefix };
+    let normalized = trimmed.replace(/\\/g, "/");
+    if (normalized.startsWith("./") || normalized.startsWith("../")) {
+      return normalized;
+    }
+    normalized = normalized.replace(/^\/+/, "");
+    if (!normalized) return null;
+    return `./${normalized}`;
   }
   return null;
 }
@@ -235,10 +240,13 @@ function main() {
     );
 
     if (propertyRelationshipFrom) {
+      const fromPointer = makeRelationshipPointer(propertyRelationshipFrom);
+      const toPointer = makeRelationshipPointer(`./${layoutFile}`);
+      if (!fromPointer || !toPointer) return;
       const rel = {
         type: "property_has_layout",
-        from: makeRelationshipPointer(propertyRelationshipFrom),
-        to: makeRelationshipPointer(`./${layoutFile}`),
+        from: fromPointer,
+        to: toPointer,
       };
       fs.writeFileSync(
         path.join(

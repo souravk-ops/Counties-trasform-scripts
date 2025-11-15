@@ -238,6 +238,21 @@ function looksLikePointerOfType(participant, keyword) {
   return false;
 }
 
+function relationshipPointerToValue(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    const cidVal = pointer.cid.trim().replace(/^cid:/i, "");
+    return cidVal ? `cid:${cidVal}` : null;
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    return pointer["/"].trim();
+  }
+  if (typeof pointer.path === "string" && pointer.path.trim()) {
+    return normalizePointerPath(pointer.path);
+  }
+  return null;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
@@ -255,19 +270,24 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
-  const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = cloneDeep(fromParticipant);
-  relationship.to = cloneDeep(toParticipant);
 
   if (
     normalizedType === "deed_has_file" &&
-    looksLikePointerOfType(relationship.from, "file") &&
-    looksLikePointerOfType(relationship.to, "deed")
+    looksLikePointerOfType(fromParticipant, "file") &&
+    looksLikePointerOfType(toParticipant, "deed")
   ) {
-    const tmp = relationship.from;
-    relationship.from = relationship.to;
-    relationship.to = tmp;
+    const tmp = fromParticipant;
+    fromParticipant = toParticipant;
+    toParticipant = tmp;
   }
+
+  const fromValue = relationshipPointerToValue(fromParticipant);
+  const toValue = relationshipPointerToValue(toParticipant);
+  if (!fromValue || !toValue) return;
+
+  const relationship = omitType ? {} : { type: normalizedType };
+  relationship.from = fromValue;
+  relationship.to = toValue;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -860,17 +880,19 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRef = createRelationshipPointer(
+    const saleRefPointer = createRelationshipPointer(
       rec.salePointer || rec.saleFilename,
     );
+    const saleRef = relationshipPointerToValue(saleRefPointer);
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
-          const personRef = createRelationshipPointer(
+          const personPointer = createRelationshipPointer(
             `person_${pIdx}.json`,
           );
+          const personRef = relationshipPointerToValue(personPointer);
           if (!saleRef || !personRef) return;
           relPersonCounter++;
           writeJSON(
@@ -890,9 +912,10 @@ function writePersonCompaniesSalesRelationships(
       .forEach((o) => {
         const cIdx = findCompanyIndexByName(o.name);
         if (cIdx) {
-          const companyRef = createRelationshipPointer(
+          const companyPointer = createRelationshipPointer(
             `company_${cIdx}.json`,
           );
+          const companyRef = relationshipPointerToValue(companyPointer);
           if (!saleRef || !companyRef) return;
           relCompanyCounter++;
           writeJSON(
