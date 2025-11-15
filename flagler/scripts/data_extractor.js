@@ -115,30 +115,37 @@ function resolveRelationshipParticipant(refLike) {
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
+  const opts = options || {};
   const swapEndpoints =
-    options && options.swapEndpoints !== undefined
-      ? Boolean(options.swapEndpoints)
-      : false;
+    opts && opts.swapEndpoints !== undefined ? Boolean(opts.swapEndpoints) : false;
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
-  const fromPointer = resolveRelationshipParticipant(
-    swapEndpoints ? toRefLike : fromRefLike,
-  );
-  const toPointer = resolveRelationshipParticipant(
-    swapEndpoints ? fromRefLike : toRefLike,
-  );
-  if (!fromPointer || !toPointer) return;
+
+  const inlineFrom = swapEndpoints ? opts.inlineTo : opts.inlineFrom;
+  const inlineTo = swapEndpoints ? opts.inlineFrom : opts.inlineTo;
+
+  const rawFromRef = swapEndpoints ? toRefLike : fromRefLike;
+  const rawToRef = swapEndpoints ? fromRefLike : toRefLike;
+
+  const fromParticipant = inlineFrom
+    ? cloneDeep(inlineFrom)
+    : resolveRelationshipParticipant(rawFromRef);
+  const toParticipant = inlineTo
+    ? cloneDeep(inlineTo)
+    : resolveRelationshipParticipant(rawToRef);
+  if (!fromParticipant || !toParticipant) return;
+
   const omitType =
-    options && Object.prototype.hasOwnProperty.call(options, "omitType")
-      ? Boolean(options.omitType)
+    opts && Object.prototype.hasOwnProperty.call(opts, "omitType")
+      ? Boolean(opts.omitType)
       : false;
   const relationship = omitType
     ? {}
     : {
         type: normalizedType,
       };
-  relationship.from = cloneDeep(fromPointer);
-  relationship.to = cloneDeep(toPointer);
+  relationship.from = cloneDeep(fromParticipant);
+  relationship.to = cloneDeep(toParticipant);
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
@@ -617,14 +624,20 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         /file_\d+\.json$/i.test(deedPointer["/"].trim()) &&
         /deed_\d+\.json$/i.test(filePointer["/"].trim())
       ) {
-        const tmp = deedPointer;
+        const tmpPointer = deedPointer;
         deedPointer = filePointer;
-        filePointer = tmp;
+        filePointer = tmpPointer;
       }
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
+        inlineFrom: cloneDeep(deed),
+        inlineTo: cloneDeep(fileObj),
+      });
     }
     if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx, {
+        inlineFrom: cloneDeep(saleObj),
+        inlineTo: cloneDeep(deed),
+      });
     }
     if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
       writeRelationship(
@@ -632,6 +645,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         filePointer,
         idx,
+        {
+          inlineTo: cloneDeep(fileObj),
+        },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && salePointer) {
@@ -640,6 +656,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         salePointer,
         idx,
+        {
+          inlineTo: cloneDeep(saleObj),
+        },
       );
     }
   });
@@ -948,6 +967,9 @@ function writeLayout(parcelId, context) {
         context.propertyPointer,
         layoutPointer,
         layoutCounter,
+        {
+          inlineTo: cloneDeep(out),
+        },
       );
     }
   });
