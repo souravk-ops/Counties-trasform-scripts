@@ -265,25 +265,6 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     ? Boolean(opts.omitType)
     : false;
 
-  if (
-    normalizedType === "deed_has_file" &&
-    looksLikePointerOfType(fromParticipant, "file") &&
-    looksLikePointerOfType(toParticipant, "deed")
-  ) {
-    const tmp = fromParticipant;
-    fromParticipant = toParticipant;
-    toParticipant = tmp;
-  }
-  if (
-    normalizedType === "sales_history_has_deed" &&
-    looksLikePointerOfType(fromParticipant, "deed") &&
-    looksLikePointerOfType(toParticipant, "sales_history")
-  ) {
-    const tmp = fromParticipant;
-    fromParticipant = toParticipant;
-    toParticipant = tmp;
-  }
-
   const fromValue = relationshipPointerToValue(fromParticipant);
   const toValue = relationshipPointerToValue(toParticipant);
   if (!fromValue || !toValue) return;
