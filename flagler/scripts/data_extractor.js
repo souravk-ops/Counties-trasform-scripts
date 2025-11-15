@@ -596,20 +596,18 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const filePointer = createRef(fileFilename);
     if (deedPointer && filePointer) {
       writeRelationship(
-        "deed_file",
+        "deed_has_file",
         deedPointer,
         filePointer,
         idx,
-        { omitType: true },
       );
     }
     if (salePointer && deedPointer) {
       writeRelationship(
-        "sales_deed",
+        "sales_history_has_deed",
         salePointer,
         deedPointer,
         idx,
-        { omitType: true },
       );
     }
     if (hasPropertyFile && propertyPointer && filePointer) {
