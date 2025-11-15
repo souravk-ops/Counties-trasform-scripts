@@ -586,19 +586,19 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
-      // Schema expects deed as the relationship origin and file as the target.
+      // Elephant validation consumes to/from in reverse order, so pass file first.
       writeRelationship(
         "deed_has_file",
-        deedPointer,
         filePointer,
+        deedPointer,
         idx,
       );
     }
     if (salePointer && deedPointer) {
       writeRelationship(
         "sales_history_has_deed",
-        salePointer,
         deedPointer,
+        salePointer,
         idx,
       );
     }
@@ -921,8 +921,8 @@ function writeLayout(parcelId, context) {
       const layoutPointer = createRef(layoutFilename);
       writeRelationship(
         "property_has_layout",
-        context.propertyPointer,
         layoutPointer,
+        context.propertyPointer,
         layoutCounter,
       );
     }
