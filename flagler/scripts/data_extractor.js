@@ -67,7 +67,11 @@ function createRef(refLike) {
     }
     if (typeof refLike.cid === "string") {
       const cid = refLike.cid.trim();
-      return cid || null;
+      if (!cid) return null;
+      if (/^(?:cid:|baf)/i.test(cid)) {
+        return cid.startsWith("cid:") ? cid : cid;
+      }
+      return `cid:${cid}`;
     }
     if (typeof refLike.path === "string") {
       return createRef(refLike.path);
@@ -77,34 +81,13 @@ function createRef(refLike) {
 }
 
 function createRelationshipPointer(refLike) {
-  if (!refLike) return null;
-
-  if (typeof refLike === "object" && !Array.isArray(refLike)) {
-    if (typeof refLike["/"] === "string" && refLike["/"].trim()) {
-      const normalized = createRef(refLike["/"]);
-      return normalized ? { "/": normalized } : null;
-    }
-    if (typeof refLike.cid === "string" && refLike.cid.trim()) {
-      const cidVal = refLike.cid.trim();
-      return { cid: cidVal.startsWith("cid:") ? cidVal : `cid:${cidVal}` };
-    }
-    if (typeof refLike.path === "string" && refLike.path.trim()) {
-      const normalized = createRef(refLike.path);
-      return normalized ? { "/": normalized } : null;
-    }
-  }
-
   const pointer = createRef(refLike);
-  if (!pointer || typeof pointer !== "string") return null;
+  if (!pointer) return null;
   const trimmed = pointer.trim();
   if (!trimmed) return null;
-
-  if (/^(?:cid:|baf)/i.test(trimmed)) {
-    const cidVal = trimmed.startsWith("cid:") ? trimmed : `cid:${trimmed}`;
-    return { cid: cidVal };
-  }
-
-  return { "/": trimmed.startsWith("./") ? trimmed : `./${trimmed}` };
+  if (/^cid:/i.test(trimmed)) return trimmed;
+  if (/^baf/i.test(trimmed)) return trimmed;
+  return trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
