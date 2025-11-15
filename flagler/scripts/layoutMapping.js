@@ -33,11 +33,8 @@ function makeRelationshipPointer(ref) {
       return makeRelationshipPointer(ref["/"]);
     }
     if (typeof ref.cid === "string" && ref.cid.trim()) {
-      const cidVal = ref.cid.trim();
-      if (/^cid:/i.test(cidVal)) {
-        return { cid: cidVal.slice(4) };
-      }
-      return { cid: cidVal };
+      const cidVal = ref.cid.trim().replace(/^cid:/i, "");
+      return cidVal || null;
     }
     if (typeof ref.path === "string" && ref.path.trim()) {
       return makeRelationshipPointer(ref.path);
@@ -48,13 +45,14 @@ function makeRelationshipPointer(ref) {
     const trimmed = ref.trim();
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
-      return { cid: trimmed.slice(4) };
+      const cidVal = trimmed.slice(4).trim();
+      return cidVal || null;
     }
     if (/^(?:baf)/i.test(trimmed)) {
-      return { cid: trimmed };
+      return trimmed;
     }
     const withPrefix = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-    return { "/": withPrefix };
+    return withPrefix;
   }
   return null;
 }

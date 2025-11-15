@@ -90,15 +90,28 @@ function createRef(refLike) {
 
 function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
-  if (!pointer || typeof pointer !== "object") return null;
-  if (typeof pointer["/"] === "string") {
-    const normalized = pointer["/"].trim();
-    if (!normalized) return null;
-    return { "/": normalized.startsWith("./") ? normalized : `./${normalized}` };
+  if (!pointer) return null;
+  if (typeof pointer === "string") {
+    const trimmed = pointer.trim();
+    return trimmed ? trimmed : null;
   }
-  if (typeof pointer.cid === "string") {
-    const normalizedCid = pointer.cid.trim();
-    return normalizedCid ? { cid: normalizedCid } : null;
+  if (typeof pointer === "object") {
+    if (typeof pointer.cid === "string") {
+      const normalizedCid = pointer.cid.trim();
+      if (!normalizedCid) return null;
+      return normalizedCid.replace(/^cid:/i, "").trim() || null;
+    }
+    if (typeof pointer["/"] === "string") {
+      const normalized = pointer["/"].trim();
+      if (!normalized) return null;
+      if (normalized.startsWith("./")) return normalized;
+      if (/^(?:baf)/i.test(normalized)) return normalized;
+      if (/^cid:/i.test(normalized)) {
+        const cidVal = normalized.slice(4).trim();
+        return cidVal || null;
+      }
+      return `./${normalized}`;
+    }
   }
   return null;
 }
@@ -106,12 +119,8 @@ function createRelationshipPointer(refLike) {
 function resolveRelationshipParticipant(refLike) {
   if (refLike == null) return null;
   const pointer = createRelationshipPointer(refLike);
-  if (!pointer) return null;
-  if (
-    (typeof pointer["/"] === "string" && pointer["/"].trim() !== "") ||
-    (typeof pointer.cid === "string" && pointer.cid.trim() !== "")
-  ) {
-    return pointer;
+  if (typeof pointer === "string" && pointer.trim() !== "") {
+    return pointer.trim();
   }
   return null;
 }
