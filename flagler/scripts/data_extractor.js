@@ -586,14 +586,21 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+      writeRelationship(
+        "deed_file",
+        filePointer,
+        deedPointer,
+        idx,
+        { omitType: true },
+      );
     }
     if (salePointer && deedPointer) {
       writeRelationship(
-        "sales_history_has_deed",
+        "sales_deed",
         salePointer,
         deedPointer,
         idx,
+        { omitType: true },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
