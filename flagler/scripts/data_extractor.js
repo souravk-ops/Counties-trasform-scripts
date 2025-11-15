@@ -48,6 +48,19 @@ function cloneDeep(obj) {
   return obj == null ? null : JSON.parse(JSON.stringify(obj));
 }
 
+function normalizePointerPath(value) {
+  if (typeof value !== "string") return null;
+  let trimmed = value.trim();
+  if (!trimmed) return null;
+  trimmed = trimmed.replace(/\\/g, "/");
+  if (trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    return trimmed;
+  }
+  trimmed = trimmed.replace(/^\/+/, "");
+  if (!trimmed) return null;
+  return `./${trimmed}`;
+}
+
 function attachSourceHttpRequest(target, request) {
   if (!target || !request) return;
   target.source_http_request = cloneDeep(request);
@@ -65,85 +78,65 @@ function createRef(refLike) {
     if (/^(?:baf)/i.test(trimmed)) {
       return { cid: trimmed.trim() };
     }
-    const pointerPath = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-    return { "/": pointerPath };
+    const pointerPath = normalizePointerPath(trimmed);
+    return pointerPath ? { "/": pointerPath } : null;
   }
   if (typeof refLike === "object") {
     if (typeof refLike["/"] === "string") {
-      const innerPath = refLike["/"].trim();
-      if (!innerPath) return null;
-      const pointerPath = innerPath.startsWith("./")
-        ? innerPath
-        : `./${innerPath}`;
-      return { "/": pointerPath };
+      const pointerPath = normalizePointerPath(refLike["/"]);
+      return pointerPath ? { "/": pointerPath } : null;
     }
     if (typeof refLike.cid === "string") {
       const cidVal = refLike.cid.replace(/^cid:/i, "").trim();
       return cidVal ? { cid: cidVal } : null;
     }
     if (typeof refLike.path === "string") {
-      return createRef(refLike.path);
+      const pointerPath = normalizePointerPath(refLike.path);
+      return pointerPath ? { "/": pointerPath } : null;
     }
   }
   return null;
 }
 
-function createRelationshipPointer(refLike) {
-  const pointer = createRef(refLike);
+function sanitizeRelationshipPointer(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
   if (typeof pointer.cid === "string") {
     const cidVal = pointer.cid.replace(/^cid:/i, "").trim();
-    if (!cidVal) return null;
-    return { cid: cidVal };
+    if (cidVal) return { cid: cidVal };
   }
   if (typeof pointer["/"] === "string") {
-    const normalized = pointer["/"].trim();
-    if (!normalized) return null;
-    const finalPath = normalized.startsWith("./")
-      ? normalized
-      : `./${normalized}`;
-    return { "/": finalPath };
+    const normalized = normalizePointerPath(pointer["/"]);
+    if (normalized) return { "/": normalized };
+  }
+  if (typeof pointer.path === "string") {
+    const normalized = normalizePointerPath(pointer.path);
+    if (normalized) return { "/": normalized };
   }
   return null;
 }
 
-function resolveRelationshipParticipant(refLike) {
-  if (refLike == null) return null;
-  const pointer = createRelationshipPointer(refLike);
-  if (!pointer) return null;
-  return cloneDeep(pointer);
+function createRelationshipPointer(refLike) {
+  return sanitizeRelationshipPointer(createRef(refLike));
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
-  const opts = options || {};
-  const swapEndpoints =
-    opts && opts.swapEndpoints !== undefined ? Boolean(opts.swapEndpoints) : false;
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
-
-  const inlineFrom = swapEndpoints ? opts.inlineTo : opts.inlineFrom;
-  const inlineTo = swapEndpoints ? opts.inlineFrom : opts.inlineTo;
-
-  const rawFromRef = swapEndpoints ? toRefLike : fromRefLike;
-  const rawToRef = swapEndpoints ? fromRefLike : toRefLike;
-
-  const fromParticipant = inlineFrom
-    ? cloneDeep(inlineFrom)
-    : resolveRelationshipParticipant(rawFromRef);
-  const toParticipant = inlineTo
-    ? cloneDeep(inlineTo)
-    : resolveRelationshipParticipant(rawToRef);
+  const opts = options || {};
+  let fromParticipant = createRelationshipPointer(fromRefLike);
+  let toParticipant = createRelationshipPointer(toRefLike);
   if (!fromParticipant || !toParticipant) return;
 
-  const omitType =
-    opts && Object.prototype.hasOwnProperty.call(opts, "omitType")
-      ? Boolean(opts.omitType)
-      : false;
-  const relationship = omitType
-    ? {}
-    : {
-        type: normalizedType,
-      };
+  if (opts.swapEndpoints) {
+    const tmp = fromParticipant;
+    fromParticipant = toParticipant;
+    toParticipant = tmp;
+  }
+
+  const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
+    ? Boolean(opts.omitType)
+    : false;
+  const relationship = omitType ? {} : { type: normalizedType };
   relationship.from = cloneDeep(fromParticipant);
   relationship.to = cloneDeep(toParticipant);
   const suffixPortion =
