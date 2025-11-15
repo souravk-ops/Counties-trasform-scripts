@@ -84,15 +84,7 @@ function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
   if (!pointer) return null;
   const trimmed = pointer.trim();
-  if (!trimmed) return null;
-  if (/^cid:/i.test(trimmed)) {
-    return { cid: trimmed.slice(4) };
-  }
-  if (/^baf/i.test(trimmed)) {
-    return { cid: trimmed };
-  }
-  const normalized = trimmed.startsWith("./") ? trimmed : `./${trimmed}`;
-  return { "/": normalized };
+  return trimmed ? trimmed : null;
 }
 
 function resolveRelationshipParticipant(refLike) {
@@ -104,9 +96,6 @@ function resolveRelationshipParticipant(refLike) {
       typeof refLike.path === "string");
   if (typeof refLike === "string" || isPointerObject) {
     return createRelationshipPointer(refLike);
-  }
-  if (typeof refLike === "object") {
-    return cloneDeep(refLike);
   }
   return null;
 }
