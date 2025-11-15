@@ -586,7 +586,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
+        swapEndpoints: true,
+      });
     }
     if (salePointer && deedPointer) {
       writeRelationship(
@@ -594,6 +596,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         deedPointer,
         idx,
+        { swapEndpoints: true },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && filePointer) {
@@ -602,6 +605,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         filePointer,
         idx,
+        { swapEndpoints: true },
       );
     }
     if (hasPropertyFile && normalizedPropertyPointer && salePointer) {
@@ -610,6 +614,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         normalizedPropertyPointer,
         salePointer,
         idx,
+        { swapEndpoints: true },
       );
     }
   });
@@ -853,7 +858,7 @@ function writeLayout(parcelId, context) {
   ]);
   let layoutCounter = 0;
   record.forEach((l) => {
-    const fallbackIndex = layoutCounter + 1;
+    const layoutIdx = layoutCounter + 1;
     const rawIndex =
       l.space_type_index != null && `${l.space_type_index}`.trim() !== ""
         ? `${l.space_type_index}`.trim()
@@ -861,7 +866,7 @@ function writeLayout(parcelId, context) {
     const normalizedIndex =
       rawIndex != null && `${rawIndex}`.trim() !== ""
         ? `${rawIndex}`.trim()
-        : String(fallbackIndex);
+        : String(layoutIdx);
     const out = {
       space_type: l.space_type ?? null,
       space_type_index: normalizedIndex,
@@ -896,14 +901,13 @@ function writeLayout(parcelId, context) {
       pool_surface_type: l.pool_surface_type ?? null,
       pool_water_quality: l.pool_water_quality ?? null,
     };
-    if (
-      out.space_type_index == null ||
-      String(out.space_type_index).trim() === ""
-    ) {
-      out.space_type_index = String(layoutCounter + 1);
-    } else {
-      out.space_type_index = String(out.space_type_index).trim();
-    }
+    const ensuredIndex =
+      out.space_type_index != null &&
+      String(out.space_type_index).trim() !== ""
+        ? String(out.space_type_index).trim()
+        : String(layoutIdx);
+    out.space_type_index =
+      ensuredIndex && ensuredIndex !== "" ? ensuredIndex : String(layoutIdx);
     layoutCounter += 1;
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
@@ -919,6 +923,7 @@ function writeLayout(parcelId, context) {
         context.propertyPointer,
         layoutPointer,
         layoutCounter,
+        { swapEndpoints: true },
       );
     }
   });
