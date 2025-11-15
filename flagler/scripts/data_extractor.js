@@ -539,21 +539,21 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
     const salePointer = createRef(saleFilename);
-    const saleRef = createRelationshipPointer(salePointer);
     processedSales.push({
       source: s,
       idx,
       saleFilename,
       transferDate,
       salePointer,
-      saleRef,
       saleNode: saleObj,
     });
-    if (hasPropertyFile && context && context.propertyFile && saleRef) {
+    const propertyPointer =
+      context && context.propertyPointer ? context.propertyPointer : null;
+    if (hasPropertyFile && propertyPointer && salePointer) {
       writeRelationship(
         "property_has_sales_history",
-        context.propertyFile,
-        saleRef,
+        propertyPointer,
+        salePointer,
         idx,
       );
     }
@@ -569,7 +569,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
     const deedPointer = createRef(deedFilename);
-    const deedRef = createRelationshipPointer(deedPointer);
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
@@ -577,18 +576,22 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
-    const fileRef = createRelationshipPointer(filePointer);
-    if (deedRef && fileRef) {
-      writeRelationship("deed_has_file", deedRef, fileRef, idx);
+    if (deedPointer && filePointer) {
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
-    if (saleRef && deedRef) {
-      writeRelationship("sales_history_has_deed", saleRef, deedRef, idx);
+    if (salePointer && deedPointer) {
+      writeRelationship(
+        "sales_history_has_deed",
+        salePointer,
+        deedPointer,
+        idx,
+      );
     }
-    if (hasPropertyFile && context && context.propertyFile && fileRef) {
+    if (hasPropertyFile && propertyPointer && filePointer) {
       writeRelationship(
         "property_has_file",
-        context.propertyFile,
-        fileRef,
+        propertyPointer,
+        filePointer,
         idx,
       );
     }
@@ -884,12 +887,13 @@ function writeLayout(parcelId, context) {
     if (
       fs.existsSync(path.join("data", "property.json")) &&
       context &&
-      context.propertyFile
+      context.propertyPointer
     ) {
+      const layoutPointer = createRef(layoutFilename);
       writeRelationship(
         "property_has_layout",
-        context.propertyFile,
-        layoutFilename,
+        context.propertyPointer,
+        layoutPointer,
         layoutCounter,
       );
     }
