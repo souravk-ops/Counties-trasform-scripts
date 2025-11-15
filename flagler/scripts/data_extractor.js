@@ -90,28 +90,19 @@ function createRef(refLike) {
 
 function createRelationshipPointer(refLike) {
   const pointer = createRef(refLike);
-  if (!pointer) return null;
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    return trimmed ? trimmed : null;
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string") {
+    const cidVal = pointer.cid.replace(/^cid:/i, "").trim();
+    if (!cidVal) return null;
+    return { cid: cidVal };
   }
-  if (typeof pointer === "object") {
-    if (typeof pointer.cid === "string") {
-      const normalizedCid = pointer.cid.trim();
-      if (!normalizedCid) return null;
-      return normalizedCid.replace(/^cid:/i, "").trim() || null;
-    }
-    if (typeof pointer["/"] === "string") {
-      const normalized = pointer["/"].trim();
-      if (!normalized) return null;
-      if (normalized.startsWith("./")) return normalized;
-      if (/^(?:baf)/i.test(normalized)) return normalized;
-      if (/^cid:/i.test(normalized)) {
-        const cidVal = normalized.slice(4).trim();
-        return cidVal || null;
-      }
-      return `./${normalized}`;
-    }
+  if (typeof pointer["/"] === "string") {
+    const normalized = pointer["/"].trim();
+    if (!normalized) return null;
+    const finalPath = normalized.startsWith("./")
+      ? normalized
+      : `./${normalized}`;
+    return { "/": finalPath };
   }
   return null;
 }
@@ -119,10 +110,8 @@ function createRelationshipPointer(refLike) {
 function resolveRelationshipParticipant(refLike) {
   if (refLike == null) return null;
   const pointer = createRelationshipPointer(refLike);
-  if (typeof pointer === "string" && pointer.trim() !== "") {
-    return pointer.trim();
-  }
-  return null;
+  if (!pointer) return null;
+  return cloneDeep(pointer);
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
@@ -148,8 +137,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     : {
         type: normalizedType,
       };
-  relationship.from = fromPointer;
-  relationship.to = toPointer;
+  relationship.from = cloneDeep(fromPointer);
+  relationship.to = cloneDeep(toPointer);
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
