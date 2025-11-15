@@ -119,6 +119,22 @@ function createRelationshipPointer(refLike) {
   return sanitizeRelationshipPointer(createRef(refLike));
 }
 
+function looksLikePointerOfType(participant, keyword) {
+  if (!participant || typeof participant !== "object") return false;
+  if (typeof participant.cid === "string") {
+    return participant.cid.toLowerCase().includes(keyword);
+  }
+  if (typeof participant["/"] === "string") {
+    const lowered = participant["/"].toLowerCase();
+    return (
+      lowered.includes(`/${keyword}`) ||
+      lowered.endsWith(`${keyword}.json`) ||
+      lowered.includes(`${keyword}_`)
+    );
+  }
+  return false;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
@@ -139,6 +155,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const relationship = omitType ? {} : { type: normalizedType };
   relationship.from = cloneDeep(fromParticipant);
   relationship.to = cloneDeep(toParticipant);
+
+  if (
+    normalizedType === "deed_has_file" &&
+    looksLikePointerOfType(relationship.from, "file") &&
+    looksLikePointerOfType(relationship.to, "deed")
+  ) {
+    const tmp = relationship.from;
+    relationship.from = relationship.to;
+    relationship.to = tmp;
+  }
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
