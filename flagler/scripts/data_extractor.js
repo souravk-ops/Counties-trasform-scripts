@@ -582,7 +582,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         deedPointer,
         filePointer,
         idx,
-        { swapEndpoints: true },
       );
     }
     if (salePointer && deedPointer) {
@@ -591,7 +590,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         deedPointer,
         idx,
-        { swapEndpoints: true },
       );
     }
     if (hasPropertyFile && propertyPointer && filePointer) {
