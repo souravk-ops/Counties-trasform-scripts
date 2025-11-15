@@ -577,7 +577,13 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = createRef(fileFilename);
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+      writeRelationship(
+        "deed_has_file",
+        deedPointer,
+        filePointer,
+        idx,
+        { swapEndpoints: true },
+      );
     }
     if (salePointer && deedPointer) {
       writeRelationship(
@@ -585,6 +591,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         deedPointer,
         idx,
+        { swapEndpoints: true },
       );
     }
     if (hasPropertyFile && propertyPointer && filePointer) {
@@ -880,6 +887,14 @@ function writeLayout(parcelId, context) {
       pool_surface_type: l.pool_surface_type ?? null,
       pool_water_quality: l.pool_water_quality ?? null,
     };
+    if (
+      out.space_type_index == null ||
+      String(out.space_type_index).trim() === ""
+    ) {
+      out.space_type_index = String(layoutCounter + 1);
+    } else {
+      out.space_type_index = String(out.space_type_index).trim();
+    }
     layoutCounter += 1;
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
