@@ -5,26 +5,6 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
-const KNOWN_CLASS_NAMES = new Set([
-  "address",
-  "company",
-  "deed",
-  "fact_sheet",
-  "file",
-  "flood_storm_information",
-  "geometry",
-  "layout",
-  "lot",
-  "parcel",
-  "person",
-  "property",
-  "property_improvement",
-  "sales_history",
-  "structure",
-  "tax",
-  "utility",
-]);
-
 function readHtml(filepath) {
   const html = fs.readFileSync(filepath, "utf8");
   return cheerio.load(html);
@@ -59,63 +39,32 @@ function normalizePointerPath(ref) {
   return `./${trimmed}`;
 }
 
-function inferClassFromPointerString(pointerPath) {
-  if (typeof pointerPath !== "string" || !pointerPath.trim()) return null;
-  const normalized = pointerPath.replace(/^\.\/+/, "");
-  if (!normalized) return null;
-  const parts = normalized.split("/");
-  const filename = parts[parts.length - 1];
-  if (!filename) return null;
-  const base = filename.replace(/\.json$/i, "");
-  if (!base) return null;
-  const segments = base.split("_");
-  for (let i = 1; i <= segments.length; i += 1) {
-    const candidate = segments.slice(0, i).join("_");
-    if (KNOWN_CLASS_NAMES.has(candidate)) return candidate;
-  }
-  return null;
-}
-
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
-  if (typeof ref === "object") {
-    if (typeof ref["/"] === "string" && ref["/"].trim()) {
-      const pointer = makeRelationshipPointer(ref["/"]);
-      if (pointer && typeof ref._class === "string" && ref._class.trim()) {
-        pointer._class = ref._class.trim();
-      }
-      return pointer;
-    }
-    if (typeof ref.cid === "string" && ref.cid.trim()) {
-      const cidVal = ref.cid.trim().replace(/^cid:/i, "");
-      if (!cidVal) return null;
-      const pointer = { cid: cidVal };
-      if (typeof ref._class === "string" && ref._class.trim()) {
-        pointer._class = ref._class.trim();
-      }
-      return pointer;
-    }
-    if (typeof ref.path === "string" && ref.path.trim()) {
-      return makeRelationshipPointer(ref.path);
-    }
-    return null;
-  }
   if (typeof ref === "string") {
     const trimmed = ref.trim();
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
       const cidVal = trimmed.slice(4).trim();
-      return cidVal ? { cid: cidVal } : null;
+      return cidVal || null;
     }
-    if (/^(?:baf)/i.test(trimmed)) {
-      return { cid: trimmed };
+    if (/^(?:baf|bag)/i.test(trimmed)) {
+      return trimmed;
     }
-    const normalized = normalizePointerPath(trimmed);
-    if (!normalized) return null;
-    const pointer = { "/": normalized };
-    const inferred = inferClassFromPointerString(normalized);
-    if (inferred) pointer._class = inferred;
-    return pointer;
+    return normalizePointerPath(trimmed);
+  }
+  if (typeof ref !== "object") return null;
+  if (typeof ref.cid === "string" && ref.cid.trim()) {
+    const cidVal = ref.cid.trim();
+    return /^cid:/i.test(cidVal)
+      ? cidVal.slice(4).trim() || null
+      : cidVal || null;
+  }
+  if (typeof ref["/"] === "string" && ref["/"].trim()) {
+    return normalizePointerPath(ref["/"]);
+  }
+  if (typeof ref.path === "string" && ref.path.trim()) {
+    return normalizePointerPath(ref.path);
   }
   return null;
 }

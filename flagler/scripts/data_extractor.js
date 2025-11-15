@@ -239,12 +239,33 @@ function looksLikePointerOfType(participant, keyword) {
 }
 
 function relationshipPointerToValue(pointer) {
-  if (!pointer) return null;
+  if (pointer == null) return null;
   if (typeof pointer === "string") {
-    return createRelationshipPointer(pointer);
+    const trimmed = pointer.trim();
+    if (!trimmed) return null;
+    if (/^cid:/i.test(trimmed)) {
+      const cidVal = trimmed.slice(4).trim();
+      return cidVal || null;
+    }
+    if (/^(?:baf|bag)/i.test(trimmed)) {
+      return trimmed;
+    }
+    return normalizePointerPath(trimmed);
   }
   if (typeof pointer !== "object") return null;
-  return sanitizeRelationshipPointer(pointer);
+  if (typeof pointer.cid === "string") {
+    const rawCid = pointer.cid.trim();
+    if (rawCid) {
+      return /^cid:/i.test(rawCid) ? rawCid.slice(4).trim() || null : rawCid;
+    }
+  }
+  if (typeof pointer["/"] === "string") {
+    return normalizePointerPath(pointer["/"]);
+  }
+  if (typeof pointer.path === "string") {
+    return normalizePointerPath(pointer.path);
+  }
+  return null;
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
