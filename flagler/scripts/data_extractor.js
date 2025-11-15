@@ -185,6 +185,30 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
+const FILE_FIELDS_BLOCKLIST = new Set([
+  "document_type",
+  "file_format",
+  "ipfs_url",
+  "original_url",
+  "uri",
+  "url",
+]);
+
+function sanitizeFileMetadata(file) {
+  if (!file || typeof file !== "object") return file;
+  FILE_FIELDS_BLOCKLIST.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(file, key)) {
+      delete file[key];
+    }
+  });
+  Object.keys(file).forEach((key) => {
+    if (file[key] === null || file[key] === undefined) {
+      delete file[key];
+    }
+  });
+  return file;
+}
+
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const s = String(txt).trim();
@@ -577,15 +601,26 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     };
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    const deedPointer = createRelationshipPointer(`./${deedFilename}`);
+    let deedPointer = createRelationshipPointer(`./${deedFilename}`);
     const fileName = s.bookPage ? `Deed ${s.bookPage}` : `Deed ${idx}`;
     const fileObj = {};
     if (fileName) fileObj.name = fileName;
+    sanitizeFileMetadata(fileObj);
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileObj);
-    const filePointer = createRelationshipPointer(`./${fileFilename}`);
+    let filePointer = createRelationshipPointer(`./${fileFilename}`);
     if (deedPointer && filePointer) {
+      if (
+        deedPointer["/"] &&
+        filePointer["/"] &&
+        /file_\d+\.json$/i.test(deedPointer["/"].trim()) &&
+        /deed_\d+\.json$/i.test(filePointer["/"].trim())
+      ) {
+        const tmp = deedPointer;
+        deedPointer = filePointer;
+        filePointer = tmp;
+      }
       writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
     if (salePointer && deedPointer) {
