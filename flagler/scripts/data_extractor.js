@@ -73,105 +73,63 @@ function createRef(refLike) {
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
       const cidVal = trimmed.slice(4).trim();
-      return cidVal ? { cid: cidVal } : null;
+      return cidVal ? `cid:${cidVal}` : null;
     }
     if (/^(?:baf)/i.test(trimmed)) {
-      const pointer = { cid: trimmed.trim() };
-      return pointer;
+      return `cid:${trimmed.trim()}`;
     }
     const pointerPath = normalizePointerPath(trimmed);
     if (!pointerPath) return null;
-    const pointer = { "/": pointerPath };
-    return pointer;
+    return pointerPath;
   }
   if (typeof refLike === "object") {
     if (typeof refLike["/"] === "string") {
       const pointerPath = normalizePointerPath(refLike["/"]);
       if (!pointerPath) return null;
-      const pointer = { "/": pointerPath };
-      return pointer;
+      return pointerPath;
     }
     if (typeof refLike.cid === "string") {
       const cidVal = refLike.cid.replace(/^cid:/i, "").trim();
       if (!cidVal) return null;
-      const pointer = { cid: cidVal };
-      return pointer;
+      return `cid:${cidVal}`;
     }
     if (typeof refLike.path === "string") {
       const pointerPath = normalizePointerPath(refLike.path);
       if (!pointerPath) return null;
-      const pointer = { "/": pointerPath };
-      return pointer;
+      return pointerPath;
     }
   }
   return null;
 }
 
-function sanitizeRelationshipPointer(pointer, classHint) {
-  if (!pointer || typeof pointer !== "object") return null;
-
-  let cidVal = null;
-  if (typeof pointer.cid === "string") {
-    const cleaned = pointer.cid.replace(/^cid:/i, "").trim();
-    if (cleaned) cidVal = cleaned;
-  }
-
-  let pathVal = null;
-  if (typeof pointer["/"] === "string") {
-    pathVal = normalizePointerPath(pointer["/"]);
-  } else if (typeof pointer.path === "string") {
-    pathVal = normalizePointerPath(pointer.path);
-  }
-
-  let sanitized = null;
-  if (cidVal) {
-    sanitized = { cid: cidVal };
-  } else if (pathVal) {
-    sanitized = { "/": pathVal };
-  } else {
-    return null;
-  }
-
-  const providedHint =
-    typeof classHint === "string" && classHint.trim()
-      ? classHint.trim()
-      : null;
-  const inferredHint =
-    providedHint || inferClassHintFromPath(pathVal || pointer["/"]);
-  if (inferredHint) {
-    sanitized._class = inferredHint;
-  }
-  return sanitized;
-}
-
-function createRelationshipPointer(refLike, options) {
-  const opts = options || {};
-  const classHint =
-    typeof opts.classHint === "string" && opts.classHint.trim()
-      ? opts.classHint.trim()
-      : null;
-  return sanitizeRelationshipPointer(createRef(refLike), classHint);
+function createRelationshipPointer(refLike, _options) {
+  return createRef(refLike);
 }
 
 function looksLikePointerOfType(participant, keyword) {
+  if (!keyword) return true;
+  const loweredKeyword = keyword.toLowerCase();
+  const matchesKeyword = (value) => {
+    if (!value || typeof value !== "string") return false;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized.startsWith("cid:")) return true;
+    return normalized.includes(loweredKeyword);
+  };
+
+  if (typeof participant === "string") {
+    return matchesKeyword(participant);
+  }
   if (!participant || typeof participant !== "object") return false;
   if (
     typeof participant._class === "string" &&
-    participant._class.trim().toLowerCase() === keyword.toLowerCase()
+    participant._class.trim().toLowerCase() === loweredKeyword
   ) {
     return true;
   }
-  if (typeof participant.cid === "string") {
-    return participant.cid.toLowerCase().includes(keyword);
-  }
-  if (typeof participant["/"] === "string") {
-    const lowered = participant["/"].toLowerCase();
-    return (
-      lowered.includes(`/${keyword}`) ||
-      lowered.endsWith(`${keyword}.json`) ||
-      lowered.includes(`${keyword}_`)
-    );
-  }
+  if (matchesKeyword(participant.cid)) return true;
+  if (matchesKeyword(participant["/"])) return true;
+  if (matchesKeyword(participant.path)) return true;
   return false;
 }
 
@@ -268,42 +226,6 @@ const FILE_FIELDS_ALLOWLIST = new Set([
   "request_identifier",
   "source_http_request",
 ]);
-
-const RELATIONSHIP_CLASS_HINTS = [
-  "address",
-  "company",
-  "deed",
-  "file",
-  "flood_storm_information",
-  "geometry",
-  "layout",
-  "lot",
-  "parcel",
-  "person",
-  "property",
-  "property_improvement",
-  "sales_history",
-  "structure",
-  "tax",
-  "utility",
-];
-
-function inferClassHintFromPath(pathVal) {
-  if (typeof pathVal !== "string") return null;
-  const normalized = normalizePointerPath(pathVal);
-  if (!normalized) return null;
-  const base = path.basename(normalized).toLowerCase();
-  const withoutExt = base.replace(/\.json$/, "");
-  for (const candidate of RELATIONSHIP_CLASS_HINTS) {
-    if (
-      withoutExt === candidate ||
-      withoutExt.startsWith(`${candidate}_`)
-    ) {
-      return candidate;
-    }
-  }
-  return null;
-}
 
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
