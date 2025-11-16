@@ -111,37 +111,25 @@ function makeRelationshipPointer(ref) {
 
 function pointerToReferenceValue(pointer) {
   if (pointer == null) return null;
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
+
+  const normalizeString = (value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
     if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed) || /^https?:\/\//i.test(trimmed)) return trimmed;
     const normalized = normalizePointerOutput(trimmed);
-    if (normalized && typeof normalized === "object") {
-      if (typeof normalized.cid === "string" && normalized.cid.trim())
-        return normalized.cid.trim();
-      if (typeof normalized.uri === "string" && normalized.uri.trim())
-        return normalized.uri.trim();
-      if (typeof normalized["/"] === "string" && normalized["/"].trim())
-        return normalized["/"].trim();
-    }
-    return trimmed;
+    return sanitizePointerObject(normalized);
+  };
+
+  if (typeof pointer === "string") {
+    return normalizeString(pointer);
   }
+
   if (typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string" && pointer.cid.trim())
-    return pointer.cid.trim();
-  if (typeof pointer.uri === "string" && pointer.uri.trim())
-    return pointer.uri.trim();
-  if (typeof pointer["/"] === "string" && pointer["/"].trim())
-    return pointer["/"].trim();
+  const sanitized = sanitizePointerObject(pointer);
+  if (sanitized) return sanitized;
   const rebuilt = makeRelationshipPointer(pointer);
   if (!rebuilt || typeof rebuilt !== "object") return null;
-  if (typeof rebuilt.cid === "string" && rebuilt.cid.trim())
-    return rebuilt.cid.trim();
-  if (typeof rebuilt.uri === "string" && rebuilt.uri.trim())
-    return rebuilt.uri.trim();
-  if (typeof rebuilt["/"] === "string" && rebuilt["/"].trim())
-    return rebuilt["/"].trim();
-  return null;
+  return sanitizePointerObject(rebuilt);
 }
 
 function collectBuildings($) {
