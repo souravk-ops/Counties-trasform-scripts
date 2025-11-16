@@ -102,16 +102,11 @@ function createRef(refLike) {
   return null;
 }
 
-function asRelationshipPointerValue(value, classHint) {
+function asRelationshipPointerValue(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const normalizedHint =
-    typeof classHint === "string" && classHint.trim()
-      ? classHint.trim().toLowerCase()
-      : null;
   const pointer = {};
-  if (normalizedHint) pointer._class = normalizedHint;
   if (/^cid:/i.test(trimmed)) {
     const cidVal = trimmed.slice(4).trim();
     if (!cidVal) return null;
@@ -119,7 +114,9 @@ function asRelationshipPointerValue(value, classHint) {
     return pointer;
   }
   if (/^(?:baf|bag)/i.test(trimmed)) {
-    pointer.cid = trimmed.trim();
+    const cid = trimmed.trim();
+    if (!cid) return null;
+    pointer.cid = cid;
     return pointer;
   }
   const normalizedPath = normalizePointerPath(trimmed);
@@ -129,36 +126,18 @@ function asRelationshipPointerValue(value, classHint) {
 }
 
 function createRelationshipPointer(refLike, options) {
-  const classHint =
-    options &&
-    typeof options.classHint === "string" &&
-    options.classHint.trim()
-      ? options.classHint.trim().toLowerCase()
-      : null;
   if (refLike == null) return null;
   if (typeof refLike === "string") {
     const pointerValue = createRef(refLike);
     if (!pointerValue) return null;
-    return asRelationshipPointerValue(pointerValue, classHint);
+    return asRelationshipPointerValue(pointerValue);
   }
   if (typeof refLike !== "object") return null;
   if (typeof refLike.cid === "string" && refLike.cid.trim()) {
     const cidVal = refLike.cid.trim().replace(/^cid:/i, "").trim();
     if (!cidVal) return null;
-    const pointer = { cid: cidVal };
-    if (classHint) pointer._class = classHint;
-    else if (
-      typeof refLike._class === "string" &&
-      refLike._class.trim()
-    ) {
-      pointer._class = refLike._class.trim().toLowerCase();
-    }
-    return pointer;
+    return { cid: cidVal };
   }
-  const existingClass =
-    typeof refLike._class === "string" && refLike._class.trim()
-      ? refLike._class.trim().toLowerCase()
-      : null;
   const rawPath =
     typeof refLike["/"] === "string" && refLike["/"].trim()
       ? refLike["/"]
@@ -170,10 +149,7 @@ function createRelationshipPointer(refLike, options) {
   if (rawPath) {
     const normalized = normalizePointerPath(rawPath);
     if (!normalized) return null;
-    const pointer = { "/": normalized };
-    if (classHint) pointer._class = classHint;
-    else if (existingClass) pointer._class = existingClass;
-    return pointer;
+    return { "/": normalized };
   }
   return null;
 }
