@@ -102,44 +102,78 @@ function createRef(refLike) {
   return null;
 }
 
-function asRelationshipPointerValue(value) {
+function asRelationshipPointerValue(value, classHint) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+  const normalizedHint =
+    typeof classHint === "string" && classHint.trim()
+      ? classHint.trim().toLowerCase()
+      : null;
+  const pointer = {};
+  if (normalizedHint) pointer._class = normalizedHint;
   if (/^cid:/i.test(trimmed)) {
     const cidVal = trimmed.slice(4).trim();
-    return cidVal ? { cid: cidVal } : null;
+    if (!cidVal) return null;
+    pointer.cid = cidVal;
+    return pointer;
   }
   if (/^(?:baf|bag)/i.test(trimmed)) {
-    return { cid: trimmed };
+    pointer.cid = trimmed.trim();
+    return pointer;
   }
   const normalizedPath = normalizePointerPath(trimmed);
-  return normalizedPath ? { "/": normalizedPath } : null;
+  if (!normalizedPath) return null;
+  pointer["/"] = normalizedPath;
+  return pointer;
 }
 
-function createRelationshipPointer(refLike, _options) {
+function createRelationshipPointer(refLike, options) {
+  const classHint =
+    options &&
+    typeof options.classHint === "string" &&
+    options.classHint.trim()
+      ? options.classHint.trim().toLowerCase()
+      : null;
   if (refLike == null) return null;
   if (typeof refLike === "string") {
     const pointerValue = createRef(refLike);
     if (!pointerValue) return null;
-    return asRelationshipPointerValue(pointerValue);
+    return asRelationshipPointerValue(pointerValue, classHint);
   }
   if (typeof refLike !== "object") return null;
   if (typeof refLike.cid === "string" && refLike.cid.trim()) {
     const cidVal = refLike.cid.trim().replace(/^cid:/i, "").trim();
-    return cidVal ? { cid: cidVal } : null;
+    if (!cidVal) return null;
+    const pointer = { cid: cidVal };
+    if (classHint) pointer._class = classHint;
+    else if (
+      typeof refLike._class === "string" &&
+      refLike._class.trim()
+    ) {
+      pointer._class = refLike._class.trim().toLowerCase();
+    }
+    return pointer;
   }
-  if (typeof refLike["/"] === "string" && refLike["/"].trim()) {
-    const normalized = normalizePointerPath(refLike["/"]);
-    return normalized ? { "/": normalized } : null;
-  }
-  if (typeof refLike.path === "string" && refLike.path.trim()) {
-    const normalized = normalizePointerPath(refLike.path);
-    return normalized ? { "/": normalized } : null;
-  }
-  if (typeof refLike["@ref"] === "string" && refLike["@ref"].trim()) {
-    const normalized = normalizePointerPath(refLike["@ref"]);
-    return normalized ? { "/": normalized } : null;
+  const existingClass =
+    typeof refLike._class === "string" && refLike._class.trim()
+      ? refLike._class.trim().toLowerCase()
+      : null;
+  const rawPath =
+    typeof refLike["/"] === "string" && refLike["/"].trim()
+      ? refLike["/"]
+      : typeof refLike.path === "string" && refLike.path.trim()
+        ? refLike.path
+        : typeof refLike["@ref"] === "string" && refLike["@ref"].trim()
+          ? refLike["@ref"]
+          : null;
+  if (rawPath) {
+    const normalized = normalizePointerPath(rawPath);
+    if (!normalized) return null;
+    const pointer = { "/": normalized };
+    if (classHint) pointer._class = classHint;
+    else if (existingClass) pointer._class = existingClass;
+    return pointer;
   }
   return null;
 }
@@ -647,8 +681,7 @@ function writeProperty($, parcelId, context) {
     context.propertyNode = property;
     context.propertyFile = propertyFilename;
     context.propertyPointer = createRelationshipPointer(propertyFilename, {
-      expectedFromKeyword: "property",
-      expectedToKeyword: "property",
+      classHint: "property",
     });
   }
 }
@@ -660,8 +693,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const normalizedPropertyPointer =
     context && context.propertyPointer
       ? createRelationshipPointer(context.propertyPointer, {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "property",
+          classHint: "property",
         })
       : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
@@ -692,7 +724,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
     const salePointer = createRelationshipPointer(saleFilename, {
-      expectedFromKeyword: "sales_history",
+      classHint: "sales_history",
     });
     processedSales.push({
       source: s,
@@ -712,7 +744,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
     const deedPointer = createRelationshipPointer(deedFilename, {
-      expectedFromKeyword: "deed",
+      classHint: "deed",
     });
     const fileFilename = `file_${idx}.json`;
     const parcelIdForRequest =
@@ -727,7 +759,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
     const filePointer = createRelationshipPointer(fileFilename, {
-      expectedFromKeyword: "file",
+      classHint: "file",
     });
     writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
       expectedFromKeyword: "deed",
@@ -858,7 +890,7 @@ function writePersonCompaniesSalesRelationships(
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
     const saleRef = createRelationshipPointer(
       rec.salePointer || rec.saleFilename,
-      { expectedFromKeyword: "sales_history" },
+      { classHint: "sales_history" },
     );
     ownersOnDate
       .filter((o) => o.type === "person")
@@ -866,7 +898,7 @@ function writePersonCompaniesSalesRelationships(
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
           const personRef = createRelationshipPointer(`person_${pIdx}.json`, {
-            expectedToKeyword: "person",
+            classHint: "person",
           });
           if (!saleRef || !personRef) return;
           relPersonCounter++;
@@ -889,7 +921,7 @@ function writePersonCompaniesSalesRelationships(
         if (cIdx) {
           const companyRef = createRelationshipPointer(
             `company_${cIdx}.json`,
-            { expectedToKeyword: "company" },
+            { classHint: "company" },
           );
           if (!saleRef || !companyRef) return;
           relCompanyCounter++;
@@ -1062,7 +1094,7 @@ function writeLayout(parcelId, context) {
       context.propertyPointer
     ) {
       const layoutPointer = createRelationshipPointer(layoutFilename, {
-        expectedToKeyword: "layout",
+        classHint: "layout",
       });
       writeRelationship(
         "property_has_layout",

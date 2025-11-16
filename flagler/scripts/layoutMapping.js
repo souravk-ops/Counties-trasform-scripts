@@ -39,35 +39,62 @@ function normalizePointerPath(ref) {
   return `./${trimmed}`;
 }
 
-function makeRelationshipPointer(ref) {
+function makeRelationshipPointer(ref, classHint) {
+  const normalizedHint =
+    typeof classHint === "string" && classHint.trim()
+      ? classHint.trim().toLowerCase()
+      : null;
   if (ref == null) return null;
   if (typeof ref === "string") {
     const trimmed = ref.trim();
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
       const cidVal = trimmed.slice(4).trim();
-      return cidVal ? { cid: cidVal } : null;
+      if (!cidVal) return null;
+      return normalizedHint
+        ? { _class: normalizedHint, cid: cidVal }
+        : { cid: cidVal };
     }
     if (/^(?:baf|bag)/i.test(trimmed)) {
-      return { cid: trimmed };
+      return normalizedHint
+        ? { _class: normalizedHint, cid: trimmed.trim() }
+        : { cid: trimmed.trim() };
     }
     const normalized = normalizePointerPath(trimmed);
-    return normalized ? { "/": normalized } : null;
+    if (!normalized) return null;
+    return normalizedHint
+      ? { _class: normalizedHint, "/": normalized }
+      : { "/": normalized };
   }
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
     const cidVal = ref.cid.trim();
     const cleaned =
       /^cid:/i.test(cidVal) ? cidVal.slice(4).trim() : cidVal;
-    return cleaned ? { cid: cleaned } : null;
+    if (!cleaned) return null;
+    const pointer = { cid: cleaned };
+    if (normalizedHint) pointer._class = normalizedHint;
+    else if (typeof ref._class === "string" && ref._class.trim())
+      pointer._class = ref._class.trim().toLowerCase();
+    return pointer;
   }
   if (typeof ref["/"] === "string" && ref["/"].trim()) {
     const normalized = normalizePointerPath(ref["/"]);
-    return normalized ? { "/": normalized } : null;
+    if (!normalized) return null;
+    const pointer = { "/": normalized };
+    if (normalizedHint) pointer._class = normalizedHint;
+    else if (typeof ref._class === "string" && ref._class.trim())
+      pointer._class = ref._class.trim().toLowerCase();
+    return pointer;
   }
   if (typeof ref.path === "string" && ref.path.trim()) {
     const normalized = normalizePointerPath(ref.path);
-    return normalized ? { "/": normalized } : null;
+    if (!normalized) return null;
+    const pointer = { "/": normalized };
+    if (normalizedHint) pointer._class = normalizedHint;
+    else if (typeof ref._class === "string" && ref._class.trim())
+      pointer._class = ref._class.trim().toLowerCase();
+    return pointer;
   }
   return null;
 }
@@ -250,8 +277,11 @@ function main() {
     );
 
     if (propertyRelationshipFrom) {
-      const fromPointer = makeRelationshipPointer(propertyRelationshipFrom);
-      const toPointer = makeRelationshipPointer(`./${layoutFile}`);
+      const fromPointer = makeRelationshipPointer(
+        propertyRelationshipFrom,
+        "property",
+      );
+      const toPointer = makeRelationshipPointer(`./${layoutFile}`, "layout");
       if (!fromPointer || !toPointer) return;
       const rel = {
         type: "property_has_layout",
