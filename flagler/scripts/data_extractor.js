@@ -66,73 +66,6 @@ function attachSourceHttpRequest(target, request) {
   target.source_http_request = cloneDeep(request);
 }
 
-const KNOWN_CLASS_NAMES = new Set([
-  "address",
-  "company",
-  "deed",
-  "fact_sheet",
-  "file",
-  "flood_storm_information",
-  "geometry",
-  "layout",
-  "lot",
-  "parcel",
-  "person",
-  "property",
-  "property_improvement",
-  "sales_history",
-  "structure",
-  "tax",
-  "utility",
-]);
-
-function inferClassFromPointerString(pointerStr) {
-  if (typeof pointerStr !== "string") return null;
-  const trimmed = pointerStr.trim();
-  if (!trimmed) return null;
-  const normalized = trimmed.replace(/\\/g, "/").replace(/^\.\/+/, "");
-  if (!normalized) return null;
-  const parts = normalized.split("/");
-  const filename = parts[parts.length - 1];
-  if (!filename) return null;
-  const withoutExt = filename.replace(/\.json$/i, "");
-  if (!withoutExt) return null;
-  const segments = withoutExt.split("_");
-  for (let i = 1; i <= segments.length; i += 1) {
-    const candidate = segments.slice(0, i).join("_");
-    if (KNOWN_CLASS_NAMES.has(candidate)) return candidate;
-  }
-  return null;
-}
-
-function attachClassToPointer(pointer, refLike) {
-  if (!pointer || typeof pointer !== "object") return pointer;
-  if (typeof pointer._class === "string" && pointer._class.trim()) {
-    pointer._class = pointer._class.trim();
-    return pointer;
-  }
-
-  let inferred = null;
-  if (refLike && typeof refLike === "object") {
-    if (typeof refLike._class === "string" && refLike._class.trim()) {
-      inferred = refLike._class.trim();
-    } else if (typeof refLike["/"] === "string") {
-      inferred = inferClassFromPointerString(refLike["/"]);
-    } else if (typeof refLike.path === "string") {
-      inferred = inferClassFromPointerString(refLike.path);
-    } else if (typeof refLike.cid === "string" && refLike.cid.trim()) {
-      inferred = null;
-    }
-  } else if (typeof refLike === "string") {
-    inferred = inferClassFromPointerString(refLike);
-  }
-
-  if (inferred) {
-    pointer._class = inferred;
-  }
-  return pointer;
-}
-
 function createRef(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -144,13 +77,11 @@ function createRef(refLike) {
     }
     if (/^(?:baf)/i.test(trimmed)) {
       const pointer = { cid: trimmed.trim() };
-      attachClassToPointer(pointer, refLike);
       return pointer;
     }
     const pointerPath = normalizePointerPath(trimmed);
     if (!pointerPath) return null;
     const pointer = { "/": pointerPath };
-    attachClassToPointer(pointer, refLike);
     return pointer;
   }
   if (typeof refLike === "object") {
@@ -158,21 +89,18 @@ function createRef(refLike) {
       const pointerPath = normalizePointerPath(refLike["/"]);
       if (!pointerPath) return null;
       const pointer = { "/": pointerPath };
-      attachClassToPointer(pointer, refLike);
       return pointer;
     }
     if (typeof refLike.cid === "string") {
       const cidVal = refLike.cid.replace(/^cid:/i, "").trim();
       if (!cidVal) return null;
       const pointer = { cid: cidVal };
-      attachClassToPointer(pointer, refLike);
       return pointer;
     }
     if (typeof refLike.path === "string") {
       const pointerPath = normalizePointerPath(refLike.path);
       if (!pointerPath) return null;
       const pointer = { "/": pointerPath };
-      attachClassToPointer(pointer, refLike);
       return pointer;
     }
   }
@@ -181,10 +109,6 @@ function createRef(refLike) {
 
 function sanitizeRelationshipPointer(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
-  const pointerClass =
-    typeof pointer._class === "string" && pointer._class.trim()
-      ? pointer._class.trim()
-      : null;
 
   let cidVal = null;
   if (typeof pointer.cid === "string") {
@@ -207,8 +131,6 @@ function sanitizeRelationshipPointer(pointer) {
   } else {
     return null;
   }
-
-  if (pointerClass) sanitized._class = pointerClass;
   return sanitized;
 }
 
