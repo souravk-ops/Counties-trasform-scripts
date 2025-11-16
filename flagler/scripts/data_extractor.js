@@ -174,53 +174,6 @@ function looksLikePointerOfType(participant, keyword) {
   return false;
 }
 
-function inferPointerKeyword(participant) {
-  const inferFromString = (value) => {
-    if (!value || typeof value !== "string") return null;
-    const lowered = value.trim().toLowerCase();
-    if (!lowered) return null;
-    if (lowered.includes("deed")) return "deed";
-    if (lowered.includes("file")) return "file";
-    if (lowered.includes("sales")) return "sales_history";
-    if (lowered.includes("person")) return "person";
-    if (lowered.includes("company")) return "company";
-    if (lowered.includes("property")) return "property";
-    if (lowered.includes("layout")) return "layout";
-    if (lowered.includes("utility")) return "utility";
-    if (lowered.includes("tax")) return "tax";
-    if (lowered.includes("address")) return "address";
-    return null;
-  };
-
-  if (!participant) return null;
-  if (typeof participant === "string") {
-    return inferFromString(participant);
-  }
-  if (typeof participant !== "object") return null;
-  if (typeof participant._class === "string") {
-    const inferred = participant._class.trim().toLowerCase();
-    if (inferred) return inferred;
-  }
-  if (typeof participant.cid === "string") {
-    const inferred = inferFromString(participant.cid);
-    if (inferred) return inferred;
-  }
-  const pathLike =
-    (typeof participant.path === "string" && participant.path) ||
-    (typeof participant["/"] === "string" && participant["/"]) ||
-    (typeof participant["@ref"] === "string" && participant["@ref"]);
-  if (pathLike) {
-    const inferred = inferFromString(pathLike);
-    if (inferred) return inferred;
-  }
-  return null;
-}
-
-function pointerMatchesExpected(pointer, keyword) {
-  if (!keyword) return true;
-  return looksLikePointerOfType(pointer, keyword);
-}
-
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
@@ -236,32 +189,16 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  let fromPointer = createRelationshipPointer(fromRefLike);
-  let toPointer = createRelationshipPointer(toRefLike);
+  const fromPointer = createRelationshipPointer(fromRefLike);
+  const toPointer = createRelationshipPointer(toRefLike);
   if (!fromPointer || !toPointer) return;
 
-  let fromMatches = pointerMatchesExpected(fromPointer, expectedFromKeyword);
-  let toMatches = pointerMatchesExpected(toPointer, expectedToKeyword);
-
-  if ((!fromMatches || !toMatches) && expectedFromKeyword && expectedToKeyword) {
-    const swappedFromMatches = pointerMatchesExpected(
-      toPointer,
-      expectedFromKeyword,
-    );
-    const swappedToMatches = pointerMatchesExpected(
-      fromPointer,
-      expectedToKeyword,
-    );
-    if (swappedFromMatches && swappedToMatches) {
-      const tmp = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmp;
-      fromMatches = true;
-      toMatches = true;
-    }
-  }
-
-  if (!fromMatches || !toMatches) {
+  if (
+    (expectedFromKeyword &&
+      !looksLikePointerOfType(fromPointer, expectedFromKeyword)) ||
+    (expectedToKeyword &&
+      !looksLikePointerOfType(toPointer, expectedToKeyword))
+  ) {
     return;
   }
 
