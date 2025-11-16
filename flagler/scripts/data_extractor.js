@@ -154,6 +154,29 @@ function createRelationshipPointer(refLike, options) {
   return null;
 }
 
+function sanitizePointerObject(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (
+    typeof pointer.cid === "string" &&
+    pointer.cid.trim().replace(/^cid:/i, "").trim()
+  ) {
+    const trimmed = pointer.cid.trim().replace(/^cid:/i, "").trim();
+    if (trimmed) {
+      return { cid: trimmed };
+    }
+  }
+  const rawPath =
+    (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
+    (typeof pointer.path === "string" && pointer.path.trim()) ||
+    (typeof pointer["@ref"] === "string" && pointer["@ref"].trim()) ||
+    null;
+  if (rawPath) {
+    const normalized = normalizePointerPath(rawPath);
+    if (normalized) return { "/": normalized };
+  }
+  return null;
+}
+
 function looksLikePointerOfType(participant, keyword) {
   if (!keyword) return true;
   const loweredKeyword = keyword.toLowerCase();
@@ -245,6 +268,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   let toPointer = createRelationshipPointer(toRefLike, {
     classHint: expectedToKeyword,
   });
+  fromPointer = sanitizePointerObject(fromPointer);
+  toPointer = sanitizePointerObject(toPointer);
   if (!fromPointer || !toPointer) return;
 
   if (expectedFromKeyword && expectedToKeyword) {
@@ -714,9 +739,6 @@ function writeProperty($, parcelId, context) {
   if (context) {
     context.propertyNode = property;
     context.propertyFile = propertyFilename;
-    context.propertyPointer = createRelationshipPointer(propertyFilename, {
-      classHint: "property",
-    });
   }
 }
 
@@ -724,12 +746,12 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const { parcelId, defaultSourceHttpRequest } = context || {};
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
-  const normalizedPropertyPointer =
-    context && context.propertyPointer
-      ? createRelationshipPointer(context.propertyPointer, {
-          classHint: "property",
-        })
-      : null;
+  const propertyPointer = hasPropertyFile
+    ? createRelationshipPointer(
+        (context && context.propertyFile) || "property.json",
+        { classHint: "property" },
+      )
+    : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   removeFilesMatchingPatterns([
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
@@ -757,15 +779,11 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
-    const salePointer = createRelationshipPointer(saleFilename, {
-      classHint: "sales_history",
-    });
     processedSales.push({
       source: s,
       idx,
       saleFilename,
       transferDate,
-      salePointer,
       saleNode: saleObj,
     });
     const deedType = mapInstrumentToDeedType(s.instrument);
@@ -777,9 +795,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (page) deed.page = page;
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    const deedPointer = createRelationshipPointer(deedFilename, {
-      classHint: "deed",
-    });
     const fileFilename = `file_${idx}.json`;
     const parcelIdForRequest =
       parcelId != null ? String(parcelId).trim() : "";
@@ -792,22 +807,19 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    const filePointer = createRelationshipPointer(fileFilename, {
-      classHint: "file",
-    });
-    writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
+    writeRelationship("deed_has_file", deedFilename, fileFilename, idx, {
       expectedFromKeyword: "deed",
       expectedToKeyword: "file",
     });
-    writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx, {
+    writeRelationship("sales_history_has_deed", saleFilename, deedFilename, idx, {
       expectedFromKeyword: "sales_history",
       expectedToKeyword: "deed",
     });
-    if (hasPropertyFile && normalizedPropertyPointer) {
+    if (propertyPointer) {
       writeRelationship(
         "property_has_file",
-        normalizedPropertyPointer,
-        filePointer,
+        propertyPointer,
+        fileFilename,
         idx,
         {
           expectedFromKeyword: "property",
@@ -816,8 +828,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       );
       writeRelationship(
         "property_has_sales_history",
-        normalizedPropertyPointer,
-        salePointer,
+        propertyPointer,
+        saleFilename,
         idx,
         {
           expectedFromKeyword: "property",
@@ -922,10 +934,9 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRef = createRelationshipPointer(
-      rec.salePointer || rec.saleFilename,
-      { classHint: "sales_history" },
-    );
+    const saleRef = createRelationshipPointer(rec.saleFilename, {
+      classHint: "sales_history",
+    });
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
@@ -1122,24 +1133,28 @@ function writeLayout(parcelId, context) {
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
-    if (
-      fs.existsSync(path.join("data", "property.json")) &&
-      context &&
-      context.propertyPointer
-    ) {
+    if (fs.existsSync(path.join("data", "property.json")) && context) {
+      const propertyPointerForLayout = createRelationshipPointer(
+        (context.propertyFile && context.propertyFile.trim()) ||
+          context.propertyFile ||
+          "property.json",
+        { classHint: "property" },
+      );
       const layoutPointer = createRelationshipPointer(layoutFilename, {
         classHint: "layout",
       });
-      writeRelationship(
-        "property_has_layout",
-        context.propertyPointer,
-        layoutPointer,
-        layoutCounter,
-        {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "layout",
-        },
-      );
+      if (propertyPointerForLayout && layoutPointer) {
+        writeRelationship(
+          "property_has_layout",
+          propertyPointerForLayout,
+          layoutPointer,
+          layoutCounter,
+          {
+            expectedFromKeyword: "property",
+            expectedToKeyword: "layout",
+          },
+        );
+      }
     }
   });
 }
@@ -1164,37 +1179,109 @@ function extractSecTwpRng($) {
 }
 
 function attemptWriteAddress(unnorm, secTwpRng, context) {
-  const { defaultSourceHttpRequest, parcelId } = context || {};
-  const full =
-    unnorm && unnorm.full_address ? unnorm.full_address.trim() : null;
-  if (!full) return;
-  let city = null;
-  let zip = null;
-  const fullAddressParts = (full || "").split(",");
-  if (fullAddressParts.length >= 3 && fullAddressParts[2]) {
-    const stateAndZipTokens = fullAddressParts[2].split(/\s+/);
-    const potentialZip = stateAndZipTokens[stateAndZipTokens.length - 1];
-    if (potentialZip && potentialZip.trim().match(/^\d{5}$/)) {
-      zip = potentialZip.trim();
-      city = fullAddressParts[1].trim();
+  const { defaultSourceHttpRequest } = context || {};
+  const normalizedSource =
+    unnorm && typeof unnorm.normalized_address === "object"
+      ? unnorm.normalized_address
+      : null;
+  const fullRaw =
+    unnorm && typeof unnorm.full_address === "string"
+      ? unnorm.full_address
+      : null;
+  const full = fullRaw ? fullRaw.trim() : null;
+
+  const hasNormalizedContent =
+    normalizedSource &&
+    Object.values(normalizedSource).some((val) => {
+      if (val == null) return false;
+      if (typeof val === "string") return val.trim() !== "";
+      if (typeof val === "number") return true;
+      return false;
+    });
+
+  if (!full && !hasNormalizedContent) return;
+
+  const stringOrNull = (value) => {
+    if (value == null) return null;
+    const trimmed = String(value).trim();
+    return trimmed ? trimmed : null;
+  };
+
+  let derivedCity = null;
+  let derivedZip = null;
+  if (full) {
+    const fullAddressParts = full.split(",");
+    if (fullAddressParts.length >= 3 && fullAddressParts[2]) {
+      const stateAndZipTokens = fullAddressParts[2].split(/\s+/);
+      const potentialZip = stateAndZipTokens[stateAndZipTokens.length - 1];
+      if (potentialZip && potentialZip.trim().match(/^\d{5}$/)) {
+        derivedZip = potentialZip.trim();
+        derivedCity = fullAddressParts[1].trim();
+      }
     }
   }
-  const inputCounty = (unnorm.county_jurisdiction || "").trim();
-  const county_name = inputCounty || null;
+
+  const county_name = stringOrNull(unnorm && unnorm.county_jurisdiction);
+  const normalizedPostalCode = stringOrNull(
+    normalizedSource && normalizedSource.postal_code,
+  );
+  const normalizedCity = stringOrNull(
+    normalizedSource && normalizedSource.city_name,
+  );
+  const normalizedState = stringOrNull(
+    normalizedSource && normalizedSource.state_code,
+  );
+  const normalizedCountry = stringOrNull(
+    normalizedSource && normalizedSource.country_code,
+  );
 
   const address = {
-    county_name,
-    country_code: "US",
-    state_code: "FL",
-    postal_code: zip || null,
-    city_name: city ? city.toUpperCase() : null,
+    county_name: county_name || null,
+    country_code: normalizedCountry || "US",
+    state_code: normalizedState || "FL",
+    postal_code: normalizedPostalCode || derivedZip || null,
+    city_name: normalizedCity
+      ? normalizedCity.toUpperCase()
+      : derivedCity
+        ? derivedCity.toUpperCase()
+        : null,
+    street_number: stringOrNull(
+      normalizedSource && normalizedSource.street_number,
+    ),
+    street_name: stringOrNull(normalizedSource && normalizedSource.street_name),
+    street_suffix_type: stringOrNull(
+      normalizedSource && normalizedSource.street_suffix_type,
+    ),
+    street_pre_directional_text: stringOrNull(
+      normalizedSource && normalizedSource.street_pre_directional_text,
+    ),
+    street_post_directional_text: stringOrNull(
+      normalizedSource && normalizedSource.street_post_directional_text,
+    ),
+    unit_identifier: stringOrNull(
+      normalizedSource && normalizedSource.unit_identifier,
+    ),
+    route_number: stringOrNull(
+      normalizedSource && normalizedSource.route_number,
+    ),
+    plus_four_postal_code: stringOrNull(
+      normalizedSource && normalizedSource.plus_four_postal_code,
+    ),
     township: secTwpRng && secTwpRng.township ? secTwpRng.township : null,
     range: secTwpRng && secTwpRng.range ? secTwpRng.range : null,
     section: secTwpRng && secTwpRng.section ? secTwpRng.section : null,
-    unnormalized_address: full,
-    request_identifier:
-      unnorm && unnorm.request_identifier ? unnorm.request_identifier : null,
+    unnormalized_address:
+      full ||
+      stringOrNull(
+        normalizedSource && normalizedSource.original_address,
+      ),
+    request_identifier: stringOrNull(
+      unnorm && unnorm.request_identifier,
+    ),
   };
+  if (!address.unnormalized_address && full) {
+    address.unnormalized_address = full;
+  }
   const sourceRequest =
     (unnorm && unnorm.source_http_request) || defaultSourceHttpRequest;
   attachSourceHttpRequest(address, sourceRequest);
