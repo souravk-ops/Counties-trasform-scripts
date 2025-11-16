@@ -185,31 +185,31 @@ function sanitizeRelationshipPointer(pointer) {
     typeof pointer._class === "string" && pointer._class.trim()
       ? pointer._class.trim()
       : null;
+
+  let cidVal = null;
   if (typeof pointer.cid === "string") {
-    const cidVal = pointer.cid.replace(/^cid:/i, "").trim();
-    if (cidVal) {
-      const sanitized = { cid: cidVal };
-      if (pointerClass) sanitized._class = pointerClass;
-      return sanitized;
-    }
+    const cleaned = pointer.cid.replace(/^cid:/i, "").trim();
+    if (cleaned) cidVal = cleaned;
   }
+
+  let pathVal = null;
   if (typeof pointer["/"] === "string") {
-    const normalized = normalizePointerPath(pointer["/"]);
-    if (normalized) {
-      const sanitized = { "/": normalized };
-      if (pointerClass) sanitized._class = pointerClass;
-      return sanitized;
-    }
+    pathVal = normalizePointerPath(pointer["/"]);
+  } else if (typeof pointer.path === "string") {
+    pathVal = normalizePointerPath(pointer.path);
   }
-  if (typeof pointer.path === "string") {
-    const normalized = normalizePointerPath(pointer.path);
-    if (normalized) {
-      const sanitized = { "/": normalized };
-      if (pointerClass) sanitized._class = pointerClass;
-      return sanitized;
-    }
+
+  let sanitized = null;
+  if (cidVal) {
+    sanitized = { cid: cidVal };
+  } else if (pathVal) {
+    sanitized = { "/": pathVal };
+  } else {
+    return null;
   }
-  return null;
+
+  if (pointerClass) sanitized._class = pointerClass;
+  return sanitized;
 }
 
 function createRelationshipPointer(refLike) {
