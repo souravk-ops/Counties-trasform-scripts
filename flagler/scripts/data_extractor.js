@@ -107,7 +107,7 @@ function createRef(refLike) {
   return null;
 }
 
-function sanitizeRelationshipPointer(pointer) {
+function sanitizeRelationshipPointer(pointer, classHint) {
   if (!pointer || typeof pointer !== "object") return null;
 
   let cidVal = null;
@@ -131,11 +131,26 @@ function sanitizeRelationshipPointer(pointer) {
   } else {
     return null;
   }
+
+  const providedHint =
+    typeof classHint === "string" && classHint.trim()
+      ? classHint.trim()
+      : null;
+  const inferredHint =
+    providedHint || inferClassHintFromPath(pathVal || pointer["/"]);
+  if (inferredHint) {
+    sanitized._class = inferredHint;
+  }
   return sanitized;
 }
 
-function createRelationshipPointer(refLike) {
-  return sanitizeRelationshipPointer(createRef(refLike));
+function createRelationshipPointer(refLike, options) {
+  const opts = options || {};
+  const classHint =
+    typeof opts.classHint === "string" && opts.classHint.trim()
+      ? opts.classHint.trim()
+      : null;
+  return sanitizeRelationshipPointer(createRef(refLike), classHint);
 }
 
 function looksLikePointerOfType(participant, keyword) {
@@ -164,20 +179,6 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
   const opts = options || {};
-  let fromParticipant = createRelationshipPointer(fromRefLike);
-  let toParticipant = createRelationshipPointer(toRefLike);
-  if (!fromParticipant || !toParticipant) return;
-
-  if (opts.swapEndpoints) {
-    const tmp = fromParticipant;
-    fromParticipant = toParticipant;
-    toParticipant = tmp;
-  }
-
-  let fromPointer = sanitizeRelationshipPointer(fromParticipant);
-  let toPointer = sanitizeRelationshipPointer(toParticipant);
-  if (!fromPointer || !toPointer) return;
-
   const expectedFromKeyword =
     typeof opts.expectedFromKeyword === "string"
       ? opts.expectedFromKeyword.trim()
@@ -186,6 +187,20 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     typeof opts.expectedToKeyword === "string"
       ? opts.expectedToKeyword.trim()
       : null;
+
+  let fromPointer = createRelationshipPointer(fromRefLike, {
+    classHint: expectedFromKeyword,
+  });
+  let toPointer = createRelationshipPointer(toRefLike, {
+    classHint: expectedToKeyword,
+  });
+  if (!fromPointer || !toPointer) return;
+
+  if (opts.swapEndpoints) {
+    const tmp = fromPointer;
+    fromPointer = toPointer;
+    toPointer = tmp;
+  }
 
   if (
     (expectedFromKeyword &&
@@ -253,6 +268,42 @@ const FILE_FIELDS_ALLOWLIST = new Set([
   "request_identifier",
   "source_http_request",
 ]);
+
+const RELATIONSHIP_CLASS_HINTS = [
+  "address",
+  "company",
+  "deed",
+  "file",
+  "flood_storm_information",
+  "geometry",
+  "layout",
+  "lot",
+  "parcel",
+  "person",
+  "property",
+  "property_improvement",
+  "sales_history",
+  "structure",
+  "tax",
+  "utility",
+];
+
+function inferClassHintFromPath(pathVal) {
+  if (typeof pathVal !== "string") return null;
+  const normalized = normalizePointerPath(pathVal);
+  if (!normalized) return null;
+  const base = path.basename(normalized).toLowerCase();
+  const withoutExt = base.replace(/\.json$/, "");
+  for (const candidate of RELATIONSHIP_CLASS_HINTS) {
+    if (
+      withoutExt === candidate ||
+      withoutExt.startsWith(`${candidate}_`)
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
