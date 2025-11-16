@@ -255,12 +255,25 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     toPointer = tmp;
   }
 
-  if (
-    (expectedFromKeyword &&
-      !looksLikePointerOfType(fromPointer, expectedFromKeyword)) ||
-    (expectedToKeyword && !looksLikePointerOfType(toPointer, expectedToKeyword))
-  ) {
-    return;
+  const fromLooksExpected =
+    !expectedFromKeyword ||
+    looksLikePointerOfType(fromPointer, expectedFromKeyword);
+  const toLooksExpected =
+    !expectedToKeyword || looksLikePointerOfType(toPointer, expectedToKeyword);
+
+  if (!fromLooksExpected || !toLooksExpected) {
+    const canSwap =
+      expectedFromKeyword &&
+      expectedToKeyword &&
+      looksLikePointerOfType(fromPointer, expectedToKeyword) &&
+      looksLikePointerOfType(toPointer, expectedFromKeyword);
+    if (canSwap) {
+      const tmp = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmp;
+    } else {
+      return;
+    }
   }
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
@@ -268,9 +281,31 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     : false;
 
   const relationship = omitType ? {} : { type: normalizedType };
-  const sanitizedFrom = sanitizePointerObject(fromPointer);
-  const sanitizedTo = sanitizePointerObject(toPointer);
+  let sanitizedFrom = sanitizePointerObject(fromPointer);
+  let sanitizedTo = sanitizePointerObject(toPointer);
   if (!sanitizedFrom || !sanitizedTo) return;
+
+  const sanitizedFromLooksExpected =
+    !expectedFromKeyword ||
+    looksLikePointerOfType(sanitizedFrom, expectedFromKeyword);
+  const sanitizedToLooksExpected =
+    !expectedToKeyword ||
+    looksLikePointerOfType(sanitizedTo, expectedToKeyword);
+
+  if (!sanitizedFromLooksExpected || !sanitizedToLooksExpected) {
+    const canSwapAfterSanitize =
+      expectedFromKeyword &&
+      expectedToKeyword &&
+      looksLikePointerOfType(sanitizedFrom, expectedToKeyword) &&
+      looksLikePointerOfType(sanitizedTo, expectedFromKeyword);
+    if (canSwapAfterSanitize) {
+      const tmp = sanitizedFrom;
+      sanitizedFrom = sanitizedTo;
+      sanitizedTo = tmp;
+    } else {
+      return;
+    }
+  }
 
   relationship.from = sanitizedFrom;
   relationship.to = sanitizedTo;
