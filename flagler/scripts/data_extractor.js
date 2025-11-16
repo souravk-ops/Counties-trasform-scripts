@@ -125,7 +125,7 @@ function asRelationshipPointerValue(value) {
   return pointer;
 }
 
-function createRelationshipPointer(refLike, options) {
+function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
     const pointerValue = createRef(refLike);
@@ -152,35 +152,6 @@ function createRelationshipPointer(refLike, options) {
     return { "/": normalized };
   }
   return null;
-}
-
-function sanitizePointerObject(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  if (
-    typeof pointer.cid === "string" &&
-    pointer.cid.trim().replace(/^cid:/i, "").trim()
-  ) {
-    const trimmed = pointer.cid.trim().replace(/^cid:/i, "").trim();
-    if (trimmed) {
-      return { cid: trimmed };
-    }
-  }
-  const rawPath =
-    (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
-    (typeof pointer.path === "string" && pointer.path.trim()) ||
-    (typeof pointer["@ref"] === "string" && pointer["@ref"].trim()) ||
-    null;
-  if (rawPath) {
-    const normalized = normalizePointerPath(rawPath);
-    if (normalized) return { "/": normalized };
-  }
-  return null;
-}
-
-function attachPointerClass(pointer, classHint) {
-  // Relationship endpoints must match a pointer schema exactly (oneOf),
-  // so avoid adding any helper properties that would violate validation.
-  return pointer;
 }
 
 function looksLikePointerOfType(participant, keyword) {
@@ -268,18 +239,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  let fromPointer = sanitizePointerObject(
-    createRelationshipPointer(fromRefLike, {
-      classHint: expectedFromKeyword,
-    }),
-  );
-  let toPointer = sanitizePointerObject(
-    createRelationshipPointer(toRefLike, {
-      classHint: expectedToKeyword,
-    }),
-  );
-  fromPointer = attachPointerClass(fromPointer, expectedFromKeyword);
-  toPointer = attachPointerClass(toPointer, expectedToKeyword);
+  let fromPointer = createRelationshipPointer(fromRefLike, {
+    classHint: expectedFromKeyword,
+  });
+  let toPointer = createRelationshipPointer(toRefLike, {
+    classHint: expectedToKeyword,
+  });
   if (!fromPointer || !toPointer) return;
 
   if (opts.swapEndpoints) {
