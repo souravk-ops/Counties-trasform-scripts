@@ -238,36 +238,6 @@ function looksLikePointerOfType(participant, keyword) {
   return false;
 }
 
-function relationshipPointerToValue(pointer) {
-  if (pointer == null) return null;
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed)) {
-      const cidVal = trimmed.slice(4).trim();
-      return cidVal || null;
-    }
-    if (/^(?:baf|bag)/i.test(trimmed)) {
-      return trimmed;
-    }
-    return normalizePointerPath(trimmed);
-  }
-  if (typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string") {
-    const rawCid = pointer.cid.trim();
-    if (rawCid) {
-      return /^cid:/i.test(rawCid) ? rawCid.slice(4).trim() || null : rawCid;
-    }
-  }
-  if (typeof pointer["/"] === "string") {
-    return normalizePointerPath(pointer["/"]);
-  }
-  if (typeof pointer.path === "string") {
-    return normalizePointerPath(pointer.path);
-  }
-  return null;
-}
-
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
@@ -288,13 +258,11 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
 
   const fromPointer = sanitizeRelationshipPointer(fromParticipant);
   const toPointer = sanitizeRelationshipPointer(toParticipant);
-  const fromValue = relationshipPointerToValue(fromPointer);
-  const toValue = relationshipPointerToValue(toPointer);
-  if (!fromValue || !toValue) return;
+  if (!fromPointer || !toPointer) return;
 
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = fromValue;
-  relationship.to = toValue;
+  relationship.from = fromPointer;
+  relationship.to = toPointer;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -887,19 +855,17 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRefPointer = createRelationshipPointer(
+    const saleRef = createRelationshipPointer(
       rec.salePointer || rec.saleFilename,
     );
-    const saleRef = relationshipPointerToValue(saleRefPointer);
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
-          const personPointer = createRelationshipPointer(
+          const personRef = createRelationshipPointer(
             `person_${pIdx}.json`,
           );
-          const personRef = relationshipPointerToValue(personPointer);
           if (!saleRef || !personRef) return;
           relPersonCounter++;
           writeJSON(
@@ -919,10 +885,9 @@ function writePersonCompaniesSalesRelationships(
       .forEach((o) => {
         const cIdx = findCompanyIndexByName(o.name);
         if (cIdx) {
-          const companyPointer = createRelationshipPointer(
+          const companyRef = createRelationshipPointer(
             `company_${cIdx}.json`,
           );
-          const companyRef = relationshipPointerToValue(companyPointer);
           if (!saleRef || !companyRef) return;
           relCompanyCounter++;
           writeJSON(
