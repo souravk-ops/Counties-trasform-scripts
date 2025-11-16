@@ -232,29 +232,37 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
-const FILE_FIELDS_BLOCKLIST = new Set([
-  "document_type",
-  "file_format",
-  "ipfs_url",
-  "name",
-  "original_url",
-  "uri",
-  "url",
+const FILE_FIELDS_ALLOWLIST = new Set([
+  "request_identifier",
+  "source_http_request",
 ]);
 
 function sanitizeFileMetadata(file) {
-  if (!file || typeof file !== "object") return file;
-  FILE_FIELDS_BLOCKLIST.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(file, key)) {
-      delete file[key];
+  if (!file || typeof file !== "object") return {};
+
+  const sanitized = {};
+  if (FILE_FIELDS_ALLOWLIST.has("request_identifier")) {
+    const rawIdentifier = file.request_identifier;
+    if (rawIdentifier != null) {
+      const trimmed = String(rawIdentifier).trim();
+      if (trimmed) sanitized.request_identifier = trimmed;
     }
-  });
-  Object.keys(file).forEach((key) => {
-    if (file[key] === null || file[key] === undefined) {
-      delete file[key];
+  }
+  if (
+    FILE_FIELDS_ALLOWLIST.has("source_http_request") &&
+    file.source_http_request &&
+    typeof file.source_http_request === "object"
+  ) {
+    const clonedRequest = cloneDeep(file.source_http_request);
+    if (
+      clonedRequest &&
+      typeof clonedRequest === "object" &&
+      Object.keys(clonedRequest).length > 0
+    ) {
+      sanitized.source_http_request = clonedRequest;
     }
-  });
-  return file;
+  }
+  return sanitized;
 }
 
 function parseCurrencyToNumber(txt) {
@@ -662,8 +670,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       request_identifier: fileRequestIdentifier,
     };
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
-    sanitizeFileMetadata(fileObj);
-    writeJSON(path.join("data", fileFilename), fileObj);
+    const sanitizedFile = sanitizeFileMetadata(fileObj);
+    writeJSON(path.join("data", fileFilename), sanitizedFile);
     const filePointer = `./${fileFilename}`;
     writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
