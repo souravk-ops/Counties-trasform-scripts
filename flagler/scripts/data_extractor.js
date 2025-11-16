@@ -229,8 +229,10 @@ function inferPointerKeyword(participant) {
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
-  if (typeof type !== "string" || type.trim() === "") return;
+  if (typeof type !== "string") return;
   const normalizedType = type.trim();
+  if (!normalizedType) return;
+
   const opts = options || {};
   const expectedFromKeyword =
     typeof opts.expectedFromKeyword === "string"
@@ -241,74 +243,31 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  let fromPointer = createRelationshipPointer(fromRefLike, {
-    classHint: expectedFromKeyword,
-  });
-  let toPointer = createRelationshipPointer(toRefLike, {
-    classHint: expectedToKeyword,
-  });
+  const fromPointerRaw = createRelationshipPointer(fromRefLike);
+  const toPointerRaw = createRelationshipPointer(toRefLike);
+  const fromPointer = sanitizePointerObject(fromPointerRaw);
+  const toPointer = sanitizePointerObject(toPointerRaw);
   if (!fromPointer || !toPointer) return;
 
-  if (opts.swapEndpoints) {
-    const tmp = fromPointer;
-    fromPointer = toPointer;
-    toPointer = tmp;
+  if (
+    expectedFromKeyword &&
+    !looksLikePointerOfType(fromPointer, expectedFromKeyword)
+  ) {
+    return;
   }
-
-  const fromLooksExpected =
-    !expectedFromKeyword ||
-    looksLikePointerOfType(fromPointer, expectedFromKeyword);
-  const toLooksExpected =
-    !expectedToKeyword || looksLikePointerOfType(toPointer, expectedToKeyword);
-
-  if (!fromLooksExpected || !toLooksExpected) {
-    const canSwap =
-      expectedFromKeyword &&
-      expectedToKeyword &&
-      looksLikePointerOfType(fromPointer, expectedToKeyword) &&
-      looksLikePointerOfType(toPointer, expectedFromKeyword);
-    if (canSwap) {
-      const tmp = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmp;
-    } else {
-      return;
-    }
+  if (
+    expectedToKeyword &&
+    !looksLikePointerOfType(toPointer, expectedToKeyword)
+  ) {
+    return;
   }
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
-
   const relationship = omitType ? {} : { type: normalizedType };
-  let sanitizedFrom = sanitizePointerObject(fromPointer);
-  let sanitizedTo = sanitizePointerObject(toPointer);
-  if (!sanitizedFrom || !sanitizedTo) return;
-
-  const sanitizedFromLooksExpected =
-    !expectedFromKeyword ||
-    looksLikePointerOfType(sanitizedFrom, expectedFromKeyword);
-  const sanitizedToLooksExpected =
-    !expectedToKeyword ||
-    looksLikePointerOfType(sanitizedTo, expectedToKeyword);
-
-  if (!sanitizedFromLooksExpected || !sanitizedToLooksExpected) {
-    const canSwapAfterSanitize =
-      expectedFromKeyword &&
-      expectedToKeyword &&
-      looksLikePointerOfType(sanitizedFrom, expectedToKeyword) &&
-      looksLikePointerOfType(sanitizedTo, expectedFromKeyword);
-    if (canSwapAfterSanitize) {
-      const tmp = sanitizedFrom;
-      sanitizedFrom = sanitizedTo;
-      sanitizedTo = tmp;
-    } else {
-      return;
-    }
-  }
-
-  relationship.from = sanitizedFrom;
-  relationship.to = sanitizedTo;
+  relationship.from = fromPointer;
+  relationship.to = toPointer;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
