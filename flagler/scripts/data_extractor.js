@@ -106,6 +106,20 @@ function sanitizePointerObject(pointer) {
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 
+function pointerObjectToSchemaValue(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    return pointer.cid.trim();
+  }
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    return pointer.uri.trim();
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    return pointer["/"].trim();
+  }
+  return null;
+}
+
 function coerceRelationshipPointer(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -174,16 +188,23 @@ function relationshipPointerToSchemaValue(pointer) {
 
   if (typeof pointer === "string") {
     const normalized = tryNormalizeString(pointer);
-    return normalized || null;
+    const value = pointerObjectToSchemaValue(normalized);
+    return value || null;
   }
 
   if (typeof pointer !== "object") return null;
   const sanitized = sanitizePointerObject(pointer);
-  if (sanitized) return sanitized;
+  if (sanitized) {
+    const value = pointerObjectToSchemaValue(sanitized);
+    if (value) return value;
+  }
   const rebuilt = createRelationshipPointer(pointer);
   if (!rebuilt || typeof rebuilt !== "object") return null;
   const rebuiltSanitized = sanitizePointerObject(rebuilt);
-  if (rebuiltSanitized) return rebuiltSanitized;
+  if (rebuiltSanitized) {
+    const value = pointerObjectToSchemaValue(rebuiltSanitized);
+    if (value) return value;
+  }
   return null;
 }
 
@@ -230,15 +251,24 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
+function buildStrictPathReferenceString(refLike) {
+  if (typeof refLike !== "string") return null;
+  const normalized = normalizePointerPath(refLike);
+  if (!normalized || typeof normalized !== "string") return null;
+  return normalized;
+}
+
 function writeRelationshipFromPaths(type, fromPath, toPath, suffix) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
   if (!normalizedType) return;
 
   const fromPointer =
-    typeof fromPath === "string" ? buildStrictPathPointer(fromPath) : null;
+    typeof fromPath === "string"
+      ? buildStrictPathReferenceString(fromPath)
+      : null;
   const toPointer =
-    typeof toPath === "string" ? buildStrictPathPointer(toPath) : null;
+    typeof toPath === "string" ? buildStrictPathReferenceString(toPath) : null;
   if (!fromPointer || !toPointer) return;
 
   const suffixPortion =
