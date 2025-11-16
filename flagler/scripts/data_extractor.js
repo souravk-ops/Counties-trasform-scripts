@@ -125,33 +125,35 @@ function asRelationshipPointerValue(value) {
   return pointer;
 }
 
+function sanitizePointerObject(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    const cleaned = pointer.cid.trim().replace(/^cid:/i, "").trim();
+    if (!cleaned) return null;
+    return { cid: cleaned };
+  }
+  const rawPath =
+    (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
+    (typeof pointer.path === "string" && pointer.path.trim()) ||
+    (typeof pointer["@ref"] === "string" && pointer["@ref"].trim());
+  if (!rawPath) return null;
+  const normalized = normalizePointerPath(rawPath);
+  if (!normalized) return null;
+  return { "/": normalized };
+}
+
 function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
     const pointerValue = createRef(refLike);
     if (!pointerValue) return null;
-    return asRelationshipPointerValue(pointerValue);
+    return sanitizePointerObject(asRelationshipPointerValue(pointerValue));
   }
   if (typeof refLike !== "object") return null;
   if (typeof refLike.cid === "string" && refLike.cid.trim()) {
-    const cidVal = refLike.cid.trim().replace(/^cid:/i, "").trim();
-    if (!cidVal) return null;
-    return { cid: cidVal };
+    return sanitizePointerObject({ cid: refLike.cid });
   }
-  const rawPath =
-    typeof refLike["/"] === "string" && refLike["/"].trim()
-      ? refLike["/"]
-      : typeof refLike.path === "string" && refLike.path.trim()
-        ? refLike.path
-        : typeof refLike["@ref"] === "string" && refLike["@ref"].trim()
-          ? refLike["@ref"]
-          : null;
-  if (rawPath) {
-    const normalized = normalizePointerPath(rawPath);
-    if (!normalized) return null;
-    return { "/": normalized };
-  }
-  return null;
+  return sanitizePointerObject(refLike);
 }
 
 function looksLikePointerOfType(participant, keyword) {
@@ -266,8 +268,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     : false;
 
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = fromPointer;
-  relationship.to = toPointer;
+  const sanitizedFrom = sanitizePointerObject(fromPointer);
+  const sanitizedTo = sanitizePointerObject(toPointer);
+  if (!sanitizedFrom || !sanitizedTo) return;
+
+  relationship.from = sanitizedFrom;
+  relationship.to = sanitizedTo;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
