@@ -121,7 +121,7 @@ function asRelationshipPointerValue(value) {
   }
   const normalizedPath = normalizePointerPath(trimmed);
   if (!normalizedPath) return null;
-  pointer.path = normalizedPath;
+  pointer["/"] = normalizedPath;
   return pointer;
 }
 
@@ -133,13 +133,13 @@ function sanitizePointerObject(pointer) {
     return { cid: cleaned };
   }
   const rawPath =
-    (typeof pointer.path === "string" && pointer.path.trim()) ||
     (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
+    (typeof pointer.path === "string" && pointer.path.trim()) ||
     (typeof pointer["@ref"] === "string" && pointer["@ref"].trim());
   if (!rawPath) return null;
   const normalized = normalizePointerPath(rawPath);
   if (!normalized) return null;
-  return { path: normalized };
+  return { "/": normalized };
 }
 
 function createRelationshipPointer(refLike, _options) {
