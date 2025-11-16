@@ -180,7 +180,18 @@ function relationshipPointerToSchemaValue(pointer) {
     const rebuilt = createRelationshipPointer(value);
     return pointerObjectToSchemaValue(rebuilt);
   };
-  return normalizeToPointerObject(pointer);
+  const normalized = normalizeToPointerObject(pointer);
+  if (!normalized || typeof normalized !== "object") return null;
+  if (typeof normalized.cid === "string" && normalized.cid.trim()) {
+    return normalized.cid.trim();
+  }
+  if (typeof normalized.uri === "string" && normalized.uri.trim()) {
+    return normalized.uri.trim();
+  }
+  if (typeof normalized["/"] === "string" && normalized["/"].trim()) {
+    return normalized["/"].trim();
+  }
+  return null;
 }
 
 function looksLikePointerOfType(participant, keyword) {
