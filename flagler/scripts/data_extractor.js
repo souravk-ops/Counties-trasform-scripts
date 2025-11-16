@@ -646,7 +646,10 @@ function writeProperty($, parcelId, context) {
   if (context) {
     context.propertyNode = property;
     context.propertyFile = propertyFilename;
-    context.propertyPointer = createRef(propertyFilename);
+    context.propertyPointer = createRelationshipPointer(propertyFilename, {
+      expectedFromKeyword: "property",
+      expectedToKeyword: "property",
+    });
   }
 }
 
@@ -656,11 +659,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const hasPropertyFile = fs.existsSync(propertyFilePath);
   const normalizedPropertyPointer =
     context && context.propertyPointer
-      ? createRelationshipPointer(context.propertyPointer)
+      ? createRelationshipPointer(context.propertyPointer, {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "property",
+        })
       : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   removeFilesMatchingPatterns([
-    /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed)(?:_\d+)?\.json$/i,
+    /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
     /^relationship_(file_has_fact_sheet|layout_has_fact_sheet)(?:_\d+)?\.json$/i,
     /^(sales_history|sales|deed|file|fact_sheet)_\d+\.json$/i,
     /^fact_sheet\.json$/i,
@@ -685,7 +691,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleObj);
-    const salePointer = `./${saleFilename}`;
+    const salePointer = createRelationshipPointer(saleFilename, {
+      expectedFromKeyword: "sales_history",
+    });
     processedSales.push({
       source: s,
       idx,
@@ -703,7 +711,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (page) deed.page = page;
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
-    const deedPointer = `./${deedFilename}`;
+    const deedPointer = createRelationshipPointer(deedFilename, {
+      expectedFromKeyword: "deed",
+    });
     const fileFilename = `file_${idx}.json`;
     const parcelIdForRequest =
       parcelId != null ? String(parcelId).trim() : "";
@@ -716,7 +726,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    const filePointer = `./${fileFilename}`;
+    const filePointer = createRelationshipPointer(fileFilename, {
+      expectedFromKeyword: "file",
+    });
     writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
       expectedFromKeyword: "deed",
       expectedToKeyword: "file",
@@ -846,25 +858,26 @@ function writePersonCompaniesSalesRelationships(
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
     const saleRef = createRelationshipPointer(
       rec.salePointer || rec.saleFilename,
+      { expectedFromKeyword: "sales_history" },
     );
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
-          const personRef = createRelationshipPointer(
-            `person_${pIdx}.json`,
-          );
+          const personRef = createRelationshipPointer(`person_${pIdx}.json`, {
+            expectedToKeyword: "person",
+          });
           if (!saleRef || !personRef) return;
           relPersonCounter++;
-          writeJSON(
-            path.join(
-              "data",
-              `relationship_sales_person_${relPersonCounter}.json`,
-            ),
+          writeRelationship(
+            "sales_history_has_person",
+            saleRef,
+            personRef,
+            relPersonCounter,
             {
-              to: personRef,
-              from: saleRef,
+              expectedFromKeyword: "sales_history",
+              expectedToKeyword: "person",
             },
           );
         }
@@ -876,17 +889,18 @@ function writePersonCompaniesSalesRelationships(
         if (cIdx) {
           const companyRef = createRelationshipPointer(
             `company_${cIdx}.json`,
+            { expectedToKeyword: "company" },
           );
           if (!saleRef || !companyRef) return;
           relCompanyCounter++;
-          writeJSON(
-            path.join(
-              "data",
-              `relationship_sales_company_${relCompanyCounter}.json`,
-            ),
+          writeRelationship(
+            "sales_history_has_company",
+            saleRef,
+            companyRef,
+            relCompanyCounter,
             {
-              to: companyRef,
-              from: saleRef,
+              expectedFromKeyword: "sales_history",
+              expectedToKeyword: "company",
             },
           );
         }
@@ -1047,7 +1061,9 @@ function writeLayout(parcelId, context) {
       context &&
       context.propertyPointer
     ) {
-      const layoutPointer = createRef(layoutFilename);
+      const layoutPointer = createRelationshipPointer(layoutFilename, {
+        expectedToKeyword: "layout",
+      });
       writeRelationship(
         "property_has_layout",
         context.propertyPointer,
