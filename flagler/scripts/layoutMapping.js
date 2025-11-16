@@ -269,7 +269,7 @@ function main() {
     ? "./property.json"
     : null;
 
-  layouts.forEach((layout, index) => {
+  normalizedLayouts.forEach((layout, index) => {
     const layoutIdx = index + 1;
     const layoutFile = `layout_${layoutIdx}.json`;
     fs.writeFileSync(

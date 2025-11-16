@@ -288,6 +288,24 @@ const FILE_FIELDS_ALLOWLIST = new Set([
   "source_http_request",
 ]);
 
+const DEED_FIELDS_ALLOWLIST = new Set([
+  "book",
+  "deed_type",
+  "instrument_number",
+  "page",
+  "request_identifier",
+  "source_http_request",
+  "volume",
+]);
+
+const SALES_HISTORY_FIELDS_ALLOWLIST = new Set([
+  "ownership_transfer_date",
+  "purchase_price_amount",
+  "request_identifier",
+  "sale_type",
+  "source_http_request",
+]);
+
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
   const sanitized = {};
@@ -308,6 +326,93 @@ function sanitizeFileMetadata(file) {
       sanitized.source_http_request = clonedRequest;
     }
   }
+  return sanitized;
+}
+
+function sanitizeDeedMetadata(deed) {
+  if (!deed || typeof deed !== "object") return {};
+  const sanitized = {};
+  const assignString = (key) => {
+    if (!DEED_FIELDS_ALLOWLIST.has(key)) return;
+    const raw = deed[key];
+    if (raw == null) return;
+    const trimmed = typeof raw === "string" ? raw.trim() : raw;
+    if (typeof trimmed === "string") {
+      if (trimmed) sanitized[key] = trimmed;
+      return;
+    }
+    sanitized[key] = trimmed;
+  };
+  ["book", "deed_type", "instrument_number", "page", "request_identifier", "volume"].forEach(
+    assignString,
+  );
+  if (
+    DEED_FIELDS_ALLOWLIST.has("source_http_request") &&
+    deed.source_http_request &&
+    typeof deed.source_http_request === "object"
+  ) {
+    const cloned = cloneDeep(deed.source_http_request);
+    if (cloned && Object.keys(cloned).length > 0) {
+      sanitized.source_http_request = cloned;
+    }
+  }
+  return sanitized;
+}
+
+function sanitizeSalesHistoryRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  const sanitized = {};
+  const transferRaw = record.ownership_transfer_date;
+  if (
+    SALES_HISTORY_FIELDS_ALLOWLIST.has("ownership_transfer_date") &&
+    typeof transferRaw === "string"
+  ) {
+    const trimmed = transferRaw.trim();
+    if (!trimmed) return null;
+    sanitized.ownership_transfer_date = trimmed;
+  } else if (transferRaw) {
+    sanitized.ownership_transfer_date = transferRaw;
+  } else {
+    return null;
+  }
+
+  if (
+    SALES_HISTORY_FIELDS_ALLOWLIST.has("purchase_price_amount") &&
+    record.purchase_price_amount != null
+  ) {
+    const amount = Number(record.purchase_price_amount);
+    if (!Number.isNaN(amount)) {
+      sanitized.purchase_price_amount = amount;
+    }
+  }
+
+  if (
+    SALES_HISTORY_FIELDS_ALLOWLIST.has("sale_type") &&
+    typeof record.sale_type === "string"
+  ) {
+    const val = record.sale_type.trim();
+    if (val) sanitized.sale_type = val;
+  }
+
+  if (
+    SALES_HISTORY_FIELDS_ALLOWLIST.has("request_identifier") &&
+    typeof record.request_identifier === "string"
+  ) {
+    const reqId = record.request_identifier.trim();
+    if (reqId) sanitized.request_identifier = reqId;
+  }
+
+  if (
+    SALES_HISTORY_FIELDS_ALLOWLIST.has("source_http_request") &&
+    record.source_http_request &&
+    typeof record.source_http_request === "object"
+  ) {
+    const cloned = cloneDeep(record.source_http_request);
+    if (cloned && Object.keys(cloned).length > 0) {
+      sanitized.source_http_request = cloned;
+    }
+  }
+
   return sanitized;
 }
 
@@ -676,34 +781,39 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (!transferDate) {
       return;
     }
-    saleCounter += 1;
-    const idx = saleCounter;
     const purchasePrice = parseCurrencyToNumber(s.salePrice);
-    const saleObj = {
+    const saleCandidate = {
       ownership_transfer_date: transferDate,
     };
     if (purchasePrice != null) {
-      saleObj.purchase_price_amount = purchasePrice;
+      saleCandidate.purchase_price_amount = purchasePrice;
     }
-    attachSourceHttpRequest(saleObj, defaultSourceHttpRequest);
+    attachSourceHttpRequest(saleCandidate, defaultSourceHttpRequest);
+    const sanitizedSale = sanitizeSalesHistoryRecord(saleCandidate);
+    if (!sanitizedSale) {
+      return;
+    }
+    saleCounter += 1;
+    const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
-    writeJSON(path.join("data", saleFilename), saleObj);
+    writeJSON(path.join("data", saleFilename), sanitizedSale);
     processedSales.push({
       source: s,
       idx,
       saleFilename,
-      transferDate,
-      saleNode: saleObj,
+      transferDate: sanitizedSale.ownership_transfer_date,
+      saleNode: sanitizedSale,
     });
     const deedType = mapInstrumentToDeedType(s.instrument);
     const { book, page } = parseBookAndPage(s.bookPage);
     const deedFilename = `deed_${idx}.json`;
-    const deed = {};
-    if (deedType) deed.deed_type = deedType;
-    if (book) deed.book = book;
-    if (page) deed.page = page;
-    attachSourceHttpRequest(deed, defaultSourceHttpRequest);
-    writeJSON(path.join("data", deedFilename), deed);
+    const deedCandidate = {};
+    if (deedType) deedCandidate.deed_type = deedType;
+    if (book) deedCandidate.book = book;
+    if (page) deedCandidate.page = page;
+    attachSourceHttpRequest(deedCandidate, defaultSourceHttpRequest);
+    const sanitizedDeed = sanitizeDeedMetadata(deedCandidate);
+    writeJSON(path.join("data", deedFilename), sanitizedDeed);
     const fileFilename = `file_${idx}.json`;
     const parcelIdForRequest =
       parcelId != null ? String(parcelId).trim() : "";
