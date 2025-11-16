@@ -177,6 +177,14 @@ function sanitizePointerObject(pointer) {
   return null;
 }
 
+function attachPointerClass(pointer, classHint) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  if (!classHint || typeof classHint !== "string") return pointer;
+  const normalized = classHint.trim().toLowerCase();
+  if (!normalized) return pointer;
+  return { ...pointer, _class: normalized };
+}
+
 function looksLikePointerOfType(participant, keyword) {
   if (!keyword) return true;
   const loweredKeyword = keyword.toLowerCase();
@@ -262,32 +270,19 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  let fromPointer = createRelationshipPointer(fromRefLike, {
-    classHint: expectedFromKeyword,
-  });
-  let toPointer = createRelationshipPointer(toRefLike, {
-    classHint: expectedToKeyword,
-  });
-  fromPointer = sanitizePointerObject(fromPointer);
-  toPointer = sanitizePointerObject(toPointer);
+  let fromPointer = sanitizePointerObject(
+    createRelationshipPointer(fromRefLike, {
+      classHint: expectedFromKeyword,
+    }),
+  );
+  let toPointer = sanitizePointerObject(
+    createRelationshipPointer(toRefLike, {
+      classHint: expectedToKeyword,
+    }),
+  );
+  fromPointer = attachPointerClass(fromPointer, expectedFromKeyword);
+  toPointer = attachPointerClass(toPointer, expectedToKeyword);
   if (!fromPointer || !toPointer) return;
-
-  if (expectedFromKeyword && expectedToKeyword) {
-    const inferredFrom = inferPointerKeyword(fromPointer);
-    const inferredTo = inferPointerKeyword(toPointer);
-    if (
-      inferredFrom &&
-      inferredTo &&
-      inferredFrom !== expectedFromKeyword &&
-      inferredTo !== expectedToKeyword &&
-      inferredFrom === expectedToKeyword &&
-      inferredTo === expectedFromKeyword
-    ) {
-      const tmpSwap = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmpSwap;
-    }
-  }
 
   if (opts.swapEndpoints) {
     const tmp = fromPointer;
