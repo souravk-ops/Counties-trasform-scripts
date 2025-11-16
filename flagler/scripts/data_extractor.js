@@ -161,6 +161,25 @@ function createRelationshipPointer(refLike, _options) {
   return null;
 }
 
+function relationshipPointerToString(pointer) {
+  if (pointer == null) return null;
+  if (typeof pointer === "string") {
+    const trimmed = pointer.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    return pointer.cid.trim();
+  }
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    return pointer.uri.trim();
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    return pointer["/"].trim();
+  }
+  return null;
+}
+
 function looksLikePointerOfType(participant, keyword) {
   if (!keyword) return true;
   const loweredKeyword = keyword.toLowerCase();
@@ -209,6 +228,9 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   const normalizedFrom = coerceRelationshipPointer(fromPointer);
   const normalizedTo = coerceRelationshipPointer(toPointer);
   if (!normalizedFrom || !normalizedTo) return;
+  const fromValue = relationshipPointerToString(normalizedFrom);
+  const toValue = relationshipPointerToString(normalizedTo);
+  if (!fromValue || !toValue) return;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -216,8 +238,8 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
       : `_${suffix}`;
   const relationship = {
     type: normalizedType,
-    from: normalizedFrom,
-    to: normalizedTo,
+    from: fromValue,
+    to: toValue,
   };
   writeJSON(
     path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
@@ -253,12 +275,16 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     return;
   }
 
+  const fromValue = relationshipPointerToString(fromPointer);
+  const toValue = relationshipPointerToString(toPointer);
+  if (!fromValue || !toValue) return;
+
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = fromPointer;
-  relationship.to = toPointer;
+  relationship.from = fromValue;
+  relationship.to = toValue;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
