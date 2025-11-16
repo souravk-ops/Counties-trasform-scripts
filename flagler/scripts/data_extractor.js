@@ -188,14 +188,11 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       : null;
 
   if (
-    expectedFromKeyword &&
-    expectedToKeyword &&
-    looksLikePointerOfType(fromPointer, expectedToKeyword) &&
-    looksLikePointerOfType(toPointer, expectedFromKeyword)
+    (expectedFromKeyword &&
+      !looksLikePointerOfType(fromPointer, expectedFromKeyword)) ||
+    (expectedToKeyword && !looksLikePointerOfType(toPointer, expectedToKeyword))
   ) {
-    const tmp = fromPointer;
-    fromPointer = toPointer;
-    toPointer = tmp;
+    return;
   }
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
@@ -261,6 +258,18 @@ function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
 
   const sanitized = {};
+  const disallowedKeys = [
+    "document_type",
+    "file_format",
+    "ipfs_url",
+    "name",
+    "original_url",
+    "uri",
+    "url",
+  ];
+  disallowedKeys.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(file, key)) delete file[key];
+  });
   if (FILE_FIELDS_ALLOWLIST.has("request_identifier")) {
     const rawIdentifier = file.request_identifier;
     if (rawIdentifier != null) {
