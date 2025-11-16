@@ -174,13 +174,33 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     toParticipant = tmp;
   }
 
+  let fromPointer = sanitizeRelationshipPointer(fromParticipant);
+  let toPointer = sanitizeRelationshipPointer(toParticipant);
+  if (!fromPointer || !toPointer) return;
+
+  const expectedFromKeyword =
+    typeof opts.expectedFromKeyword === "string"
+      ? opts.expectedFromKeyword.trim()
+      : null;
+  const expectedToKeyword =
+    typeof opts.expectedToKeyword === "string"
+      ? opts.expectedToKeyword.trim()
+      : null;
+
+  if (
+    expectedFromKeyword &&
+    expectedToKeyword &&
+    looksLikePointerOfType(fromPointer, expectedToKeyword) &&
+    looksLikePointerOfType(toPointer, expectedFromKeyword)
+  ) {
+    const tmp = fromPointer;
+    fromPointer = toPointer;
+    toPointer = tmp;
+  }
+
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
-
-  const fromPointer = sanitizeRelationshipPointer(fromParticipant);
-  const toPointer = sanitizeRelationshipPointer(toParticipant);
-  if (!fromPointer || !toPointer) return;
 
   const relationship = omitType ? {} : { type: normalizedType };
   relationship.from = fromPointer;
@@ -673,20 +693,34 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
     const filePointer = `./${fileFilename}`;
-    writeRelationship("deed_has_file", deedPointer, filePointer, idx);
-    writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+    writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
+      expectedFromKeyword: "deed",
+      expectedToKeyword: "file",
+    });
+    writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx, {
+      expectedFromKeyword: "sales_history",
+      expectedToKeyword: "deed",
+    });
     if (hasPropertyFile && normalizedPropertyPointer) {
       writeRelationship(
         "property_has_file",
         normalizedPropertyPointer,
         filePointer,
         idx,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "file",
+        },
       );
       writeRelationship(
         "property_has_sales_history",
         normalizedPropertyPointer,
         salePointer,
         idx,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "sales_history",
+        },
       );
     }
   });
@@ -995,6 +1029,10 @@ function writeLayout(parcelId, context) {
         context.propertyPointer,
         layoutPointer,
         layoutCounter,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "layout",
+        },
       );
     }
   });
