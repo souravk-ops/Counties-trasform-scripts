@@ -39,29 +39,44 @@ function normalizePointerPath(ref) {
   return `./${trimmed}`;
 }
 
+function normalizePointerOutput(pointerString) {
+  if (!pointerString || typeof pointerString !== "string") return null;
+  const trimmed = pointerString.trim();
+  if (!trimmed) return null;
+  if (/^cid:/i.test(trimmed)) {
+    const cidOnly = trimmed.slice(4).trim();
+    return cidOnly ? { cid: `cid:${cidOnly}` } : null;
+  }
+  if (/^(?:baf|bag)/i.test(trimmed)) {
+    return { cid: trimmed };
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return { uri: trimmed };
+  }
+  const normalized = normalizePointerPath(trimmed);
+  if (!normalized) return null;
+  return { "/": normalized };
+}
+
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
   const normalizePointerString = (value) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed)) {
-      const cidOnly = trimmed.slice(4).trim();
-      return cidOnly ? `cid:${cidOnly}` : null;
-    }
-    if (/^(?:baf|bag)/i.test(trimmed)) {
-      return trimmed;
-    }
-    const normalized = normalizePointerPath(trimmed);
-    return normalized || null;
+    return normalizePointerOutput(trimmed);
   };
   if (typeof ref === "string") {
     return normalizePointerString(ref);
   }
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
-    const cidPointer = normalizePointerString(ref.cid);
+    const cidPointer = normalizePointerOutput(ref.cid);
     if (cidPointer) return cidPointer;
+  }
+  if (typeof ref.uri === "string" && ref.uri.trim()) {
+    const uriPointer = normalizePointerOutput(ref.uri);
+    if (uriPointer) return uriPointer;
   }
   const pathCandidate =
     (typeof ref["/"] === "string" && ref["/"]) ||

@@ -66,29 +66,45 @@ function attachSourceHttpRequest(target, request) {
   target.source_http_request = cloneDeep(request);
 }
 
+function normalizePointerOutput(pointerString) {
+  if (!pointerString) return null;
+  if (typeof pointerString !== "string") return null;
+  const trimmed = pointerString.trim();
+  if (!trimmed) return null;
+  if (/^cid:/i.test(trimmed)) {
+    const cidOnly = trimmed.slice(4).trim();
+    return cidOnly ? { cid: `cid:${cidOnly}` } : null;
+  }
+  if (/^(?:baf|bag)/i.test(trimmed)) {
+    return { cid: trimmed };
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return { uri: trimmed };
+  }
+  const normalized = normalizePointerPath(trimmed);
+  if (!normalized) return null;
+  return { "/": normalized };
+}
+
 function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
   const normalizePointerString = (value) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed)) {
-      const cidOnly = trimmed.slice(4).trim();
-      return cidOnly ? `cid:${cidOnly}` : null;
-    }
-    if (/^(?:baf|bag)/i.test(trimmed)) {
-      return trimmed;
-    }
-    const normalized = normalizePointerPath(trimmed);
-    return normalized || null;
+    return normalizePointerOutput(trimmed);
   };
   if (typeof refLike === "string") {
     return normalizePointerString(refLike);
   }
   if (typeof refLike !== "object") return null;
   if (typeof refLike.cid === "string") {
-    const cidPointer = normalizePointerString(refLike.cid);
+    const cidPointer = normalizePointerOutput(refLike.cid);
     if (cidPointer) return cidPointer;
+  }
+  if (typeof refLike.uri === "string" && refLike.uri.trim()) {
+    const uriPointer = normalizePointerOutput(refLike.uri);
+    if (uriPointer) return uriPointer;
   }
   const pathCandidate =
     (typeof refLike["/"] === "string" && refLike["/"]) ||
@@ -97,7 +113,7 @@ function createRelationshipPointer(refLike, _options) {
     (typeof refLike.filename === "string" && refLike.filename) ||
     (typeof refLike.file === "string" && refLike.file);
   if (pathCandidate) {
-    const pathPointer = normalizePointerString(pathCandidate);
+    const pathPointer = normalizePointerOutput(pathCandidate);
     if (pathPointer) return pathPointer;
   }
   return null;
@@ -129,6 +145,7 @@ function looksLikePointerOfType(participant, keyword) {
     // CIDs do not carry semantic labels, so treat any present CID as acceptable.
     return true;
   }
+  if (matchesKeyword(participant.uri)) return true;
   if (matchesKeyword(participant.path)) return true;
   if (matchesKeyword(participant["/"])) return true;
   if (matchesKeyword(participant["@ref"])) return true;
