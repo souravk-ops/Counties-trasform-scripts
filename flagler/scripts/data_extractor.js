@@ -185,6 +185,47 @@ function looksLikePointerOfType(participant, keyword) {
   return false;
 }
 
+function inferPointerKeyword(participant) {
+  const inferFromString = (value) => {
+    if (!value || typeof value !== "string") return null;
+    const lowered = value.trim().toLowerCase();
+    if (!lowered) return null;
+    if (lowered.includes("deed")) return "deed";
+    if (lowered.includes("file")) return "file";
+    if (lowered.includes("sales")) return "sales_history";
+    if (lowered.includes("person")) return "person";
+    if (lowered.includes("company")) return "company";
+    if (lowered.includes("property")) return "property";
+    if (lowered.includes("layout")) return "layout";
+    if (lowered.includes("utility")) return "utility";
+    if (lowered.includes("tax")) return "tax";
+    if (lowered.includes("address")) return "address";
+    return null;
+  };
+
+  if (!participant) return null;
+  if (typeof participant === "string") {
+    return inferFromString(participant);
+  }
+  if (typeof participant !== "object") return null;
+  if (typeof participant._class === "string") {
+    const inferred = participant._class.trim().toLowerCase();
+    if (inferred) return inferred;
+  }
+  if (typeof participant.cid === "string") {
+    const inferred = inferFromString(participant.cid);
+    if (inferred) return inferred;
+  }
+  const pathLike =
+    (typeof participant["/"] === "string" && participant["/"]) ||
+    (typeof participant.path === "string" && participant.path);
+  if (pathLike) {
+    const inferred = inferFromString(pathLike);
+    if (inferred) return inferred;
+  }
+  return null;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string" || type.trim() === "") return;
   const normalizedType = type.trim();
@@ -205,6 +246,23 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     classHint: expectedToKeyword,
   });
   if (!fromPointer || !toPointer) return;
+
+  if (expectedFromKeyword && expectedToKeyword) {
+    const inferredFrom = inferPointerKeyword(fromPointer);
+    const inferredTo = inferPointerKeyword(toPointer);
+    if (
+      inferredFrom &&
+      inferredTo &&
+      inferredFrom !== expectedFromKeyword &&
+      inferredTo !== expectedToKeyword &&
+      inferredFrom === expectedToKeyword &&
+      inferredTo === expectedFromKeyword
+    ) {
+      const tmpSwap = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmpSwap;
+    }
+  }
 
   if (opts.swapEndpoints) {
     const tmp = fromPointer;
