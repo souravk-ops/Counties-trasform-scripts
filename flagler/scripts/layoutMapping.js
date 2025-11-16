@@ -46,25 +46,28 @@ function makeRelationshipPointer(ref) {
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
       const cidVal = trimmed.slice(4).trim();
-      return cidVal || null;
+      return cidVal ? { cid: cidVal } : null;
     }
     if (/^(?:baf|bag)/i.test(trimmed)) {
-      return trimmed;
+      return { cid: trimmed };
     }
-    return normalizePointerPath(trimmed);
+    const normalized = normalizePointerPath(trimmed);
+    return normalized ? { "/": normalized } : null;
   }
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
     const cidVal = ref.cid.trim();
-    return /^cid:/i.test(cidVal)
-      ? cidVal.slice(4).trim() || null
-      : cidVal || null;
+    const cleaned =
+      /^cid:/i.test(cidVal) ? cidVal.slice(4).trim() : cidVal;
+    return cleaned ? { cid: cleaned } : null;
   }
   if (typeof ref["/"] === "string" && ref["/"].trim()) {
-    return normalizePointerPath(ref["/"]);
+    const normalized = normalizePointerPath(ref["/"]);
+    return normalized ? { "/": normalized } : null;
   }
   if (typeof ref.path === "string" && ref.path.trim()) {
-    return normalizePointerPath(ref.path);
+    const normalized = normalizePointerPath(ref.path);
+    return normalized ? { "/": normalized } : null;
   }
   return null;
 }

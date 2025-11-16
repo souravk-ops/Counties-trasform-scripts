@@ -652,16 +652,17 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(deed, defaultSourceHttpRequest);
     writeJSON(path.join("data", deedFilename), deed);
     const deedPointer = `./${deedFilename}`;
-    const fileObj = {};
     const fileFilename = `file_${idx}.json`;
     const parcelIdForRequest =
       parcelId != null ? String(parcelId).trim() : "";
     const fileRequestIdentifier = parcelIdForRequest
       ? `${parcelIdForRequest}-deed-file-${idx}`
       : `deed-file-${idx}`;
-    fileObj.request_identifier = fileRequestIdentifier;
-    sanitizeFileMetadata(fileObj);
+    const fileObj = {
+      request_identifier: fileRequestIdentifier,
+    };
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
+    sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), fileObj);
     const filePointer = `./${fileFilename}`;
     writeRelationship("deed_has_file", deedPointer, filePointer, idx);
