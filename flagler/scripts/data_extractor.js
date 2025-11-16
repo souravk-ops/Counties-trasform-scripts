@@ -174,6 +174,34 @@ function looksLikePointerOfType(participant, keyword) {
   return false;
 }
 
+function buildPointerForKeyword(refLike, expectedKeyword) {
+  const pointer = createRelationshipPointer(refLike);
+  if (!pointer) return null;
+  if (!expectedKeyword) return pointer;
+  return looksLikePointerOfType(pointer, expectedKeyword) ? pointer : null;
+}
+
+function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
+  if (typeof type !== "string") return;
+  const normalizedType = type.trim();
+  if (!normalizedType) return;
+  if (!fromPointer || !toPointer) return;
+
+  const suffixPortion =
+    suffix === undefined || suffix === null || suffix === ""
+      ? ""
+      : `_${suffix}`;
+  const relationship = {
+    type: normalizedType,
+    from: fromPointer,
+    to: toPointer,
+  };
+  writeJSON(
+    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
+    relationship,
+  );
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
@@ -688,34 +716,43 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    writeRelationship("deed_has_file", deedFilename, fileFilename, idx, {
-      expectedFromKeyword: "deed",
-      expectedToKeyword: "file",
-    });
-    writeRelationship("sales_history_has_deed", saleFilename, deedFilename, idx, {
-      expectedFromKeyword: "sales_history",
-      expectedToKeyword: "deed",
-    });
-    if (propertyPointer) {
-      writeRelationship(
-        "property_has_file",
-        propertyPointer,
-        fileFilename,
+    const deedPointer = buildPointerForKeyword(deedFilename, "deed");
+    const filePointer = buildPointerForKeyword(fileFilename, "file");
+    const salePointer = buildPointerForKeyword(saleFilename, "sales_history");
+    const validPropertyPointer =
+      propertyPointer && looksLikePointerOfType(propertyPointer, "property")
+        ? propertyPointer
+        : null;
+    if (deedPointer && filePointer) {
+      writeRelationshipFromPointers(
+        "deed_has_file",
+        deedPointer,
+        filePointer,
         idx,
-        {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "file",
-        },
       );
-      writeRelationship(
-        "property_has_sales_history",
-        propertyPointer,
-        saleFilename,
+    }
+    if (salePointer && deedPointer) {
+      writeRelationshipFromPointers(
+        "sales_history_has_deed",
+        salePointer,
+        deedPointer,
         idx,
-        {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "sales_history",
-        },
+      );
+    }
+    if (validPropertyPointer && filePointer) {
+      writeRelationshipFromPointers(
+        "property_has_file",
+        validPropertyPointer,
+        filePointer,
+        idx,
+      );
+    }
+    if (validPropertyPointer && salePointer) {
+      writeRelationshipFromPointers(
+        "property_has_sales_history",
+        validPropertyPointer,
+        salePointer,
+        idx,
       );
     }
   });
