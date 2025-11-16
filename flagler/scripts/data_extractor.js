@@ -102,8 +102,46 @@ function createRef(refLike) {
   return null;
 }
 
+function asRelationshipPointerValue(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^cid:/i.test(trimmed)) {
+    const cidVal = trimmed.slice(4).trim();
+    return cidVal ? { cid: cidVal } : null;
+  }
+  if (/^(?:baf|bag)/i.test(trimmed)) {
+    return { cid: trimmed };
+  }
+  const normalizedPath = normalizePointerPath(trimmed);
+  return normalizedPath ? { "/": normalizedPath } : null;
+}
+
 function createRelationshipPointer(refLike, _options) {
-  return createRef(refLike);
+  if (refLike == null) return null;
+  if (typeof refLike === "string") {
+    const pointerValue = createRef(refLike);
+    if (!pointerValue) return null;
+    return asRelationshipPointerValue(pointerValue);
+  }
+  if (typeof refLike !== "object") return null;
+  if (typeof refLike.cid === "string" && refLike.cid.trim()) {
+    const cidVal = refLike.cid.trim().replace(/^cid:/i, "").trim();
+    return cidVal ? { cid: cidVal } : null;
+  }
+  if (typeof refLike["/"] === "string" && refLike["/"].trim()) {
+    const normalized = normalizePointerPath(refLike["/"]);
+    return normalized ? { "/": normalized } : null;
+  }
+  if (typeof refLike.path === "string" && refLike.path.trim()) {
+    const normalized = normalizePointerPath(refLike.path);
+    return normalized ? { "/": normalized } : null;
+  }
+  if (typeof refLike["@ref"] === "string" && refLike["@ref"].trim()) {
+    const normalized = normalizePointerPath(refLike["@ref"]);
+    return normalized ? { "/": normalized } : null;
+  }
+  return null;
 }
 
 function looksLikePointerOfType(participant, keyword) {
@@ -127,7 +165,11 @@ function looksLikePointerOfType(participant, keyword) {
   ) {
     return true;
   }
-  if (matchesKeyword(participant.cid)) return true;
+  if (typeof participant.cid === "string" && participant.cid.trim()) {
+    if (matchesKeyword(participant.cid)) return true;
+    // CIDs do not carry semantic labels, so treat any present CID as acceptable.
+    return true;
+  }
   if (matchesKeyword(participant["/"])) return true;
   if (matchesKeyword(participant.path)) return true;
   return false;
