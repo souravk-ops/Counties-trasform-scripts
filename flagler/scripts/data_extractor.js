@@ -208,11 +208,14 @@ function looksLikePointerOfType(participant, keyword) {
   return false;
 }
 
-function buildPointerForKeyword(refLike, expectedKeyword) {
-  const pointer = createRelationshipPointer(refLike);
-  if (!pointer) return null;
-  if (!expectedKeyword) return pointer;
-  return looksLikePointerOfType(pointer, expectedKeyword) ? pointer : null;
+function buildStrictPathPointer(refLike) {
+  if (typeof refLike !== "string") return null;
+  const normalized = normalizePointerOutput(refLike);
+  if (!normalized || typeof normalized !== "object") return null;
+  const pathValue =
+    typeof normalized["/"] === "string" ? normalized["/"].trim() : null;
+  if (!pathValue) return null;
+  return { "/": pathValue };
 }
 
 function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
@@ -805,9 +808,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
   const propertyPointer = hasPropertyFile
-    ? createRelationshipPointer(
+    ? buildStrictPathPointer(
         (context && context.propertyFile) || "property.json",
-        { classHint: "property" },
       )
     : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
@@ -870,13 +872,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    const deedPointer = buildPointerForKeyword(deedFilename, "deed");
-    const filePointer = buildPointerForKeyword(fileFilename, "file");
-    const salePointer = buildPointerForKeyword(saleFilename, "sales_history");
-    const validPropertyPointer =
-      propertyPointer && looksLikePointerOfType(propertyPointer, "property")
-        ? propertyPointer
-        : null;
+    const deedPointer = buildStrictPathPointer(deedFilename);
+    const filePointer = buildStrictPathPointer(fileFilename);
+    const salePointer = buildStrictPathPointer(saleFilename);
     if (deedPointer && filePointer) {
       writeRelationshipFromPointers(
         "deed_has_file",
@@ -893,18 +891,18 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         idx,
       );
     }
-    if (validPropertyPointer && filePointer) {
+    if (propertyPointer && filePointer) {
       writeRelationshipFromPointers(
         "property_has_file",
-        validPropertyPointer,
+        propertyPointer,
         filePointer,
         idx,
       );
     }
-    if (validPropertyPointer && salePointer) {
+    if (propertyPointer && salePointer) {
       writeRelationshipFromPointers(
         "property_has_sales_history",
-        validPropertyPointer,
+        propertyPointer,
         salePointer,
         idx,
       );
@@ -1006,17 +1004,13 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRef = createRelationshipPointer(rec.saleFilename, {
-      classHint: "sales_history",
-    });
+    const saleRef = buildStrictPathPointer(rec.saleFilename);
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
-          const personRef = createRelationshipPointer(`person_${pIdx}.json`, {
-            classHint: "person",
-          });
+          const personRef = buildStrictPathPointer(`person_${pIdx}.json`);
           if (!saleRef || !personRef) return;
           relPersonCounter++;
           writeRelationship(
@@ -1036,10 +1030,7 @@ function writePersonCompaniesSalesRelationships(
       .forEach((o) => {
         const cIdx = findCompanyIndexByName(o.name);
         if (cIdx) {
-          const companyRef = createRelationshipPointer(
-            `company_${cIdx}.json`,
-            { classHint: "company" },
-          );
+          const companyRef = buildStrictPathPointer(`company_${cIdx}.json`);
           if (!saleRef || !companyRef) return;
           relCompanyCounter++;
           writeRelationship(
