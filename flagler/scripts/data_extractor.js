@@ -66,94 +66,44 @@ function attachSourceHttpRequest(target, request) {
   target.source_http_request = cloneDeep(request);
 }
 
-function createRef(refLike) {
-  if (refLike == null) return null;
-  if (typeof refLike === "string") {
-    const trimmed = refLike.trim();
-    if (!trimmed) return null;
-    if (/^cid:/i.test(trimmed)) {
-      const cidVal = trimmed.slice(4).trim();
-      return cidVal ? `cid:${cidVal}` : null;
-    }
-    if (/^(?:baf)/i.test(trimmed)) {
-      return `cid:${trimmed.trim()}`;
-    }
-    const pointerPath = normalizePointerPath(trimmed);
-    if (!pointerPath) return null;
-    return pointerPath;
-  }
-  if (typeof refLike === "object") {
-    if (typeof refLike["/"] === "string") {
-      const pointerPath = normalizePointerPath(refLike["/"]);
-      if (!pointerPath) return null;
-      return pointerPath;
-    }
-    if (typeof refLike.cid === "string") {
-      const cidVal = refLike.cid.replace(/^cid:/i, "").trim();
-      if (!cidVal) return null;
-      return `cid:${cidVal}`;
-    }
-    if (typeof refLike.path === "string") {
-      const pointerPath = normalizePointerPath(refLike.path);
-      if (!pointerPath) return null;
-      return pointerPath;
-    }
-  }
-  return null;
-}
-
-function asRelationshipPointerValue(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const pointer = {};
-  if (/^cid:/i.test(trimmed)) {
-    const cidVal = trimmed.slice(4).trim();
-    if (!cidVal) return null;
-    pointer.cid = cidVal;
-    return pointer;
-  }
-  if (/^(?:baf|bag)/i.test(trimmed)) {
-    const cid = trimmed.trim();
-    if (!cid) return null;
-    pointer.cid = cid;
-    return pointer;
-  }
-  const normalizedPath = normalizePointerPath(trimmed);
-  if (!normalizedPath) return null;
-  pointer["/"] = normalizedPath;
-  return pointer;
-}
-
-function sanitizePointerObject(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-    const cleaned = pointer.cid.trim().replace(/^cid:/i, "").trim();
-    if (!cleaned) return null;
-    return { cid: cleaned };
-  }
-  const rawPath =
-    (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
-    (typeof pointer.path === "string" && pointer.path.trim()) ||
-    (typeof pointer["@ref"] === "string" && pointer["@ref"].trim());
-  if (!rawPath) return null;
-  const normalized = normalizePointerPath(rawPath);
-  if (!normalized) return null;
-  return { "/": normalized };
-}
-
 function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
+  const buildCidPointer = (value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^cid:/i.test(trimmed)) {
+      const cidOnly = trimmed.slice(4).trim();
+      return cidOnly ? { cid: cidOnly } : null;
+    }
+    if (/^(?:baf|bag)/i.test(trimmed)) {
+      return { cid: trimmed };
+    }
+    return null;
+  };
+  const buildPathPointer = (value) => {
+    const normalized = normalizePointerPath(value);
+    return normalized ? { "/": normalized } : null;
+  };
   if (typeof refLike === "string") {
-    const pointerValue = createRef(refLike);
-    if (!pointerValue) return null;
-    return sanitizePointerObject(asRelationshipPointerValue(pointerValue));
+    return buildCidPointer(refLike) || buildPathPointer(refLike);
+  }
+  if (typeof refLike.cid === "string") {
+    const cidPointer = buildCidPointer(refLike.cid);
+    if (cidPointer) return cidPointer;
   }
   if (typeof refLike !== "object") return null;
-  if (typeof refLike.cid === "string" && refLike.cid.trim()) {
-    return sanitizePointerObject({ cid: refLike.cid });
+  const pathCandidate =
+    (typeof refLike["/"] === "string" && refLike["/"]) ||
+    (typeof refLike.path === "string" && refLike.path) ||
+    (typeof refLike["@ref"] === "string" && refLike["@ref"]) ||
+    (typeof refLike.filename === "string" && refLike.filename) ||
+    (typeof refLike.file === "string" && refLike.file);
+  if (pathCandidate) {
+    const pathPointer = buildPathPointer(pathCandidate);
+    if (pathPointer) return pathPointer;
   }
-  return sanitizePointerObject(refLike);
+  return null;
 }
 
 function looksLikePointerOfType(participant, keyword) {
@@ -245,10 +195,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  const fromPointerRaw = createRelationshipPointer(fromRefLike);
-  const toPointerRaw = createRelationshipPointer(toRefLike);
-  const fromPointer = sanitizePointerObject(fromPointerRaw);
-  const toPointer = sanitizePointerObject(toPointerRaw);
+  const fromPointer = createRelationshipPointer(fromRefLike);
+  const toPointer = createRelationshipPointer(toRefLike);
   if (!fromPointer || !toPointer) return;
 
   if (
