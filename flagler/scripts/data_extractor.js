@@ -121,7 +121,7 @@ function asRelationshipPointerValue(value) {
   }
   const normalizedPath = normalizePointerPath(trimmed);
   if (!normalizedPath) return null;
-  pointer["/"] = normalizedPath;
+  pointer.path = normalizedPath;
   return pointer;
 }
 
@@ -133,13 +133,13 @@ function sanitizePointerObject(pointer) {
     return { cid: cleaned };
   }
   const rawPath =
-    (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
     (typeof pointer.path === "string" && pointer.path.trim()) ||
+    (typeof pointer["/"] === "string" && pointer["/"].trim()) ||
     (typeof pointer["@ref"] === "string" && pointer["@ref"].trim());
   if (!rawPath) return null;
   const normalized = normalizePointerPath(rawPath);
   if (!normalized) return null;
-  return { "/": normalized };
+  return { path: normalized };
 }
 
 function createRelationshipPointer(refLike, _options) {
@@ -182,8 +182,9 @@ function looksLikePointerOfType(participant, keyword) {
     // CIDs do not carry semantic labels, so treat any present CID as acceptable.
     return true;
   }
-  if (matchesKeyword(participant["/"])) return true;
   if (matchesKeyword(participant.path)) return true;
+  if (matchesKeyword(participant["/"])) return true;
+  if (matchesKeyword(participant["@ref"])) return true;
   return false;
 }
 
@@ -219,8 +220,9 @@ function inferPointerKeyword(participant) {
     if (inferred) return inferred;
   }
   const pathLike =
+    (typeof participant.path === "string" && participant.path) ||
     (typeof participant["/"] === "string" && participant["/"]) ||
-    (typeof participant.path === "string" && participant.path);
+    (typeof participant["@ref"] === "string" && participant["@ref"]);
   if (pathLike) {
     const inferred = inferFromString(pathLike);
     if (inferred) return inferred;

@@ -56,7 +56,7 @@ function makeRelationshipPointer(ref) {
     }
     const normalized = normalizePointerPath(trimmed);
     if (!normalized) return null;
-    return { "/": normalized };
+    return { path: normalized };
   }
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
@@ -69,12 +69,12 @@ function makeRelationshipPointer(ref) {
   if (typeof ref["/"] === "string" && ref["/"].trim()) {
     const normalized = normalizePointerPath(ref["/"]);
     if (!normalized) return null;
-    return { "/": normalized };
+    return { path: normalized };
   }
   if (typeof ref.path === "string" && ref.path.trim()) {
     const normalized = normalizePointerPath(ref.path);
     if (!normalized) return null;
-    return { "/": normalized };
+    return { path: normalized };
   }
   return null;
 }
