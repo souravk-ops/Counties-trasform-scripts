@@ -164,15 +164,34 @@ function createRelationshipPointer(refLike, _options) {
 function relationshipPointerToSchemaValue(pointer) {
   if (pointer == null) return null;
   if (typeof pointer === "string") {
-    const normalized = createRelationshipPointer(pointer);
-    return relationshipPointerToSchemaValue(normalized);
+    const trimmed = pointer.trim();
+    if (!trimmed) return null;
+    if (/^cid:/i.test(trimmed)) return trimmed;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    const normalized = normalizePointerOutput(trimmed);
+    if (normalized && typeof normalized === "object") {
+      if (typeof normalized.cid === "string" && normalized.cid.trim())
+        return normalized.cid.trim();
+      if (typeof normalized.uri === "string" && normalized.uri.trim())
+        return normalized.uri.trim();
+      if (typeof normalized["/"] === "string" && normalized["/"].trim())
+        return normalized["/"].trim();
+    }
+    return trimmed;
   }
   if (typeof pointer !== "object") return null;
   const sanitized = sanitizePointerObject(pointer);
-  if (sanitized) return sanitized;
+  if (sanitized) {
+    if (typeof sanitized.cid === "string" && sanitized.cid.trim())
+      return sanitized.cid.trim();
+    if (typeof sanitized.uri === "string" && sanitized.uri.trim())
+      return sanitized.uri.trim();
+    if (typeof sanitized["/"] === "string" && sanitized["/"].trim())
+      return sanitized["/"].trim();
+  }
   const rebuilt = createRelationshipPointer(pointer);
   if (!rebuilt || typeof rebuilt !== "object") return null;
-  return sanitizePointerObject(rebuilt);
+  return relationshipPointerToSchemaValue(rebuilt);
 }
 
 function looksLikePointerOfType(participant, keyword) {
