@@ -58,23 +58,22 @@ function normalizePointerOutput(pointerString) {
   return { "/": normalized };
 }
 
-function pointerObjectToString(pointer) {
-  if (pointer == null) return null;
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    return trimmed ? trimmed : null;
+function sanitizePointerObject(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const sanitized = {};
+  if (typeof pointer.cid === "string") {
+    const cid = pointer.cid.trim();
+    if (cid) sanitized.cid = cid;
   }
-  if (typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-    return pointer.cid.trim();
+  if (typeof pointer.uri === "string") {
+    const uri = pointer.uri.trim();
+    if (uri) sanitized.uri = uri;
   }
-  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
-    return pointer.uri.trim();
+  if (typeof pointer["/"] === "string") {
+    const p = pointer["/"].trim();
+    if (p) sanitized["/"] = p;
   }
-  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-    return pointer["/"].trim();
-  }
-  return null;
+  return Object.keys(sanitized).length ? sanitized : null;
 }
 
 function makeRelationshipPointer(ref) {
@@ -83,7 +82,8 @@ function makeRelationshipPointer(ref) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    return pointerObjectToString(normalizePointerOutput(trimmed));
+    const normalized = normalizePointerOutput(trimmed);
+    return sanitizePointerObject(normalized);
   };
   if (typeof ref === "string") {
     return normalizePointerString(ref);
@@ -91,11 +91,11 @@ function makeRelationshipPointer(ref) {
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
     const cidPointer = normalizePointerOutput(ref.cid);
-    return pointerObjectToString(cidPointer);
+    return sanitizePointerObject(cidPointer);
   }
   if (typeof ref.uri === "string" && ref.uri.trim()) {
     const uriPointer = normalizePointerOutput(ref.uri);
-    return pointerObjectToString(uriPointer);
+    return sanitizePointerObject(uriPointer);
   }
   const pathCandidate =
     (typeof ref["/"] === "string" && ref["/"]) ||

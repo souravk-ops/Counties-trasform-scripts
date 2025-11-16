@@ -161,23 +161,18 @@ function createRelationshipPointer(refLike, _options) {
   return null;
 }
 
-function relationshipPointerToString(pointer) {
+function relationshipPointerToSchemaValue(pointer) {
   if (pointer == null) return null;
   if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    return trimmed ? trimmed : null;
+    const normalized = createRelationshipPointer(pointer);
+    return relationshipPointerToSchemaValue(normalized);
   }
   if (typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-    return pointer.cid.trim();
-  }
-  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
-    return pointer.uri.trim();
-  }
-  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-    return pointer["/"].trim();
-  }
-  return null;
+  const sanitized = sanitizePointerObject(pointer);
+  if (sanitized) return sanitized;
+  const rebuilt = createRelationshipPointer(pointer);
+  if (!rebuilt || typeof rebuilt !== "object") return null;
+  return sanitizePointerObject(rebuilt);
 }
 
 function looksLikePointerOfType(participant, keyword) {
@@ -228,8 +223,8 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   const normalizedFrom = coerceRelationshipPointer(fromPointer);
   const normalizedTo = coerceRelationshipPointer(toPointer);
   if (!normalizedFrom || !normalizedTo) return;
-  const fromValue = relationshipPointerToString(normalizedFrom);
-  const toValue = relationshipPointerToString(normalizedTo);
+  const fromValue = relationshipPointerToSchemaValue(normalizedFrom);
+  const toValue = relationshipPointerToSchemaValue(normalizedTo);
   if (!fromValue || !toValue) return;
 
   const suffixPortion =
@@ -275,8 +270,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     return;
   }
 
-  const fromValue = relationshipPointerToString(fromPointer);
-  const toValue = relationshipPointerToString(toPointer);
+  const fromValue = relationshipPointerToSchemaValue(fromPointer);
+  const toValue = relationshipPointerToSchemaValue(toPointer);
   if (!fromValue || !toValue) return;
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
