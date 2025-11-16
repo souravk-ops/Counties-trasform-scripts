@@ -819,10 +819,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const { parcelId, defaultSourceHttpRequest } = context || {};
   const propertyFilePath = path.join("data", "property.json");
   const hasPropertyFile = fs.existsSync(propertyFilePath);
-  const propertyPointer = hasPropertyFile
-    ? buildStrictPathPointer(
-        (context && context.propertyFile) || "property.json",
-      )
+  const propertyPointerPath = hasPropertyFile
+    ? (context && context.propertyFile) || "property.json"
     : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   removeFilesMatchingPatterns([
@@ -884,39 +882,37 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    const deedPointer = buildStrictPathPointer(deedFilename);
-    const filePointer = buildStrictPathPointer(fileFilename);
-    const salePointer = buildStrictPathPointer(saleFilename);
-    if (deedPointer && filePointer) {
-      writeRelationshipFromPointers(
-        "deed_has_file",
-        deedPointer,
-        filePointer,
-        idx,
-      );
-    }
-    if (salePointer && deedPointer) {
-      writeRelationshipFromPointers(
-        "sales_history_has_deed",
-        salePointer,
-        deedPointer,
-        idx,
-      );
-    }
-    if (propertyPointer && filePointer) {
-      writeRelationshipFromPointers(
+    writeRelationship(
+      "deed_has_file",
+      deedFilename,
+      fileFilename,
+      idx,
+      { expectedFromKeyword: "deed", expectedToKeyword: "file" },
+    );
+    writeRelationship(
+      "sales_history_has_deed",
+      saleFilename,
+      deedFilename,
+      idx,
+      { expectedFromKeyword: "sales", expectedToKeyword: "deed" },
+    );
+    if (propertyPointerPath) {
+      writeRelationship(
         "property_has_file",
-        propertyPointer,
-        filePointer,
+        propertyPointerPath,
+        fileFilename,
         idx,
+        { expectedFromKeyword: "property", expectedToKeyword: "file" },
       );
-    }
-    if (propertyPointer && salePointer) {
-      writeRelationshipFromPointers(
+      writeRelationship(
         "property_has_sales_history",
-        propertyPointer,
-        salePointer,
+        propertyPointerPath,
+        saleFilename,
         idx,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "sales",
+        },
       );
     }
   });
