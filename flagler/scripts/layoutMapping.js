@@ -225,12 +225,23 @@ function main() {
 
   const buildings = collectBuildings($);
   const layouts = buildLayoutsFromBuildings(buildings);
+  const normalizedLayouts = layouts.map((layout, idx) => {
+    const indexFromSource =
+      layout && layout.space_type_index != null
+        ? String(layout.space_type_index).trim()
+        : "";
+    const ensuredIndex = indexFromSource || String(idx + 1);
+    return {
+      ...layout,
+      space_type_index: ensuredIndex,
+    };
+  });
 
   const outDir = path.resolve("owners");
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, "layout_data.json");
   const outObj = {};
-  outObj[`property_${parcelId}`] = { layouts };
+  outObj[`property_${parcelId}`] = { layouts: normalizedLayouts };
   fs.writeFileSync(outPath, JSON.stringify(outObj, null, 2), "utf8");
   console.log(`Wrote ${outPath}`);
 

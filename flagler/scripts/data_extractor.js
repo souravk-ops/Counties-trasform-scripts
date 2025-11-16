@@ -86,13 +86,32 @@ function normalizePointerOutput(pointerString) {
   return { "/": normalized };
 }
 
+function sanitizePointerObject(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const sanitized = {};
+  if (typeof pointer.cid === "string") {
+    const cid = pointer.cid.trim();
+    if (cid) sanitized.cid = cid;
+  }
+  if (typeof pointer.uri === "string") {
+    const uri = pointer.uri.trim();
+    if (uri) sanitized.uri = uri;
+  }
+  if (typeof pointer["/"] === "string") {
+    const path = pointer["/"].trim();
+    if (path) sanitized["/"] = path;
+  }
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
 function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
   const normalizePointerString = (value) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
-    return normalizePointerOutput(trimmed);
+    const normalized = normalizePointerOutput(trimmed);
+    return sanitizePointerObject(normalized);
   };
   if (typeof refLike === "string") {
     return normalizePointerString(refLike);
@@ -100,11 +119,13 @@ function createRelationshipPointer(refLike, _options) {
   if (typeof refLike !== "object") return null;
   if (typeof refLike.cid === "string") {
     const cidPointer = normalizePointerOutput(refLike.cid);
-    if (cidPointer) return cidPointer;
+    const sanitized = sanitizePointerObject(cidPointer);
+    if (sanitized) return sanitized;
   }
   if (typeof refLike.uri === "string" && refLike.uri.trim()) {
     const uriPointer = normalizePointerOutput(refLike.uri);
-    if (uriPointer) return uriPointer;
+    const sanitized = sanitizePointerObject(uriPointer);
+    if (sanitized) return sanitized;
   }
   const pathCandidate =
     (typeof refLike["/"] === "string" && refLike["/"]) ||
@@ -114,7 +135,8 @@ function createRelationshipPointer(refLike, _options) {
     (typeof refLike.file === "string" && refLike.file);
   if (pathCandidate) {
     const pathPointer = normalizePointerOutput(pathCandidate);
-    if (pathPointer) return pathPointer;
+    const sanitized = sanitizePointerObject(pathPointer);
+    if (sanitized) return sanitized;
   }
   return null;
 }
@@ -286,20 +308,7 @@ const FILE_FIELDS_ALLOWLIST = new Set([
 
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
-
   const sanitized = {};
-  const disallowedKeys = [
-    "document_type",
-    "file_format",
-    "ipfs_url",
-    "name",
-    "original_url",
-    "uri",
-    "url",
-  ];
-  disallowedKeys.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(file, key)) delete file[key];
-  });
   if (FILE_FIELDS_ALLOWLIST.has("request_identifier")) {
     const rawIdentifier = file.request_identifier;
     if (rawIdentifier != null) {
@@ -313,11 +322,7 @@ function sanitizeFileMetadata(file) {
     typeof file.source_http_request === "object"
   ) {
     const clonedRequest = cloneDeep(file.source_http_request);
-    if (
-      clonedRequest &&
-      typeof clonedRequest === "object" &&
-      Object.keys(clonedRequest).length > 0
-    ) {
+    if (clonedRequest && Object.keys(clonedRequest).length > 0) {
       sanitized.source_http_request = clonedRequest;
     }
   }
