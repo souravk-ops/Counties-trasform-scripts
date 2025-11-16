@@ -104,6 +104,26 @@ function sanitizePointerObject(pointer) {
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
+const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
+
+function coerceRelationshipPointer(refLike) {
+  if (refLike == null) return null;
+  if (typeof refLike === "string") {
+    return createRelationshipPointer(refLike);
+  }
+  if (typeof refLike !== "object") return null;
+  const sanitized = sanitizePointerObject(refLike);
+  if (sanitized) return sanitized;
+  const rebuilt = createRelationshipPointer(refLike);
+  if (!rebuilt || typeof rebuilt !== "object") return null;
+  const keys = Object.keys(rebuilt);
+  if (!keys.length) return null;
+  if (keys.every((key) => POINTER_ALLOWED_KEYS.has(key))) {
+    return rebuilt;
+  }
+  return null;
+}
+
 function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
   const normalizePointerString = (value) => {
@@ -185,7 +205,10 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
   if (!normalizedType) return;
-  if (!fromPointer || !toPointer) return;
+
+  const normalizedFrom = coerceRelationshipPointer(fromPointer);
+  const normalizedTo = coerceRelationshipPointer(toPointer);
+  if (!normalizedFrom || !normalizedTo) return;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -193,8 +216,8 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
       : `_${suffix}`;
   const relationship = {
     type: normalizedType,
-    from: fromPointer,
-    to: toPointer,
+    from: normalizedFrom,
+    to: normalizedTo,
   };
   writeJSON(
     path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
@@ -217,8 +240,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  const fromPointer = createRelationshipPointer(fromRefLike);
-  const toPointer = createRelationshipPointer(toRefLike);
+  const fromPointer = coerceRelationshipPointer(fromRefLike);
+  const toPointer = coerceRelationshipPointer(toRefLike);
   if (!fromPointer || !toPointer) return;
 
   if (
