@@ -216,6 +216,11 @@ function inferPointerKeyword(participant) {
   return null;
 }
 
+function pointerMatchesExpected(pointer, keyword) {
+  if (!keyword) return true;
+  return looksLikePointerOfType(pointer, keyword);
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
@@ -231,20 +236,32 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  const fromPointer = createRelationshipPointer(fromRefLike);
-  const toPointer = createRelationshipPointer(toRefLike);
+  let fromPointer = createRelationshipPointer(fromRefLike);
+  let toPointer = createRelationshipPointer(toRefLike);
   if (!fromPointer || !toPointer) return;
 
-  if (
-    expectedFromKeyword &&
-    !looksLikePointerOfType(fromPointer, expectedFromKeyword)
-  ) {
-    return;
+  let fromMatches = pointerMatchesExpected(fromPointer, expectedFromKeyword);
+  let toMatches = pointerMatchesExpected(toPointer, expectedToKeyword);
+
+  if ((!fromMatches || !toMatches) && expectedFromKeyword && expectedToKeyword) {
+    const swappedFromMatches = pointerMatchesExpected(
+      toPointer,
+      expectedFromKeyword,
+    );
+    const swappedToMatches = pointerMatchesExpected(
+      fromPointer,
+      expectedToKeyword,
+    );
+    if (swappedFromMatches && swappedToMatches) {
+      const tmp = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmp;
+      fromMatches = true;
+      toMatches = true;
+    }
   }
-  if (
-    expectedToKeyword &&
-    !looksLikePointerOfType(toPointer, expectedToKeyword)
-  ) {
+
+  if (!fromMatches || !toMatches) {
     return;
   }
 
