@@ -822,6 +822,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const propertyPointerPath = hasPropertyFile
     ? (context && context.propertyFile) || "property.json"
     : null;
+  const propertyPointer = propertyPointerPath
+    ? buildStrictPathPointer(propertyPointerPath)
+    : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   removeFilesMatchingPatterns([
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
@@ -853,10 +856,12 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), sanitizedSale);
+    const salePointer = buildStrictPathPointer(saleFilename);
     processedSales.push({
       source: s,
       idx,
       saleFilename,
+      salePointer,
       transferDate: sanitizedSale.ownership_transfer_date,
       saleNode: sanitizedSale,
     });
@@ -882,32 +887,40 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    writeRelationship(
-      "deed_has_file",
-      deedFilename,
-      fileFilename,
-      idx,
-      { expectedFromKeyword: "deed", expectedToKeyword: "file" },
-    );
-    writeRelationship(
-      "sales_history_has_deed",
-      saleFilename,
-      deedFilename,
-      idx,
-      { expectedFromKeyword: "sales", expectedToKeyword: "deed" },
-    );
-    if (propertyPointerPath) {
+    const deedPointer = buildStrictPathPointer(deedFilename);
+    const filePointer = buildStrictPathPointer(fileFilename);
+    if (deedPointer && filePointer) {
+      writeRelationship(
+        "deed_has_file",
+        deedPointer,
+        filePointer,
+        idx,
+        { expectedFromKeyword: "deed", expectedToKeyword: "file" },
+      );
+    }
+    if (salePointer && deedPointer) {
+      writeRelationship(
+        "sales_history_has_deed",
+        salePointer,
+        deedPointer,
+        idx,
+        { expectedFromKeyword: "sales", expectedToKeyword: "deed" },
+      );
+    }
+    if (propertyPointer && filePointer) {
       writeRelationship(
         "property_has_file",
-        propertyPointerPath,
-        fileFilename,
+        propertyPointer,
+        filePointer,
         idx,
         { expectedFromKeyword: "property", expectedToKeyword: "file" },
       );
+    }
+    if (propertyPointer && salePointer) {
       writeRelationship(
         "property_has_sales_history",
-        propertyPointerPath,
-        saleFilename,
+        propertyPointer,
+        salePointer,
         idx,
         {
           expectedFromKeyword: "property",
@@ -1012,7 +1025,9 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRef = buildStrictPathPointer(rec.saleFilename);
+    const saleRef =
+      (rec && rec.salePointer && sanitizePointerObject(rec.salePointer)) ||
+      buildStrictPathPointer(rec.saleFilename);
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
