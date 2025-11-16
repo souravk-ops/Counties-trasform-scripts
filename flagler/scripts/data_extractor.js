@@ -68,31 +68,28 @@ function attachSourceHttpRequest(target, request) {
 
 function createRelationshipPointer(refLike, _options) {
   if (refLike == null) return null;
-  const buildCidPointer = (value) => {
+  const normalizePointerString = (value) => {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
       const cidOnly = trimmed.slice(4).trim();
-      return cidOnly ? { cid: cidOnly } : null;
+      return cidOnly ? `cid:${cidOnly}` : null;
     }
     if (/^(?:baf|bag)/i.test(trimmed)) {
-      return { cid: trimmed };
+      return trimmed;
     }
-    return null;
-  };
-  const buildPathPointer = (value) => {
-    const normalized = normalizePointerPath(value);
-    return normalized ? { "/": normalized } : null;
+    const normalized = normalizePointerPath(trimmed);
+    return normalized || null;
   };
   if (typeof refLike === "string") {
-    return buildCidPointer(refLike) || buildPathPointer(refLike);
-  }
-  if (typeof refLike.cid === "string") {
-    const cidPointer = buildCidPointer(refLike.cid);
-    if (cidPointer) return cidPointer;
+    return normalizePointerString(refLike);
   }
   if (typeof refLike !== "object") return null;
+  if (typeof refLike.cid === "string") {
+    const cidPointer = normalizePointerString(refLike.cid);
+    if (cidPointer) return cidPointer;
+  }
   const pathCandidate =
     (typeof refLike["/"] === "string" && refLike["/"]) ||
     (typeof refLike.path === "string" && refLike.path) ||
@@ -100,7 +97,7 @@ function createRelationshipPointer(refLike, _options) {
     (typeof refLike.filename === "string" && refLike.filename) ||
     (typeof refLike.file === "string" && refLike.file);
   if (pathCandidate) {
-    const pathPointer = buildPathPointer(pathCandidate);
+    const pathPointer = normalizePointerString(pathCandidate);
     if (pathPointer) return pathPointer;
   }
   return null;

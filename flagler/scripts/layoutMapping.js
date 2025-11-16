@@ -41,40 +41,36 @@ function normalizePointerPath(ref) {
 
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
-  if (typeof ref === "string") {
-    const trimmed = ref.trim();
+  const normalizePointerString = (value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
     if (!trimmed) return null;
     if (/^cid:/i.test(trimmed)) {
-      const cidVal = trimmed.slice(4).trim();
-      if (!cidVal) return null;
-      return { cid: cidVal };
+      const cidOnly = trimmed.slice(4).trim();
+      return cidOnly ? `cid:${cidOnly}` : null;
     }
     if (/^(?:baf|bag)/i.test(trimmed)) {
-      const cid = trimmed.trim();
-      if (!cid) return null;
-      return { cid };
+      return trimmed;
     }
     const normalized = normalizePointerPath(trimmed);
-    if (!normalized) return null;
-    return { path: normalized };
+    return normalized || null;
+  };
+  if (typeof ref === "string") {
+    return normalizePointerString(ref);
   }
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
-    const cidVal = ref.cid.trim();
-    const cleaned =
-      /^cid:/i.test(cidVal) ? cidVal.slice(4).trim() : cidVal;
-    if (!cleaned) return null;
-    return { cid: cleaned };
+    const cidPointer = normalizePointerString(ref.cid);
+    if (cidPointer) return cidPointer;
   }
-  if (typeof ref["/"] === "string" && ref["/"].trim()) {
-    const normalized = normalizePointerPath(ref["/"]);
-    if (!normalized) return null;
-    return { path: normalized };
-  }
-  if (typeof ref.path === "string" && ref.path.trim()) {
-    const normalized = normalizePointerPath(ref.path);
-    if (!normalized) return null;
-    return { path: normalized };
+  const pathCandidate =
+    (typeof ref["/"] === "string" && ref["/"]) ||
+    (typeof ref.path === "string" && ref.path) ||
+    (typeof ref["@ref"] === "string" && ref["@ref"]) ||
+    (typeof ref.filename === "string" && ref.filename) ||
+    (typeof ref.file === "string" && ref.file);
+  if (pathCandidate) {
+    return normalizePointerString(pathCandidate);
   }
   return null;
 }
