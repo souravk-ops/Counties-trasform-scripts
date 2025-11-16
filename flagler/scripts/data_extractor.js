@@ -230,6 +230,32 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
+function writeRelationshipFromPaths(type, fromPath, toPath, suffix) {
+  if (typeof type !== "string") return;
+  const normalizedType = type.trim();
+  if (!normalizedType) return;
+
+  const fromPointer =
+    typeof fromPath === "string" ? buildStrictPathPointer(fromPath) : null;
+  const toPointer =
+    typeof toPath === "string" ? buildStrictPathPointer(toPath) : null;
+  if (!fromPointer || !toPointer) return;
+
+  const suffixPortion =
+    suffix === undefined || suffix === null || suffix === ""
+      ? ""
+      : `_${suffix}`;
+  const relationship = {
+    type: normalizedType,
+    from: fromPointer,
+    to: toPointer,
+  };
+  writeJSON(
+    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
+    relationship,
+  );
+}
+
 function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
@@ -365,8 +391,33 @@ const SALES_HISTORY_FIELDS_ALLOWLIST = new Set([
   "source_http_request",
 ]);
 
+const DEED_FIELDS_DISALLOWED = new Set([
+  "document_type",
+  "file_format",
+  "ipfs_url",
+  "name",
+  "original_url",
+  "ownership_transfer_date",
+  "purchase_price_amount",
+]);
+
+const FILE_FIELDS_DISALLOWED = new Set([
+  "book",
+  "deed_type",
+  "instrument_number",
+  "ownership_transfer_date",
+  "page",
+  "purchase_price_amount",
+  "volume",
+]);
+
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
+  FILE_FIELDS_DISALLOWED.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(file, key)) {
+      delete file[key];
+    }
+  });
   const sanitized = {};
   if (FILE_FIELDS_ALLOWLIST.has("request_identifier")) {
     const rawIdentifier = file.request_identifier;
@@ -390,6 +441,11 @@ function sanitizeFileMetadata(file) {
 
 function sanitizeDeedMetadata(deed) {
   if (!deed || typeof deed !== "object") return {};
+  DEED_FIELDS_DISALLOWED.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(deed, key)) {
+      delete deed[key];
+    }
+  });
   const sanitized = {};
   const assignString = (key) => {
     if (!DEED_FIELDS_ALLOWLIST.has(key)) return;
@@ -822,9 +878,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const propertyPointerPath = hasPropertyFile
     ? (context && context.propertyFile) || "property.json"
     : null;
-  const propertyPointer = propertyPointerPath
-    ? buildStrictPathPointer(propertyPointerPath)
-    : null;
   // Remove old deed/file and sales artifacts if present to avoid duplicates
   removeFilesMatchingPatterns([
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
@@ -887,45 +940,25 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    const deedPointer = buildStrictPathPointer(deedFilename);
-    const filePointer = buildStrictPathPointer(fileFilename);
-    if (deedPointer && filePointer) {
-      writeRelationship(
-        "deed_has_file",
-        deedPointer,
-        filePointer,
-        idx,
-        { expectedFromKeyword: "deed", expectedToKeyword: "file" },
-      );
-    }
-    if (salePointer && deedPointer) {
-      writeRelationship(
-        "sales_history_has_deed",
-        salePointer,
-        deedPointer,
-        idx,
-        { expectedFromKeyword: "sales", expectedToKeyword: "deed" },
-      );
-    }
-    if (propertyPointer && filePointer) {
-      writeRelationship(
+    writeRelationshipFromPaths("deed_has_file", deedFilename, fileFilename, idx);
+    writeRelationshipFromPaths(
+      "sales_history_has_deed",
+      saleFilename,
+      deedFilename,
+      idx,
+    );
+    if (propertyPointerPath) {
+      writeRelationshipFromPaths(
         "property_has_file",
-        propertyPointer,
-        filePointer,
+        propertyPointerPath,
+        fileFilename,
         idx,
-        { expectedFromKeyword: "property", expectedToKeyword: "file" },
       );
-    }
-    if (propertyPointer && salePointer) {
-      writeRelationship(
+      writeRelationshipFromPaths(
         "property_has_sales_history",
-        propertyPointer,
-        salePointer,
+        propertyPointerPath,
+        saleFilename,
         idx,
-        {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "sales",
-        },
       );
     }
   });
@@ -1219,28 +1252,17 @@ function writeLayout(parcelId, context) {
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
-    if (fs.existsSync(path.join("data", "property.json")) && context) {
-      const propertyPointerForLayout = createRelationshipPointer(
-        (context.propertyFile && context.propertyFile.trim()) ||
-          context.propertyFile ||
-          "property.json",
-        { classHint: "property" },
+    if (context && fs.existsSync(path.join("data", "property.json"))) {
+      const propertyRelationshipPath =
+        (typeof context.propertyFile === "string" &&
+          context.propertyFile.trim()) ||
+        "property.json";
+      writeRelationshipFromPaths(
+        "property_has_layout",
+        propertyRelationshipPath,
+        layoutFilename,
+        layoutCounter,
       );
-      const layoutPointer = createRelationshipPointer(layoutFilename, {
-        classHint: "layout",
-      });
-      if (propertyPointerForLayout && layoutPointer) {
-        writeRelationship(
-          "property_has_layout",
-          propertyPointerForLayout,
-          layoutPointer,
-          layoutCounter,
-          {
-            expectedFromKeyword: "property",
-            expectedToKeyword: "layout",
-          },
-        );
-      }
     }
   });
 }
