@@ -178,11 +178,9 @@ function sanitizePointerObject(pointer) {
 }
 
 function attachPointerClass(pointer, classHint) {
-  if (!pointer || typeof pointer !== "object") return pointer;
-  if (!classHint || typeof classHint !== "string") return pointer;
-  const normalized = classHint.trim().toLowerCase();
-  if (!normalized) return pointer;
-  return { ...pointer, _class: normalized };
+  // Relationship endpoints must match a pointer schema exactly (oneOf),
+  // so avoid adding any helper properties that would violate validation.
+  return pointer;
 }
 
 function looksLikePointerOfType(participant, keyword) {
