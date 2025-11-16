@@ -286,8 +286,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     ? Boolean(opts.omitType)
     : false;
 
-  const fromValue = relationshipPointerToValue(fromParticipant);
-  const toValue = relationshipPointerToValue(toParticipant);
+  const fromValue = sanitizeRelationshipPointer(fromParticipant);
+  const toValue = sanitizeRelationshipPointer(toParticipant);
   if (!fromValue || !toValue) return;
 
   const relationship = omitType ? {} : { type: normalizedType };
