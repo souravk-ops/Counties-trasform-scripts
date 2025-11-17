@@ -258,106 +258,6 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
-function normalizeRelationshipPath(pathLike, expectedKeyword) {
-  if (typeof pathLike !== "string") return null;
-  let trimmed = pathLike.trim();
-  if (!trimmed) return null;
-  trimmed = trimmed.replace(/\\/g, "/");
-  if (trimmed.startsWith("./") || trimmed.startsWith("../")) {
-    trimmed = trimmed.replace(/^\.\/+/, "./");
-  } else {
-    trimmed = trimmed.replace(/^\/+/, "");
-    if (!trimmed) return null;
-    trimmed = `./${trimmed}`;
-  }
-  if (expectedKeyword) {
-    const keyword = expectedKeyword.trim().toLowerCase();
-    if (keyword && !trimmed.toLowerCase().includes(keyword)) {
-      return null;
-    }
-  }
-  return trimmed;
-}
-
-function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) {
-  if (typeof type !== "string") return;
-  const normalizedType = type.trim();
-  if (!normalizedType) return;
-
-  const opts = options || {};
-  const expectedFromKeyword =
-    typeof opts.expectedFromKeyword === "string"
-      ? opts.expectedFromKeyword
-      : null;
-  const expectedToKeyword =
-    typeof opts.expectedToKeyword === "string" ? opts.expectedToKeyword : null;
-
-  const fromPathNormalized = normalizeRelationshipPath(
-    fromPath,
-    expectedFromKeyword,
-  );
-  const toPathNormalized = normalizeRelationshipPath(
-    toPath,
-    expectedToKeyword,
-  );
-  if (!fromPathNormalized || !toPathNormalized) return;
-
-  const fromPointerRaw = buildStrictPathPointer(fromPathNormalized);
-  const toPointerRaw = buildStrictPathPointer(toPathNormalized);
-  const fromPointer = sanitizeRelationshipParticipantPointer(fromPointerRaw);
-  const toPointer = sanitizeRelationshipParticipantPointer(toPointerRaw);
-  if (!fromPointer || !toPointer) return;
-
-  const suffixPortion =
-    suffix === undefined || suffix === null || suffix === ""
-      ? ""
-      : `_${suffix}`;
-
-  const relationship = {
-    type: normalizedType,
-    from: fromPointer,
-    to: toPointer,
-  };
-
-  writeJSON(
-    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
-    relationship,
-  );
-}
-
-function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
-  if (typeof type !== "string") return;
-  const normalizedType = type.trim();
-  if (!normalizedType) return;
-
-  const normalizedFrom = coerceRelationshipPointer(fromPointer);
-  const normalizedTo = coerceRelationshipPointer(toPointer);
-  if (!normalizedFrom || !normalizedTo) return;
-  const fromValue = stripPointerToAllowedKeys(
-    relationshipPointerToSchemaValue(normalizedFrom),
-  );
-  const toValue = stripPointerToAllowedKeys(
-    relationshipPointerToSchemaValue(normalizedTo),
-  );
-  const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromValue);
-  const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
-  if (!sanitizedFrom || !sanitizedTo) return;
-
-  const suffixPortion =
-    suffix === undefined || suffix === null || suffix === ""
-      ? ""
-      : `_${suffix}`;
-  const relationship = {
-    type: normalizedType,
-    from: sanitizedFrom,
-    to: sanitizedTo,
-  };
-  writeJSON(
-    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
-    relationship,
-  );
-}
-
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
@@ -1000,48 +900,63 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    writeRelationshipFromPathRefs(
-      "deed_has_file",
-      deedFilename,
-      fileFilename,
-      idx,
-      {
-        expectedFromKeyword: "deed",
-        expectedToKeyword: "file",
-      },
-    );
-    writeRelationshipFromPathRefs(
-      "sales_history_has_deed",
-      saleFilename,
-      deedFilename,
-      idx,
-      {
-        expectedFromKeyword: "sales_history",
-        expectedToKeyword: "deed",
-      },
-    );
-    // Emit only relationships supported by the County relationship schema.
-    if (propertyPointerPath) {
-      writeRelationshipFromPathRefs(
-        "property_has_file",
-        propertyPointerPath,
-        fileFilename,
+    const deedPointerRef = buildStrictPathPointer(deedFilename);
+    const filePointerRef = buildStrictPathPointer(fileFilename);
+    const salePointerRef =
+      sanitizeRelationshipParticipantPointer(salePointer) ||
+      buildStrictPathPointer(saleFilename);
+    if (deedPointerRef && filePointerRef) {
+      writeRelationship(
+        "deed_has_file",
+        deedPointerRef,
+        filePointerRef,
         idx,
         {
-          expectedFromKeyword: "property",
+          expectedFromKeyword: "deed",
           expectedToKeyword: "file",
         },
       );
-      writeRelationshipFromPathRefs(
-        "property_has_sales_history",
-        propertyPointerPath,
-        saleFilename,
+    }
+    if (salePointerRef && deedPointerRef) {
+      writeRelationship(
+        "sales_history_has_deed",
+        salePointerRef,
+        deedPointerRef,
         idx,
         {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "sales_history",
+          expectedFromKeyword: "sales_history",
+          expectedToKeyword: "deed",
         },
       );
+    }
+    // Emit only relationships supported by the County relationship schema.
+    if (propertyPointerPath) {
+      const propertyPointerRef =
+        buildStrictPathPointer(propertyPointerPath) || null;
+      if (propertyPointerRef && filePointerRef) {
+        writeRelationship(
+          "property_has_file",
+          propertyPointerRef,
+          filePointerRef,
+          idx,
+          {
+            expectedFromKeyword: "property",
+            expectedToKeyword: "file",
+          },
+        );
+      }
+      if (propertyPointerRef && salePointerRef) {
+        writeRelationship(
+          "property_has_sales_history",
+          propertyPointerRef,
+          salePointerRef,
+          idx,
+          {
+            expectedFromKeyword: "property",
+            expectedToKeyword: "sales_history",
+          },
+        );
+      }
     }
   });
   return processedSales;
@@ -1346,16 +1261,20 @@ function writeLayout(parcelId, context) {
         (typeof context.propertyFile === "string" &&
           context.propertyFile.trim()) ||
         "property.json";
-      writeRelationshipFromPathRefs(
-        "property_has_layout",
-        propertyRelationshipPath,
-        layoutFilename,
-        layoutCounter,
-        {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "layout",
-        },
-      );
+      const propertyPointer = buildStrictPathPointer(propertyRelationshipPath);
+      const layoutPointer = buildStrictPathPointer(layoutFilename);
+      if (propertyPointer && layoutPointer) {
+        writeRelationship(
+          "property_has_layout",
+          propertyPointer,
+          layoutPointer,
+          layoutCounter,
+          {
+            expectedFromKeyword: "property",
+            expectedToKeyword: "layout",
+          },
+        );
+      }
     }
   });
 }
