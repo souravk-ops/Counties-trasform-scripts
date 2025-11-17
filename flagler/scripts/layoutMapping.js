@@ -5,6 +5,27 @@ const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 
+function deepClone(obj) {
+  if (obj == null) return obj;
+  try {
+    return JSON.parse(JSON.stringify(obj));
+  } catch (err) {
+    return obj;
+  }
+}
+
+function readDataJson(baseDir, relPath) {
+  if (!relPath) return null;
+  const cleaned = relPath.replace(/^\.\/+/, "");
+  const targetPath = path.join(baseDir, cleaned);
+  try {
+    const raw = fs.readFileSync(targetPath, "utf8");
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
 function readHtml(filepath) {
   const html = fs.readFileSync(filepath, "utf8");
   return cheerio.load(html);
@@ -314,13 +335,30 @@ function main() {
     );
 
     if (propertyRelationshipFrom) {
-      const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
       const propertyPointer = makeRelationshipPointer(propertyRelationshipFrom);
-      if (!propertyPointer || !layoutPointer) return;
+      if (!propertyPointer) return;
+      const propertyData = readDataJson(
+        dataDir,
+        propertyRelationshipFrom,
+      );
+      const propertyParticipant = propertyData
+        ? {
+            resource: {
+              class: "property",
+              properties: deepClone(propertyData),
+            },
+          }
+        : propertyPointer;
+      const layoutParticipant = {
+        resource: {
+          class: "layout",
+          properties: deepClone(layout),
+        },
+      };
       const rel = {
         type: "property_has_layout",
-        from: propertyPointer,
-        to: layoutPointer,
+        from: propertyParticipant,
+        to: layoutParticipant,
       };
       fs.writeFileSync(
         path.join(

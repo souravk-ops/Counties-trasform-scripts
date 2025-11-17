@@ -347,12 +347,21 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
   if (!sanitizedFrom || !sanitizedTo) return;
 
+  const participantFrom =
+    expectedFromKeyword && sanitizedFrom
+      ? buildRelationshipParticipant(sanitizedFrom, expectedFromKeyword)
+      : null;
+  const participantTo =
+    expectedToKeyword && sanitizedTo
+      ? buildRelationshipParticipant(sanitizedTo, expectedToKeyword)
+      : null;
+
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = sanitizedFrom;
-  relationship.to = sanitizedTo;
+  relationship.from = participantFrom || sanitizedFrom;
+  relationship.to = participantTo || sanitizedTo;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -540,6 +549,179 @@ function sanitizeSalesHistoryRecord(record) {
   }
 
   return sanitized;
+}
+
+const PROPERTY_FIELDS_ALLOWLIST = new Set([
+  "parcel_identifier",
+  "property_legal_description_text",
+  "property_structure_built_year",
+  "property_type",
+  "structure_form",
+  "number_of_units",
+  "subdivision",
+  "zoning",
+  "request_identifier",
+  "source_http_request",
+]);
+
+const PERSON_FIELDS_ALLOWLIST = new Set([
+  "first_name",
+  "middle_name",
+  "last_name",
+  "birth_date",
+  "prefix_name",
+  "suffix_name",
+  "us_citizenship_status",
+  "veteran_status",
+  "request_identifier",
+  "source_http_request",
+]);
+
+const COMPANY_FIELDS_ALLOWLIST = new Set([
+  "name",
+  "request_identifier",
+  "source_http_request",
+]);
+
+const LAYOUT_FIELDS_ALLOWLIST = new Set([
+  "space_type",
+  "space_type_index",
+  "flooring_material_type",
+  "size_square_feet",
+  "floor_level",
+  "has_windows",
+  "window_design_type",
+  "window_material_type",
+  "window_treatment_type",
+  "is_finished",
+  "furnished",
+  "paint_condition",
+  "flooring_wear",
+  "clutter_level",
+  "visible_damage",
+  "countertop_material",
+  "cabinet_style",
+  "fixture_finish_quality",
+  "design_style",
+  "natural_light_quality",
+  "decor_elements",
+  "pool_type",
+  "pool_equipment",
+  "spa_type",
+  "safety_features",
+  "view_type",
+  "lighting_features",
+  "condition_issues",
+  "is_exterior",
+  "pool_condition",
+  "pool_surface_type",
+  "pool_water_quality",
+  "source_http_request",
+]);
+
+function sanitizeRecordByAllowlist(record, allowlist, options) {
+  if (!record || typeof record !== "object") return null;
+  const sanitized = {};
+  allowlist.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) return;
+    const value = record[key];
+    if (value === undefined) return;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      sanitized[key] = cloneDeep(value);
+      return;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      sanitized[key] = trimmed === "" ? null : trimmed;
+      return;
+    }
+    sanitized[key] = value;
+  });
+  const opts = options || {};
+  const requiredKeys = Array.isArray(opts.requireKeys)
+    ? opts.requireKeys
+    : [];
+  for (const requiredKey of requiredKeys) {
+    if (
+      !Object.prototype.hasOwnProperty.call(sanitized, requiredKey) ||
+      sanitized[requiredKey] == null ||
+      (typeof sanitized[requiredKey] === "string" &&
+        sanitized[requiredKey].trim() === "")
+    ) {
+      return null;
+    }
+    if (typeof sanitized[requiredKey] === "string") {
+      sanitized[requiredKey] = sanitized[requiredKey].trim();
+    }
+  }
+  return sanitized;
+}
+
+function sanitizePropertyRecord(record) {
+  return sanitizeRecordByAllowlist(record, PROPERTY_FIELDS_ALLOWLIST);
+}
+
+function sanitizePersonRecord(record) {
+  return sanitizeRecordByAllowlist(record, PERSON_FIELDS_ALLOWLIST);
+}
+
+function sanitizeCompanyRecord(record) {
+  return sanitizeRecordByAllowlist(record, COMPANY_FIELDS_ALLOWLIST);
+}
+
+function sanitizeLayoutRecord(record) {
+  const sanitized = sanitizeRecordByAllowlist(record, LAYOUT_FIELDS_ALLOWLIST, {
+    requireKeys: ["space_type_index"],
+  });
+  if (!sanitized) return null;
+  sanitized.space_type_index = String(sanitized.space_type_index).trim();
+  return sanitized;
+}
+
+const RELATIONSHIP_CLASS_SANITIZERS = {
+  deed: sanitizeDeedMetadata,
+  file: sanitizeFileMetadata,
+  sales_history: sanitizeSalesHistoryRecord,
+  property: sanitizePropertyRecord,
+  person: sanitizePersonRecord,
+  company: sanitizeCompanyRecord,
+  layout: sanitizeLayoutRecord,
+};
+
+function resolvePointerToRecord(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const pathValue =
+    typeof pointer["/"] === "string" ? pointer["/"].trim() : null;
+  if (!pathValue) return null;
+  return readDataRecord(pathValue);
+}
+
+function sanitizeParticipantRecord(className, node) {
+  if (!className || !node || typeof node !== "object") return null;
+  const normalized = className.trim().toLowerCase();
+  const sanitizer = RELATIONSHIP_CLASS_SANITIZERS[normalized];
+  if (typeof sanitizer !== "function") {
+    return cloneDeep(node);
+  }
+  const sanitized = sanitizer(cloneDeep(node));
+  if (!sanitized || typeof sanitized !== "object") return null;
+  return sanitized;
+}
+
+function buildRelationshipParticipant(pointer, className) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (!className || typeof className !== "string") return null;
+  const resolvedNode = resolvePointerToRecord(pointer);
+  if (!resolvedNode || typeof resolvedNode !== "object") return null;
+  const sanitized = sanitizeParticipantRecord(className, resolvedNode);
+  if (!sanitized || typeof sanitized !== "object") return null;
+  if (!Object.keys(sanitized).length) return null;
+  return {
+    resource: {
+      class: className.trim().toLowerCase(),
+      properties: sanitized,
+    },
+  };
 }
 
 function parseCurrencyToNumber(txt) {
