@@ -170,23 +170,6 @@ const RELATIONSHIP_ENTITY_EXPECTATIONS = {
   sales_history_has_company: { from: "sales_history", to: "company" },
 };
 
-function pointerToRelationshipValue(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string") {
-    const cid = pointer.cid.trim();
-    if (cid) return cid.startsWith("cid:") ? cid : `cid:${cid}`;
-  }
-  if (typeof pointer.uri === "string") {
-    const uri = pointer.uri.trim();
-    if (uri) return uri;
-  }
-  if (typeof pointer["/"] === "string") {
-    const normalized = pointer["/"].trim();
-    if (normalized) return normalized;
-  }
-  return null;
-}
-
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -260,14 +243,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     fromPointer = oriented.from;
     toPointer = oriented.to;
   }
-  const serializedFrom = pointerToRelationshipValue(fromPointer);
-  const serializedTo = pointerToRelationshipValue(toPointer);
-  if (!serializedFrom || !serializedTo) return;
+  if (!fromPointer || !toPointer) return;
 
   const relationship = {
     type: relationshipType,
-    from: serializedFrom,
-    to: serializedTo,
+    from: fromPointer,
+    to: toPointer,
   };
 
   const suffixPortion =
