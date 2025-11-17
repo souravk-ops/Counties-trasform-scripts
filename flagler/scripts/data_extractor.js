@@ -104,6 +104,20 @@ function sanitizePointerObject(pointer) {
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
+function pointerObjectToString(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    return pointer.cid.trim();
+  }
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    return pointer.uri.trim();
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    return pointer["/"].trim();
+  }
+  return null;
+}
+
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 
 function pointerObjectToSchemaValue(pointer) {
@@ -289,10 +303,16 @@ function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) 
       ? ""
       : `_${suffix}`;
 
+  const sanitizedFrom = sanitizePointerObject(fromPointer);
+  const sanitizedTo = sanitizePointerObject(toPointer);
+  const fromValue = pointerObjectToString(sanitizedFrom);
+  const toValue = pointerObjectToString(sanitizedTo);
+  if (!fromValue || !toValue) return;
+
   const relationship = {
     type: normalizedType,
-    from: fromPointer,
-    to: toPointer,
+    from: fromValue,
+    to: toValue,
   };
 
   writeJSON(
@@ -317,14 +337,20 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   );
   if (!fromValue || !toValue) return;
 
+  const sanitizedFrom = sanitizePointerObject(fromValue);
+  const sanitizedTo = sanitizePointerObject(toValue);
+  const fromString = pointerObjectToString(sanitizedFrom);
+  const toString = pointerObjectToString(sanitizedTo);
+  if (!fromString || !toString) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
       : `_${suffix}`;
   const relationship = {
     type: normalizedType,
-    from: fromValue,
-    to: toValue,
+    from: fromString,
+    to: toString,
   };
   writeJSON(
     path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
@@ -372,14 +398,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     ? Boolean(opts.omitType)
     : false;
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = fromValue;
-  relationship.to = toValue;
-
-  const sanitizedFrom = sanitizePointerObject(relationship.from);
-  const sanitizedTo = sanitizePointerObject(relationship.to);
-  if (!sanitizedFrom || !sanitizedTo) return;
-  relationship.from = sanitizedFrom;
-  relationship.to = sanitizedTo;
+  const sanitizedFrom = sanitizePointerObject(fromValue);
+  const sanitizedTo = sanitizePointerObject(toValue);
+  const fromString = pointerObjectToString(sanitizedFrom);
+  const toString = pointerObjectToString(sanitizedTo);
+  if (!fromString || !toString) return;
+  relationship.from = fromString;
+  relationship.to = toString;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""

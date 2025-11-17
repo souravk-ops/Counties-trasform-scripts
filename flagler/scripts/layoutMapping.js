@@ -76,6 +76,20 @@ function sanitizePointerObject(pointer) {
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
+function pointerObjectToString(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    return pointer.cid.trim();
+  }
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    return pointer.uri.trim();
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    return pointer["/"].trim();
+  }
+  return null;
+}
+
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 
 function stripPointerToAllowedKeys(value) {
@@ -133,7 +147,8 @@ function pointerToReferenceValue(pointer) {
     const trimmed = value.trim();
     if (!trimmed) return null;
     const normalized = normalizePointerOutput(trimmed);
-    return sanitizePointerObject(normalized);
+    const sanitized = sanitizePointerObject(normalized);
+    return pointerObjectToString(sanitized);
   };
 
   if (typeof pointer === "string") {
@@ -142,10 +157,12 @@ function pointerToReferenceValue(pointer) {
 
   if (typeof pointer !== "object") return null;
   const sanitized = sanitizePointerObject(pointer);
-  if (sanitized) return stripPointerToAllowedKeys(sanitized);
+  if (sanitized) {
+    return pointerObjectToString(stripPointerToAllowedKeys(sanitized));
+  }
   const rebuilt = makeRelationshipPointer(pointer);
   if (!rebuilt || typeof rebuilt !== "object") return null;
-  return stripPointerToAllowedKeys(rebuilt);
+  return pointerObjectToString(stripPointerToAllowedKeys(rebuilt));
 }
 
 function collectBuildings($) {
