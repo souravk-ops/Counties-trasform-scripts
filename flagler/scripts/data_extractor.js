@@ -111,6 +111,19 @@ function pointerObjectToSchemaValue(pointer) {
   return sanitizePointerObject(pointer);
 }
 
+function stripPointerToAllowedKeys(value) {
+  if (!value || typeof value !== "object") return null;
+  const cleaned = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const raw = value[key];
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed) cleaned[key] = trimmed;
+  }
+  return Object.keys(cleaned).length ? cleaned : null;
+}
+
 function coerceRelationshipPointer(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -257,8 +270,12 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   const normalizedFrom = coerceRelationshipPointer(fromPointer);
   const normalizedTo = coerceRelationshipPointer(toPointer);
   if (!normalizedFrom || !normalizedTo) return;
-  const fromValue = relationshipPointerToSchemaValue(normalizedFrom);
-  const toValue = relationshipPointerToSchemaValue(normalizedTo);
+  const fromValue = stripPointerToAllowedKeys(
+    relationshipPointerToSchemaValue(normalizedFrom),
+  );
+  const toValue = stripPointerToAllowedKeys(
+    relationshipPointerToSchemaValue(normalizedTo),
+  );
   if (!fromValue || !toValue) return;
 
   const suffixPortion =
@@ -304,8 +321,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     return;
   }
 
-  const fromValue = relationshipPointerToSchemaValue(fromPointer);
-  const toValue = relationshipPointerToSchemaValue(toPointer);
+  const fromValue = stripPointerToAllowedKeys(
+    relationshipPointerToSchemaValue(fromPointer),
+  );
+  const toValue = stripPointerToAllowedKeys(
+    relationshipPointerToSchemaValue(toPointer),
+  );
   if (!fromValue || !toValue) return;
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")

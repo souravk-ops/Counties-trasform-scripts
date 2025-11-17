@@ -76,6 +76,21 @@ function sanitizePointerObject(pointer) {
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
+const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
+
+function stripPointerToAllowedKeys(value) {
+  if (!value || typeof value !== "object") return null;
+  const cleaned = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    const raw = value[key];
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed) cleaned[key] = trimmed;
+  }
+  return Object.keys(cleaned).length ? cleaned : null;
+}
+
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
   const normalizePointerString = (value) => {
@@ -83,7 +98,8 @@ function makeRelationshipPointer(ref) {
     const trimmed = value.trim();
     if (!trimmed) return null;
     const normalized = normalizePointerOutput(trimmed);
-    return sanitizePointerObject(normalized);
+    const sanitized = sanitizePointerObject(normalized);
+    return stripPointerToAllowedKeys(sanitized);
   };
   if (typeof ref === "string") {
     return normalizePointerString(ref);
@@ -126,10 +142,10 @@ function pointerToReferenceValue(pointer) {
 
   if (typeof pointer !== "object") return null;
   const sanitized = sanitizePointerObject(pointer);
-  if (sanitized) return sanitized;
+  if (sanitized) return stripPointerToAllowedKeys(sanitized);
   const rebuilt = makeRelationshipPointer(pointer);
   if (!rebuilt || typeof rebuilt !== "object") return null;
-  return sanitizePointerObject(rebuilt);
+  return stripPointerToAllowedKeys(rebuilt);
 }
 
 function collectBuildings($) {
