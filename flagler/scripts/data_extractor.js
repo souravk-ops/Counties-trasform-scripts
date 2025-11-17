@@ -242,33 +242,12 @@ function buildStrictPathPointer(refLike) {
 }
 
 function writeRelationshipFromPaths(type, fromPath, toPath, suffix) {
-  if (typeof type !== "string") return;
-  const normalizedType = type.trim();
-  if (!normalizedType) return;
-
   const fromPointer =
-    typeof fromPath === "string"
-      ? relationshipPointerToSchemaValue(buildStrictPathPointer(fromPath))
-      : null;
+    typeof fromPath === "string" ? buildStrictPathPointer(fromPath) : null;
   const toPointer =
-    typeof toPath === "string"
-      ? relationshipPointerToSchemaValue(buildStrictPathPointer(toPath))
-      : null;
+    typeof toPath === "string" ? buildStrictPathPointer(toPath) : null;
   if (!fromPointer || !toPointer) return;
-
-  const suffixPortion =
-    suffix === undefined || suffix === null || suffix === ""
-      ? ""
-      : `_${suffix}`;
-  const relationship = {
-    type: normalizedType,
-    from: fromPointer,
-    to: toPointer,
-  };
-  writeJSON(
-    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
-    relationship,
-  );
+  writeRelationship(type, fromPointer, toPointer, suffix);
 }
 
 function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
@@ -419,7 +398,12 @@ const DEED_FIELDS_DISALLOWED = new Set([
 const FILE_FIELDS_DISALLOWED = new Set([
   "book",
   "deed_type",
+  "document_type",
+  "file_format",
   "instrument_number",
+  "ipfs_url",
+  "name",
+  "original_url",
   "ownership_transfer_date",
   "page",
   "purchase_price_amount",
