@@ -988,17 +988,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    // Relationships follow the pattern {subject}_has_{object}: deed→file, sales_history→deed.
-    writeRelationshipFromPathRefs(
-      "deed_has_file",
-      deedFilename,
-      fileFilename,
-      idx,
-      {
-        expectedFromKeyword: "deed",
-        expectedToKeyword: "file",
-      },
-    );
+    // Relationship output excludes deed_has_file – the ingest pipeline populates it after CIDs exist.
     writeRelationshipFromPathRefs(
       "sales_history_has_deed",
       saleFilename,
