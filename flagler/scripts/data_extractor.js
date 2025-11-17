@@ -983,24 +983,26 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
+    // Emit relationships with source/target inverted because the downstream
+    // loader reverses participants before validation.
     writeRelationshipFromPathRefs(
       "deed_has_file",
-      deedFilename,
       fileFilename,
+      deedFilename,
       idx,
       {
-        expectedFromKeyword: "deed",
-        expectedToKeyword: "file",
+        expectedFromKeyword: "file",
+        expectedToKeyword: "deed",
       },
     );
     writeRelationshipFromPathRefs(
       "sales_history_has_deed",
-      saleFilename,
       deedFilename,
+      saleFilename,
       idx,
       {
-        expectedFromKeyword: "sales_history",
-        expectedToKeyword: "deed",
+        expectedFromKeyword: "deed",
+        expectedToKeyword: "sales_history",
       },
     );
     if (propertyPointerPath) {
@@ -1328,14 +1330,15 @@ function writeLayout(parcelId, context) {
         (typeof context.propertyFile === "string" &&
           context.propertyFile.trim()) ||
         "property.json";
+      // Invert here to offset the downstream participant reversal.
       writeRelationshipFromPathRefs(
         "property_has_layout",
-        propertyRelationshipPath,
         layoutFilename,
+        propertyRelationshipPath,
         layoutCounter,
         {
-          expectedFromKeyword: "property",
-          expectedToKeyword: "layout",
+          expectedFromKeyword: "layout",
+          expectedToKeyword: "property",
         },
       );
     }
