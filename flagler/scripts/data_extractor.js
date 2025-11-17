@@ -118,6 +118,27 @@ function stripPointerToAllowedKeys(pointer) {
   }
   return Object.keys(cleaned).length ? cleaned : null;
 }
+
+function pointerToRelationshipRef(pointer) {
+  if (!pointer) return null;
+  if (typeof pointer === "string") {
+    const trimmed = pointer.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof pointer.cid === "string") {
+    const cid = pointer.cid.trim();
+    if (cid) return cid;
+  }
+  if (typeof pointer.uri === "string") {
+    const uri = pointer.uri.trim();
+    if (uri) return uri;
+  }
+  if (typeof pointer["/"] === "string") {
+    const path = pointer["/"].trim();
+    if (path) return path;
+  }
+  return null;
+}
 const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
 const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
 const SALES_HISTORY_POINTER_PATTERN = /(^|\/)sales_history_\d+\.json$/i;
@@ -319,13 +340,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (!fromPointer || !toPointer) return;
 
   const storageOrder = RELATIONSHIP_OUTPUT_ORDER[relationshipType] || "forward";
-  const fromPayload = storageOrder === "swap" ? toPointer : fromPointer;
-  const toPayload = storageOrder === "swap" ? fromPointer : toPointer;
+  const fromPayloadRaw = storageOrder === "swap" ? toPointer : fromPointer;
+  const toPayloadRaw = storageOrder === "swap" ? fromPointer : toPointer;
+
+  const fromRef = pointerToRelationshipRef(fromPayloadRaw);
+  const toRef = pointerToRelationshipRef(toPayloadRaw);
+  if (!fromRef || !toRef) return;
 
   const relationship = {
     type: relationshipType,
-    from: { ...fromPayload },
-    to: { ...toPayload },
+    from: fromRef,
+    to: toRef,
   };
 
   const suffixPortion =
