@@ -337,10 +337,10 @@ function main() {
     );
 
     if (propertyRelationshipFrom) {
-      const fromPointer = makeRelationshipPointer(propertyRelationshipFrom);
-      const toPointer = makeRelationshipPointer(`./${layoutFile}`);
-      const fromValue = pointerToReferenceValue(fromPointer);
-      const toValue = pointerToReferenceValue(toPointer);
+      const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
+      const propertyPointer = makeRelationshipPointer(propertyRelationshipFrom);
+      const fromValue = pointerToReferenceValue(layoutPointer);
+      const toValue = pointerToReferenceValue(propertyPointer);
       if (!fromValue || !toValue) return;
       const rel = {
         type: "property_has_layout",

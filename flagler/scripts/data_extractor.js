@@ -980,22 +980,22 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", fileFilename), sanitizedFile);
     writeRelationshipFromPathRefs(
       "deed_has_file",
-      deedFilename,
       fileFilename,
+      deedFilename,
       idx,
       {
-        expectedFromKeyword: "deed",
-        expectedToKeyword: "file",
+        expectedFromKeyword: "file",
+        expectedToKeyword: "deed",
       },
     );
     writeRelationshipFromPathRefs(
       "sales_history_has_deed",
-      saleFilename,
       deedFilename,
+      saleFilename,
       idx,
       {
-        expectedFromKeyword: "sales_history",
-        expectedToKeyword: "deed",
+        expectedFromKeyword: "deed",
+        expectedToKeyword: "sales_history",
       },
     );
     if (propertyPointerPath) {
