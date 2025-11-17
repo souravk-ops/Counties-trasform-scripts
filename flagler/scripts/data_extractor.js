@@ -183,17 +183,7 @@ const RELATIONSHIP_ENTITY_EXPECTATIONS = {
   sales_history_has_company: { from: "sales_history", to: "company" },
 };
 
-const RELATIONSHIP_OUTPUT_ORDER = {
-  deed_has_file: "swap",
-  property_has_file: "swap",
-  sales_history_has_deed: "swap",
-  property_has_sales_history: "swap",
-  sales_history_has_person: "swap",
-  sales_history_has_company: "swap",
-  property_has_layout: "swap",
-  file_has_fact_sheet: "swap",
-  layout_has_fact_sheet: "swap",
-};
+const RELATIONSHIP_OUTPUT_ORDER = {};
 
 function pointerFrom(refLike) {
   if (refLike == null) return null;
