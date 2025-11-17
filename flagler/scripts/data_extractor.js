@@ -214,84 +214,14 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
-const DEED_FIELDS_ALLOWLIST = new Set([
-  "book",
-  "deed_type",
-  "instrument_number",
-  "page",
-  "request_identifier",
-  "source_http_request",
-  "volume",
-]);
-
-const FILE_FIELDS_ALLOWLIST = new Set([
-  "request_identifier",
-  "source_http_request",
-]);
-
-const SALES_HISTORY_FIELDS_ALLOWLIST = new Set([
-  "ownership_transfer_date",
-  "purchase_price_amount",
-  "request_identifier",
-  "sale_type",
-  "source_http_request",
-]);
-
-const DEED_FIELDS_DISALLOWED = new Set([
-  "document_type",
-  "file_format",
-  "ipfs_url",
-  "name",
-  "original_url",
-  "ownership_transfer_date",
-  "purchase_price_amount",
-]);
-
-const FILE_FIELDS_DISALLOWED = new Set([
-  "document_type",
-  "file_format",
-  "ipfs_url",
-  "name",
-  "original_url",
-  "book",
-  "deed_type",
-  "instrument_number",
-  "ownership_transfer_date",
-  "page",
-  "purchase_price_amount",
-  "sale_type",
-  "volume",
-]);
-
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
-  FILE_FIELDS_DISALLOWED.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(file, key)) {
-      delete file[key];
-    }
-  });
   const sanitized = {};
-  const assignString = (key) => {
-    if (!FILE_FIELDS_ALLOWLIST.has(key)) return;
-    const raw = file[key];
-    if (raw == null) return;
-    const next =
-      typeof raw === "string" || typeof raw === "number"
-        ? String(raw).trim()
-        : raw;
-    if (typeof next === "string") {
-      if (!next) return;
-      sanitized[key] = next;
-      return;
-    }
-    sanitized[key] = next;
-  };
-  assignString("request_identifier");
-  if (
-    FILE_FIELDS_ALLOWLIST.has("source_http_request") &&
-    file.source_http_request &&
-    typeof file.source_http_request === "object"
-  ) {
+  if (typeof file.request_identifier === "string") {
+    const trimmed = file.request_identifier.trim();
+    if (trimmed) sanitized.request_identifier = trimmed;
+  }
+  if (file.source_http_request && typeof file.source_http_request === "object") {
     const clonedRequest = cloneDeep(file.source_http_request);
     if (clonedRequest && Object.keys(clonedRequest).length > 0) {
       sanitized.source_http_request = clonedRequest;
@@ -302,31 +232,22 @@ function sanitizeFileMetadata(file) {
 
 function sanitizeDeedMetadata(deed) {
   if (!deed || typeof deed !== "object") return {};
-  DEED_FIELDS_DISALLOWED.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(deed, key)) {
-      delete deed[key];
-    }
-  });
   const sanitized = {};
   const assignString = (key) => {
-    if (!DEED_FIELDS_ALLOWLIST.has(key)) return;
     const raw = deed[key];
     if (raw == null) return;
-    const trimmed = typeof raw === "string" ? raw.trim() : raw;
-    if (typeof trimmed === "string") {
-      if (trimmed) sanitized[key] = trimmed;
+    const normalized = typeof raw === "string" ? raw.trim() : raw;
+    if (typeof normalized === "string") {
+      if (!normalized) return;
+      sanitized[key] = normalized;
       return;
     }
-    sanitized[key] = trimmed;
+    sanitized[key] = normalized;
   };
   ["book", "deed_type", "instrument_number", "page", "request_identifier", "volume"].forEach(
     assignString,
   );
-  if (
-    DEED_FIELDS_ALLOWLIST.has("source_http_request") &&
-    deed.source_http_request &&
-    typeof deed.source_http_request === "object"
-  ) {
+  if (deed.source_http_request && typeof deed.source_http_request === "object") {
     const cloned = cloneDeep(deed.source_http_request);
     if (cloned && Object.keys(cloned).length > 0) {
       sanitized.source_http_request = cloned;
@@ -339,10 +260,7 @@ function sanitizeSalesHistoryRecord(record) {
   if (!record || typeof record !== "object") return null;
   const sanitized = {};
   const transferRaw = record.ownership_transfer_date;
-  if (
-    SALES_HISTORY_FIELDS_ALLOWLIST.has("ownership_transfer_date") &&
-    typeof transferRaw === "string"
-  ) {
+  if (typeof transferRaw === "string") {
     const trimmed = transferRaw.trim();
     if (!trimmed) return null;
     sanitized.ownership_transfer_date = trimmed;
@@ -352,37 +270,24 @@ function sanitizeSalesHistoryRecord(record) {
     return null;
   }
 
-  if (
-    SALES_HISTORY_FIELDS_ALLOWLIST.has("purchase_price_amount") &&
-    record.purchase_price_amount != null
-  ) {
+  if (record.purchase_price_amount != null) {
     const amount = Number(record.purchase_price_amount);
     if (!Number.isNaN(amount)) {
       sanitized.purchase_price_amount = amount;
     }
   }
 
-  if (
-    SALES_HISTORY_FIELDS_ALLOWLIST.has("sale_type") &&
-    typeof record.sale_type === "string"
-  ) {
+  if (typeof record.sale_type === "string") {
     const val = record.sale_type.trim();
     if (val) sanitized.sale_type = val;
   }
 
-  if (
-    SALES_HISTORY_FIELDS_ALLOWLIST.has("request_identifier") &&
-    typeof record.request_identifier === "string"
-  ) {
+  if (typeof record.request_identifier === "string") {
     const reqId = record.request_identifier.trim();
     if (reqId) sanitized.request_identifier = reqId;
   }
 
-  if (
-    SALES_HISTORY_FIELDS_ALLOWLIST.has("source_http_request") &&
-    record.source_http_request &&
-    typeof record.source_http_request === "object"
-  ) {
+  if (record.source_http_request && typeof record.source_http_request === "object") {
     const cloned = cloneDeep(record.source_http_request);
     if (cloned && Object.keys(cloned).length > 0) {
       sanitized.source_http_request = cloned;
@@ -803,16 +708,22 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
 
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
+        omitType: true,
+      });
     }
     if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx, {
+        omitType: true,
+      });
     }
     if (propertyPointerSource) {
       const propertyPointer = buildStrictPathPointer(propertyPointerSource);
       if (propertyPointer) {
         if (filePointer) {
-          writeRelationship("property_has_file", propertyPointer, filePointer, idx);
+          writeRelationship("property_has_file", propertyPointer, filePointer, idx, {
+            omitType: true,
+          });
         }
         if (salePointer) {
           writeRelationship(
@@ -820,6 +731,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
             propertyPointer,
             salePointer,
             idx,
+            {
+              omitType: true,
+            },
           );
         }
       }
@@ -941,6 +855,7 @@ function writePersonCompaniesSalesRelationships(
             {
               expectedFromKeyword: "sales_history",
               expectedToKeyword: "person",
+              omitType: true,
             },
           );
         }
@@ -961,6 +876,7 @@ function writePersonCompaniesSalesRelationships(
             {
               expectedFromKeyword: "sales_history",
               expectedToKeyword: "company",
+              omitType: true,
             },
           );
         }
@@ -1140,6 +1056,7 @@ function writeLayout(parcelId, context) {
           {
             expectedFromKeyword: "property",
             expectedToKeyword: "layout",
+            omitType: true,
           },
         );
       }

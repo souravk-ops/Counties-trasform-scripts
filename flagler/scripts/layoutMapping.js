@@ -326,7 +326,6 @@ function main() {
       const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
       if (!layoutPointer) return;
       const rel = {
-        type: "property_has_layout",
         from: propertyPointer,
         to: layoutPointer,
       };
