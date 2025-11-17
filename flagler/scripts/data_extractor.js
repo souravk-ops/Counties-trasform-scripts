@@ -336,6 +336,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   relationship.from = fromValue;
   relationship.to = toValue;
 
+  const sanitizedFrom = sanitizePointerObject(relationship.from);
+  const sanitizedTo = sanitizePointerObject(relationship.to);
+  if (!sanitizedFrom || !sanitizedTo) return;
+  relationship.from = sanitizedFrom;
+  relationship.to = sanitizedTo;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
@@ -382,11 +388,6 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
-const FILE_FIELDS_ALLOWLIST = new Set([
-  "request_identifier",
-  "source_http_request",
-]);
-
 const DEED_FIELDS_ALLOWLIST = new Set([
   "book",
   "deed_type",
@@ -415,30 +416,10 @@ const DEED_FIELDS_DISALLOWED = new Set([
   "purchase_price_amount",
 ]);
 
-const FILE_FIELDS_DISALLOWED = new Set([
-  "book",
-  "deed_type",
-  "document_type",
-  "file_format",
-  "instrument_number",
-  "ipfs_url",
-  "name",
-  "original_url",
-  "ownership_transfer_date",
-  "page",
-  "purchase_price_amount",
-  "volume",
-]);
-
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
-  FILE_FIELDS_DISALLOWED.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(file, key)) {
-      delete file[key];
-    }
-  });
   const sanitized = {};
-  if (FILE_FIELDS_ALLOWLIST.has("request_identifier")) {
+  if (Object.prototype.hasOwnProperty.call(file, "request_identifier")) {
     const rawIdentifier = file.request_identifier;
     if (rawIdentifier != null) {
       const trimmed = String(rawIdentifier).trim();
@@ -446,7 +427,6 @@ function sanitizeFileMetadata(file) {
     }
   }
   if (
-    FILE_FIELDS_ALLOWLIST.has("source_http_request") &&
     file.source_http_request &&
     typeof file.source_http_request === "object"
   ) {
