@@ -183,6 +183,18 @@ const RELATIONSHIP_ENTITY_EXPECTATIONS = {
   sales_history_has_company: { from: "sales_history", to: "company" },
 };
 
+const RELATIONSHIP_OUTPUT_ORDER = {
+  deed_has_file: "swap",
+  property_has_file: "swap",
+  sales_history_has_deed: "swap",
+  property_has_sales_history: "swap",
+  sales_history_has_person: "swap",
+  sales_history_has_company: "swap",
+  property_has_layout: "swap",
+  file_has_fact_sheet: "swap",
+  layout_has_fact_sheet: "swap",
+};
+
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -260,10 +272,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   toPointer = stripPointerToAllowedKeys(toPointer);
   if (!fromPointer || !toPointer) return;
 
+  const storageOrder = RELATIONSHIP_OUTPUT_ORDER[relationshipType] || "forward";
+  const fromPayload = storageOrder === "swap" ? toPointer : fromPointer;
+  const toPayload = storageOrder === "swap" ? fromPointer : toPointer;
+
   const relationship = {
     type: relationshipType,
-    from: { ...fromPointer },
-    to: { ...toPointer },
+    from: { ...fromPayload },
+    to: { ...toPayload },
   };
 
   const suffixPortion =
