@@ -170,20 +170,21 @@ const RELATIONSHIP_ENTITY_EXPECTATIONS = {
   sales_history_has_company: { from: "sales_history", to: "company" },
 };
 
-function sanitizeRelationshipEndpoint(pointerLike) {
-  if (!pointerLike) return null;
-  const pointer = sanitizePointerObject(pointerLike);
-  if (!pointer) return null;
-  const sanitized = {};
-  for (const key of POINTER_ALLOWED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
-    const value = pointer[key];
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    sanitized[key] = trimmed;
+function pointerToRelationshipValue(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string") {
+    const cid = pointer.cid.trim();
+    if (cid) return cid.startsWith("cid:") ? cid : `cid:${cid}`;
   }
-  return Object.keys(sanitized).length ? sanitized : null;
+  if (typeof pointer.uri === "string") {
+    const uri = pointer.uri.trim();
+    if (uri) return uri;
+  }
+  if (typeof pointer["/"] === "string") {
+    const normalized = pointer["/"].trim();
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 function pointerFrom(refLike) {
@@ -259,14 +260,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     fromPointer = oriented.from;
     toPointer = oriented.to;
   }
-  const sanitizedFrom = sanitizeRelationshipEndpoint(fromPointer);
-  const sanitizedTo = sanitizeRelationshipEndpoint(toPointer);
-  if (!sanitizedFrom || !sanitizedTo) return;
+  const serializedFrom = pointerToRelationshipValue(fromPointer);
+  const serializedTo = pointerToRelationshipValue(toPointer);
+  if (!serializedFrom || !serializedTo) return;
 
   const relationship = {
     type: relationshipType,
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: serializedFrom,
+    to: serializedTo,
   };
 
   const suffixPortion =
@@ -1165,22 +1166,6 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     unnorm && typeof unnorm.normalized_address === "object"
       ? unnorm.normalized_address
       : null;
-  const fullRaw =
-    unnorm && typeof unnorm.full_address === "string"
-      ? unnorm.full_address
-      : null;
-  const full = fullRaw ? fullRaw.trim() : null;
-
-  const hasNormalizedContent =
-    normalizedSource &&
-    Object.values(normalizedSource).some((val) => {
-      if (val == null) return false;
-      if (typeof val === "string") return val.trim() !== "";
-      if (typeof val === "number") return true;
-      return false;
-    });
-
-  if (!full && !hasNormalizedContent) return;
 
   const stringOrNull = (value) => {
     if (value == null) return null;
@@ -1188,81 +1173,104 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     return trimmed ? trimmed : null;
   };
 
-  let derivedCity = null;
-  let derivedZip = null;
-  if (full) {
-    const fullAddressParts = full.split(",");
-    if (fullAddressParts.length >= 3 && fullAddressParts[2]) {
-      const stateAndZipTokens = fullAddressParts[2].split(/\s+/);
-      const potentialZip = stateAndZipTokens[stateAndZipTokens.length - 1];
-      if (potentialZip && potentialZip.trim().match(/^\d{5}$/)) {
-        derivedZip = potentialZip.trim();
-        derivedCity = fullAddressParts[1].trim();
-      }
-    }
-  }
+  const normalizedRequiredKeys = [
+    "street_number",
+    "street_name",
+    "city_name",
+    "state_code",
+    "postal_code",
+  ];
+  const normalizedValues =
+    normalizedSource && typeof normalizedSource === "object"
+      ? normalizedRequiredKeys.map((key) =>
+          stringOrNull(normalizedSource[key]),
+        )
+      : [];
+  const hasCompleteNormalizedAddress =
+    normalizedSource &&
+    normalizedValues.every((val) => val && typeof val === "string");
 
-  const county_name = stringOrNull(unnorm && unnorm.county_jurisdiction);
-  const normalizedPostalCode = stringOrNull(
-    normalizedSource && normalizedSource.postal_code,
-  );
-  const normalizedCity = stringOrNull(
-    normalizedSource && normalizedSource.city_name,
-  );
-  const normalizedState = stringOrNull(
-    normalizedSource && normalizedSource.state_code,
-  );
-  const normalizedCountry = stringOrNull(
-    normalizedSource && normalizedSource.country_code,
-  );
+  const address = {};
+  const countyName = stringOrNull(unnorm && unnorm.county_jurisdiction);
+  if (countyName) address.county_name = countyName;
 
-  const address = {
-    county_name: county_name || null,
-    country_code: normalizedCountry || "US",
-    state_code: normalizedState || "FL",
-    postal_code: normalizedPostalCode || derivedZip || null,
-    city_name: normalizedCity
-      ? normalizedCity.toUpperCase()
-      : derivedCity
-        ? derivedCity.toUpperCase()
-        : null,
-    street_number: stringOrNull(
-      normalizedSource && normalizedSource.street_number,
-    ),
-    street_name: stringOrNull(normalizedSource && normalizedSource.street_name),
-    street_suffix_type: stringOrNull(
+  if (secTwpRng && secTwpRng.section) address.section = secTwpRng.section;
+  if (secTwpRng && secTwpRng.township) address.township = secTwpRng.township;
+  if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
+
+  if (hasCompleteNormalizedAddress) {
+    const [
+      streetNumber,
+      streetName,
+      cityName,
+      stateCode,
+      postalCode,
+    ] = normalizedValues;
+    address.street_number = streetNumber;
+    address.street_name = streetName;
+    address.city_name = cityName ? cityName.toUpperCase() : null;
+    address.state_code = stateCode;
+    address.postal_code = postalCode;
+    const normalizedCountry = stringOrNull(
+      normalizedSource && normalizedSource.country_code,
+    );
+    address.country_code = normalizedCountry || "US";
+    const suffix = stringOrNull(
       normalizedSource && normalizedSource.street_suffix_type,
-    ),
-    street_pre_directional_text: stringOrNull(
+    );
+    if (suffix) address.street_suffix_type = suffix;
+    const preDir = stringOrNull(
       normalizedSource && normalizedSource.street_pre_directional_text,
-    ),
-    street_post_directional_text: stringOrNull(
+    );
+    if (preDir) address.street_pre_directional_text = preDir;
+    const postDir = stringOrNull(
       normalizedSource && normalizedSource.street_post_directional_text,
-    ),
-    unit_identifier: stringOrNull(
+    );
+    if (postDir) address.street_post_directional_text = postDir;
+    const unit = stringOrNull(
       normalizedSource && normalizedSource.unit_identifier,
-    ),
-    route_number: stringOrNull(
+    );
+    if (unit) address.unit_identifier = unit;
+    const route = stringOrNull(
       normalizedSource && normalizedSource.route_number,
-    ),
-    plus_four_postal_code: stringOrNull(
+    );
+    if (route) address.route_number = route;
+    const plusFour = stringOrNull(
       normalizedSource && normalizedSource.plus_four_postal_code,
-    ),
-    township: secTwpRng && secTwpRng.township ? secTwpRng.township : null,
-    range: secTwpRng && secTwpRng.range ? secTwpRng.range : null,
-    section: secTwpRng && secTwpRng.section ? secTwpRng.section : null,
-    unnormalized_address:
-      full ||
-      stringOrNull(
-        normalizedSource && normalizedSource.original_address,
-      ),
-    request_identifier: stringOrNull(
-      unnorm && unnorm.request_identifier,
-    ),
-  };
-  if (!address.unnormalized_address && full) {
-    address.unnormalized_address = full;
+    );
+    if (plusFour) address.plus_four_postal_code = plusFour;
+  } else {
+    const fullRaw =
+      unnorm && typeof unnorm.full_address === "string"
+        ? unnorm.full_address
+        : null;
+    const fallbackUnnormalized =
+      stringOrNull(fullRaw) ||
+      stringOrNull(normalizedSource && normalizedSource.original_address);
+    if (!fallbackUnnormalized) return;
+    address.unnormalized_address = fallbackUnnormalized;
+    const normalizedCountry = stringOrNull(
+      normalizedSource && normalizedSource.country_code,
+    );
+    if (normalizedCountry) address.country_code = normalizedCountry;
+    const normalizedState = stringOrNull(
+      normalizedSource && normalizedSource.state_code,
+    );
+    if (normalizedState) address.state_code = normalizedState;
+    const normalizedPostalCode = stringOrNull(
+      normalizedSource && normalizedSource.postal_code,
+    );
+    if (normalizedPostalCode) address.postal_code = normalizedPostalCode;
+    const normalizedCity = stringOrNull(
+      normalizedSource && normalizedSource.city_name,
+    );
+    if (normalizedCity) address.city_name = normalizedCity.toUpperCase();
   }
+
+  const requestIdentifier = stringOrNull(
+    unnorm && unnorm.request_identifier,
+  );
+  if (requestIdentifier) address.request_identifier = requestIdentifier;
   const sourceRequest =
     (unnorm && unnorm.source_http_request) || defaultSourceHttpRequest;
   attachSourceHttpRequest(address, sourceRequest);
