@@ -1394,7 +1394,7 @@ function mapDeedType(raw) {
   if (t.includes("special master")) return "Special Master’s Deed";
   if (t.includes("contract for deed")) return "Contract for Deed";
   if (t.includes("wild deed")) return "Wild Deed";
-  errorUnknownEnum(raw, "deed", "deed_type");
+  return null;
 }
 
 function mapDocumentTypeForFile(rawType) {
@@ -1525,12 +1525,12 @@ function main() {
   };
   writeJson(path.join("data", "geometry.json"), geometryOut);
 
-  const relAddressGeometry = 
+  const relAddressGeometry = [
     {
       from: { "/": "./address.json" },
       to: { "/": "./geometry.json" },
-    }
-  ;
+    },
+  ];
   writeJson(
     path.join("data", "relationship_address_geometry.json"),
     relAddressGeometry,
@@ -1829,7 +1829,7 @@ function main() {
     const deedIndex = deedsOut.length + 1;
     const deedFile = `deed_${deedIndex}.json`;
     const deedObj = {};
-    if (deedType) {
+    if (deedType !== null && deedType !== undefined) {
       deedObj.deed_type = deedType;
     }
     if (book) deedObj.book = book;
