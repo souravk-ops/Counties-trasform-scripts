@@ -230,6 +230,22 @@ function readDataRecord(filename) {
   }
 }
 
+function sanitizeNodeOnDisk(filename, sanitizer) {
+  if (typeof filename !== "string") return null;
+  if (typeof sanitizer !== "function") {
+    return readDataRecord(filename);
+  }
+  const record = readDataRecord(filename);
+  if (!record || typeof record !== "object") return record;
+  const sanitized = sanitizer(cloneDeep(record)) || {};
+  const originalString = JSON.stringify(record);
+  const sanitizedString = JSON.stringify(sanitized);
+  if (originalString !== sanitizedString) {
+    writeJSON(path.join("data", filename), sanitized);
+  }
+  return sanitized;
+}
+
 function nodeLooksLikeDeed(node) {
   if (!node || typeof node !== "object") return false;
   if (typeof node.deed_type === "string" && node.deed_type.trim()) return true;
@@ -410,6 +426,16 @@ const DEED_FIELDS_ALLOWLIST = new Set([
   "volume",
 ]);
 
+const FILE_FIELDS_ALLOWLIST = new Set([
+  "document_type",
+  "file_format",
+  "ipfs_url",
+  "name",
+  "original_url",
+  "request_identifier",
+  "source_http_request",
+]);
+
 const SALES_HISTORY_FIELDS_ALLOWLIST = new Set([
   "ownership_transfer_date",
   "purchase_price_amount",
@@ -428,17 +454,69 @@ const DEED_FIELDS_DISALLOWED = new Set([
   "purchase_price_amount",
 ]);
 
+const FILE_FIELDS_DISALLOWED = new Set([
+  "book",
+  "deed_type",
+  "instrument_number",
+  "ownership_transfer_date",
+  "page",
+  "purchase_price_amount",
+  "sale_type",
+  "volume",
+]);
+
+function isValidHttpUrl(value) {
+  if (typeof value !== "string") return false;
+  let parsed;
+  try {
+    parsed = new URL(value.trim());
+  } catch (_err) {
+    return false;
+  }
+  const protocol = parsed.protocol.toLowerCase();
+  return protocol === "http:" || protocol === "https:";
+}
+
+function isValidIpfsUrl(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^ipfs:\/\//i.test(trimmed)) return true;
+  return isValidHttpUrl(trimmed);
+}
+
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
-  const sanitized = {};
-  if (Object.prototype.hasOwnProperty.call(file, "request_identifier")) {
-    const rawIdentifier = file.request_identifier;
-    if (rawIdentifier != null) {
-      const trimmed = String(rawIdentifier).trim();
-      if (trimmed) sanitized.request_identifier = trimmed;
+  FILE_FIELDS_DISALLOWED.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(file, key)) {
+      delete file[key];
     }
-  }
+  });
+  const sanitized = {};
+  const assignString = (key, validator) => {
+    if (!FILE_FIELDS_ALLOWLIST.has(key)) return;
+    const raw = file[key];
+    if (raw == null) return;
+    const next =
+      typeof raw === "string" || typeof raw === "number"
+        ? String(raw).trim()
+        : raw;
+    if (typeof next === "string") {
+      if (!next) return;
+      if (typeof validator === "function" && !validator(next)) return;
+      sanitized[key] = next;
+      return;
+    }
+    sanitized[key] = next;
+  };
+  assignString("document_type");
+  assignString("file_format");
+  assignString("ipfs_url", isValidIpfsUrl);
+  assignString("name");
+  assignString("original_url", isValidHttpUrl);
+  assignString("request_identifier");
   if (
+    FILE_FIELDS_ALLOWLIST.has("source_http_request") &&
     file.source_http_request &&
     typeof file.source_http_request === "object"
   ) {
@@ -1130,8 +1208,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       sanitizeRelationshipParticipantPointer(salePointer) ||
       buildStrictPathPointer(saleFilename);
 
-    let deedNode = readDataRecord(deedFilename);
-    let fileNode = readDataRecord(fileFilename);
+    let deedNode = sanitizeNodeOnDisk(deedFilename, sanitizeDeedMetadata);
+    let fileNode = sanitizeNodeOnDisk(fileFilename, sanitizeFileMetadata);
     const saleNode = sanitizedSale || readDataRecord(saleFilename);
 
     if (
