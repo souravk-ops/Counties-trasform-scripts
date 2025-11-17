@@ -76,20 +76,6 @@ function sanitizePointerObject(pointer) {
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
-function pointerObjectToString(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-    return pointer.cid.trim();
-  }
-  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
-    return pointer.uri.trim();
-  }
-  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-    return pointer["/"].trim();
-  }
-  return null;
-}
-
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 
 function stripPointerToAllowedKeys(value) {
@@ -137,32 +123,6 @@ function makeRelationshipPointer(ref) {
     return normalizePointerString(pathCandidate);
   }
   return null;
-}
-
-function pointerToReferenceValue(pointer) {
-  if (pointer == null) return null;
-
-  const normalizeString = (value) => {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const normalized = normalizePointerOutput(trimmed);
-    const sanitized = sanitizePointerObject(normalized);
-    return pointerObjectToString(sanitized);
-  };
-
-  if (typeof pointer === "string") {
-    return normalizeString(pointer);
-  }
-
-  if (typeof pointer !== "object") return null;
-  const sanitized = sanitizePointerObject(pointer);
-  if (sanitized) {
-    return pointerObjectToString(stripPointerToAllowedKeys(sanitized));
-  }
-  const rebuilt = makeRelationshipPointer(pointer);
-  if (!rebuilt || typeof rebuilt !== "object") return null;
-  return pointerObjectToString(stripPointerToAllowedKeys(rebuilt));
 }
 
 function collectBuildings($) {
@@ -356,13 +316,11 @@ function main() {
     if (propertyRelationshipFrom) {
       const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
       const propertyPointer = makeRelationshipPointer(propertyRelationshipFrom);
-      const propertyRef = pointerToReferenceValue(propertyPointer);
-      const layoutRef = pointerToReferenceValue(layoutPointer);
-      if (!propertyRef || !layoutRef) return;
+      if (!propertyPointer || !layoutPointer) return;
       const rel = {
         type: "property_has_layout",
-        from: propertyRef,
-        to: layoutRef,
+        from: propertyPointer,
+        to: layoutPointer,
       };
       fs.writeFileSync(
         path.join(
