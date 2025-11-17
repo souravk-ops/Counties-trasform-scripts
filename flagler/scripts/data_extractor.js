@@ -108,6 +108,24 @@ const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
 const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
 
+function pointerComparableString(pointer) {
+  if (!pointer || typeof pointer !== "object") return "";
+  if (typeof pointer["/"] === "string") return pointer["/"].trim().toLowerCase();
+  if (typeof pointer.cid === "string") return pointer.cid.trim().toLowerCase();
+  if (typeof pointer.uri === "string") return pointer.uri.trim().toLowerCase();
+  return "";
+}
+
+function pointerLooksLikeFile(pointer) {
+  const comparable = pointerComparableString(pointer);
+  return comparable ? FILE_POINTER_PATTERN.test(comparable) : false;
+}
+
+function pointerLooksLikeDeed(pointer) {
+  const comparable = pointerComparableString(pointer);
+  return comparable ? DEED_POINTER_PATTERN.test(comparable) : false;
+}
+
 function sanitizeRelationshipEndpoint(pointerLike) {
   if (!pointerLike) return null;
   const pointer = sanitizePointerObject(pointerLike);
@@ -169,13 +187,27 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   let fromPointer = pointerFrom(fromRefLike);
   let toPointer = pointerFrom(toRefLike);
   if (relationshipType === "deed_has_file" && fromPointer && toPointer) {
-    const fromPath = typeof fromPointer["/"] === "string" ? fromPointer["/"].toLowerCase() : "";
-    const toPath = typeof toPointer["/"] === "string" ? toPointer["/"].toLowerCase() : "";
-    const fromLooksLikeFile = fromPath && FILE_POINTER_PATTERN.test(fromPath);
-    const toLooksLikeDeed = toPath && DEED_POINTER_PATTERN.test(toPath);
-    const fromLooksLikeDeed = fromPath && DEED_POINTER_PATTERN.test(fromPath);
-    const toLooksLikeFile = toPath && FILE_POINTER_PATTERN.test(toPath);
-    if (fromLooksLikeFile && toLooksLikeDeed && (!fromLooksLikeDeed || !toLooksLikeFile)) {
+    const fromIsDeed = pointerLooksLikeDeed(fromPointer);
+    const fromIsFile = pointerLooksLikeFile(fromPointer);
+    const toIsDeed = pointerLooksLikeDeed(toPointer);
+    const toIsFile = pointerLooksLikeFile(toPointer);
+
+    if ((!fromIsDeed && toIsDeed) || (fromIsFile && !toIsFile && toIsDeed)) {
+      const tmp = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmp;
+    } else if (!fromIsDeed && !toIsDeed && toIsFile && !fromIsFile) {
+      const tmp = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmp;
+    }
+
+    if (!pointerLooksLikeDeed(fromPointer) && pointerLooksLikeDeed(toPointer)) {
+      const tmp = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmp;
+    }
+    if (!pointerLooksLikeFile(toPointer) && pointerLooksLikeFile(fromPointer)) {
       const tmp = fromPointer;
       fromPointer = toPointer;
       toPointer = tmp;
@@ -239,10 +271,9 @@ const FILE_METADATA_ALLOWED_STRING_FIELDS = ["request_identifier"];
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
   const sanitized = {};
-  for (const key of FILE_METADATA_ALLOWED_STRING_FIELDS) {
-    if (typeof file[key] !== "string") continue;
-    const trimmed = file[key].trim();
-    if (trimmed) sanitized[key] = trimmed;
+  if (typeof file.request_identifier === "string") {
+    const trimmed = file.request_identifier.trim();
+    if (trimmed) sanitized.request_identifier = trimmed;
   }
   if (file.source_http_request && typeof file.source_http_request === "object") {
     const clonedRequest = cloneDeep(file.source_http_request);
