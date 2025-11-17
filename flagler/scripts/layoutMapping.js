@@ -339,13 +339,13 @@ function main() {
     if (propertyRelationshipFrom) {
       const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
       const propertyPointer = makeRelationshipPointer(propertyRelationshipFrom);
-      const fromValue = pointerToReferenceValue(layoutPointer);
-      const toValue = pointerToReferenceValue(propertyPointer);
-      if (!fromValue || !toValue) return;
+      const propertyRef = pointerToReferenceValue(propertyPointer);
+      const layoutRef = pointerToReferenceValue(layoutPointer);
+      if (!propertyRef || !layoutRef) return;
       const rel = {
         type: "property_has_layout",
-        from: fromValue,
-        to: toValue,
+        from: propertyRef,
+        to: layoutRef,
       };
       fs.writeFileSync(
         path.join(
