@@ -1000,6 +1000,26 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
+    writeRelationshipFromPathRefs(
+      "deed_has_file",
+      deedFilename,
+      fileFilename,
+      idx,
+      {
+        expectedFromKeyword: "deed",
+        expectedToKeyword: "file",
+      },
+    );
+    writeRelationshipFromPathRefs(
+      "sales_history_has_deed",
+      saleFilename,
+      deedFilename,
+      idx,
+      {
+        expectedFromKeyword: "sales_history",
+        expectedToKeyword: "deed",
+      },
+    );
     // Emit only relationships supported by the County relationship schema.
     if (propertyPointerPath) {
       writeRelationshipFromPathRefs(
