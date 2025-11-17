@@ -143,7 +143,7 @@ function buildStrictPathPointer(refLike) {
   return { "/": pointer["/"] };
 }
 
-function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
+function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
   if (!relationshipType) return;
@@ -152,7 +152,7 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const toPointer = pointerFrom(toRefLike);
   if (!fromPointer || !toPointer) return;
 
-  const relationship = options && options.omitType ? {} : { type: relationshipType };
+  const relationship = { type: relationshipType };
   relationship.from = {};
   relationship.to = {};
 
@@ -172,10 +172,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
-  writeJSON(
-    path.join("data", `relationship_${relationshipType}${suffixPortion}.json`),
-    relationship,
-  );
+  const filename = `relationship_${relationshipType}${suffixPortion}.json`;
+  writeJSON(path.join("data", filename), relationship);
 }
 
 function normalizeSaleDate(value) {
@@ -708,22 +706,16 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
 
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx, {
-        omitType: true,
-      });
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
     if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx, {
-        omitType: true,
-      });
+      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
     }
     if (propertyPointerSource) {
       const propertyPointer = buildStrictPathPointer(propertyPointerSource);
       if (propertyPointer) {
         if (filePointer) {
-          writeRelationship("property_has_file", propertyPointer, filePointer, idx, {
-            omitType: true,
-          });
+          writeRelationship("property_has_file", propertyPointer, filePointer, idx);
         }
         if (salePointer) {
           writeRelationship(
@@ -731,9 +723,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
             propertyPointer,
             salePointer,
             idx,
-            {
-              omitType: true,
-            },
           );
         }
       }
@@ -852,11 +841,6 @@ function writePersonCompaniesSalesRelationships(
             saleRef,
             personRef,
             relPersonCounter,
-            {
-              expectedFromKeyword: "sales_history",
-              expectedToKeyword: "person",
-              omitType: true,
-            },
           );
         }
       });
@@ -873,11 +857,6 @@ function writePersonCompaniesSalesRelationships(
             saleRef,
             companyRef,
             relCompanyCounter,
-            {
-              expectedFromKeyword: "sales_history",
-              expectedToKeyword: "company",
-              omitType: true,
-            },
           );
         }
       });
@@ -1053,11 +1032,6 @@ function writeLayout(parcelId, context) {
           propertyPointer,
           layoutPointer,
           layoutCounter,
-          {
-            expectedFromKeyword: "property",
-            expectedToKeyword: "layout",
-            omitType: true,
-          },
         );
       }
     }
