@@ -98,18 +98,13 @@ function sanitizePointerObject(pointer) {
     if (uri) sanitized.uri = uri;
   }
   if (typeof pointer["/"] === "string") {
-    const path = pointer["/"].trim();
-    if (path) sanitized["/"] = path;
+    const normalizedPath = normalizePointerPath(pointer["/"]);
+    if (normalizedPath) sanitized["/"] = normalizedPath;
   }
   return Object.keys(sanitized).length ? sanitized : null;
 }
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
-
-function pointerObjectToSchemaValue(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  return sanitizePointerObject(pointer);
-}
 
 function sanitizeRelationshipParticipantPointer(pointerLike) {
   if (!pointerLike || typeof pointerLike !== "object") return null;
@@ -126,46 +121,22 @@ function sanitizeRelationshipParticipantPointer(pointerLike) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
-function coerceRelationshipPointer(refLike) {
+function relationshipPointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
-    return createRelationshipPointer(refLike);
+    const normalized = normalizePointerOutput(refLike);
+    if (!normalized) return null;
+    return sanitizeRelationshipParticipantPointer(normalized);
   }
   if (typeof refLike !== "object") return null;
-  const sanitized = sanitizePointerObject(refLike);
-  if (sanitized) return sanitized;
-  const rebuilt = createRelationshipPointer(refLike);
-  if (!rebuilt || typeof rebuilt !== "object") return null;
-  const keys = Object.keys(rebuilt);
-  if (!keys.length) return null;
-  if (keys.every((key) => POINTER_ALLOWED_KEYS.has(key))) {
-    return rebuilt;
-  }
-  return null;
-}
-
-function createRelationshipPointer(refLike, _options) {
-  if (refLike == null) return null;
-  const normalizePointerString = (value) => {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const normalized = normalizePointerOutput(trimmed);
-    return sanitizePointerObject(normalized);
-  };
-  if (typeof refLike === "string") {
-    return normalizePointerString(refLike);
-  }
-  if (typeof refLike !== "object") return null;
-  if (typeof refLike.cid === "string") {
-    const cidPointer = normalizePointerOutput(refLike.cid);
-    const sanitized = sanitizePointerObject(cidPointer);
-    if (sanitized) return sanitized;
+  const direct = sanitizeRelationshipParticipantPointer(refLike);
+  if (direct) return direct;
+  const pointerCandidate = {};
+  if (typeof refLike.cid === "string" && refLike.cid.trim()) {
+    pointerCandidate.cid = refLike.cid.trim();
   }
   if (typeof refLike.uri === "string" && refLike.uri.trim()) {
-    const uriPointer = normalizePointerOutput(refLike.uri);
-    const sanitized = sanitizePointerObject(uriPointer);
-    if (sanitized) return sanitized;
+    pointerCandidate.uri = refLike.uri.trim();
   }
   const pathCandidate =
     (typeof refLike["/"] === "string" && refLike["/"]) ||
@@ -174,32 +145,13 @@ function createRelationshipPointer(refLike, _options) {
     (typeof refLike.filename === "string" && refLike.filename) ||
     (typeof refLike.file === "string" && refLike.file);
   if (pathCandidate) {
-    const pathPointer = normalizePointerOutput(pathCandidate);
-    const sanitized = sanitizePointerObject(pathPointer);
-    if (sanitized) return sanitized;
+    const normalizedPath = normalizePointerPath(pathCandidate);
+    if (normalizedPath) pointerCandidate["/"] = normalizedPath;
   }
+  if (!Object.keys(pointerCandidate).length) return null;
+  const sanitized = sanitizeRelationshipParticipantPointer(pointerCandidate);
+  if (sanitized) return sanitized;
   return null;
-}
-
-function relationshipPointerToSchemaValue(pointer) {
-  if (pointer == null) return null;
-  const normalizeToPointerObject = (value) => {
-    if (value == null) return null;
-    if (typeof value === "string") {
-      const created = createRelationshipPointer(value);
-      return pointerObjectToSchemaValue(created);
-    }
-    if (typeof value !== "object") return null;
-    const sanitized = pointerObjectToSchemaValue(value);
-    if (sanitized) return sanitized;
-    const rebuilt = createRelationshipPointer(value);
-    return pointerObjectToSchemaValue(rebuilt);
-  };
-  const normalized = normalizeToPointerObject(pointer);
-  if (!normalized || typeof normalized !== "object") return null;
-  const sanitized = pointerObjectToSchemaValue(normalized);
-  if (!sanitized || typeof sanitized !== "object") return null;
-  return sanitized;
 }
 
 function pointerSchemaValueToString(pointer) {
@@ -363,8 +315,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  const fromPointer = coerceRelationshipPointer(fromRefLike);
-  const toPointer = coerceRelationshipPointer(toRefLike);
+  const fromPointer = relationshipPointerFrom(fromRefLike);
+  const toPointer = relationshipPointerFrom(toRefLike);
   if (!fromPointer || !toPointer) return;
 
   if (
@@ -376,18 +328,23 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     return;
   }
 
-  const fromValue = relationshipPointerToSchemaValue(fromPointer);
-  const toValue = relationshipPointerToSchemaValue(toPointer);
-  const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromValue);
-  const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
+  const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromPointer);
+  const sanitizedTo = sanitizeRelationshipParticipantPointer(toPointer);
   if (!sanitizedFrom || !sanitizedTo) return;
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = cloneDeep(sanitizedFrom);
-  relationship.to = cloneDeep(sanitizedTo);
+  relationship.from = {};
+  relationship.to = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (sanitizedFrom[key]) relationship.from[key] = sanitizedFrom[key];
+    if (sanitizedTo[key]) relationship.to[key] = sanitizedTo[key];
+  }
+  if (!Object.keys(relationship.from).length || !Object.keys(relationship.to).length) {
+    return;
+  }
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
