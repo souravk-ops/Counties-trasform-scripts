@@ -106,37 +106,21 @@ function sanitizePointerObject(pointer) {
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 
-function sanitizeRelationshipParticipantPointer(pointerLike) {
-  if (!pointerLike || typeof pointerLike !== "object") return null;
-  const sanitized = sanitizePointerObject(pointerLike);
-  if (!sanitized) return null;
-  const cleaned = {};
-  for (const key of POINTER_ALLOWED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
-    const raw = sanitized[key];
-    if (typeof raw !== "string") continue;
-    const trimmed = raw.trim();
-    if (trimmed) cleaned[key] = trimmed;
-  }
-  return Object.keys(cleaned).length ? cleaned : null;
-}
-
-function relationshipPointerFrom(refLike) {
+function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
-    const normalized = normalizePointerOutput(refLike);
-    if (!normalized) return null;
-    return sanitizeRelationshipParticipantPointer(normalized);
+    return sanitizePointerObject(normalizePointerOutput(refLike));
   }
   if (typeof refLike !== "object") return null;
-  const direct = sanitizeRelationshipParticipantPointer(refLike);
-  if (direct) return direct;
-  const pointerCandidate = {};
-  if (typeof refLike.cid === "string" && refLike.cid.trim()) {
-    pointerCandidate.cid = refLike.cid.trim();
+
+  const rawPointer = {};
+  if (typeof refLike.cid === "string") {
+    const cid = refLike.cid.trim();
+    if (cid) rawPointer.cid = cid.startsWith("cid:") ? cid : `cid:${cid}`;
   }
-  if (typeof refLike.uri === "string" && refLike.uri.trim()) {
-    pointerCandidate.uri = refLike.uri.trim();
+  if (typeof refLike.uri === "string") {
+    const uri = refLike.uri.trim();
+    if (uri) rawPointer.uri = uri;
   }
   const pathCandidate =
     (typeof refLike["/"] === "string" && refLike["/"]) ||
@@ -144,214 +128,52 @@ function relationshipPointerFrom(refLike) {
     (typeof refLike["@ref"] === "string" && refLike["@ref"]) ||
     (typeof refLike.filename === "string" && refLike.filename) ||
     (typeof refLike.file === "string" && refLike.file);
-  if (pathCandidate) {
+  if (typeof pathCandidate === "string") {
     const normalizedPath = normalizePointerPath(pathCandidate);
-    if (normalizedPath) pointerCandidate["/"] = normalizedPath;
+    if (normalizedPath) rawPointer["/"] = normalizedPath;
   }
-  if (!Object.keys(pointerCandidate).length) return null;
-  const sanitized = sanitizeRelationshipParticipantPointer(pointerCandidate);
-  if (sanitized) return sanitized;
-  return null;
-}
-
-function pointerSchemaValueToString(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string") {
-    const cid = pointer.cid.trim();
-    if (cid) return cid;
-  }
-  if (typeof pointer.uri === "string") {
-    const uri = pointer.uri.trim();
-    if (uri) return uri;
-  }
-  if (typeof pointer["/"] === "string") {
-    const normalized = normalizePointerPath(pointer["/"]);
-    if (normalized) return normalized;
-    const trimmed = pointer["/"].trim();
-    if (trimmed) return trimmed;
-  }
-  return null;
-}
-
-function readDataRecord(filename) {
-  if (typeof filename !== "string") return null;
-  const trimmed = filename.trim();
-  if (!trimmed) return null;
-  const normalized = trimmed.startsWith("./") ? trimmed.slice(2) : trimmed;
-  const resolved = path.join("data", normalized);
-  try {
-    const raw = fs.readFileSync(resolved, "utf8");
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (err) {
-    return null;
-  }
-}
-
-function sanitizeNodeOnDisk(filename, sanitizer) {
-  if (typeof filename !== "string") return null;
-  if (typeof sanitizer !== "function") {
-    return readDataRecord(filename);
-  }
-  const record = readDataRecord(filename);
-  if (!record || typeof record !== "object") return record;
-  const sanitized = sanitizer(cloneDeep(record)) || {};
-  const originalString = JSON.stringify(record);
-  const sanitizedString = JSON.stringify(sanitized);
-  if (originalString !== sanitizedString) {
-    writeJSON(path.join("data", filename), sanitized);
-  }
-  return sanitized;
-}
-
-function nodeLooksLikeDeed(node) {
-  if (!node || typeof node !== "object") return false;
-  if (typeof node.deed_type === "string" && node.deed_type.trim()) return true;
-  if (typeof node.book === "string" && node.book.trim()) return true;
-  if (typeof node.page === "string" && node.page.trim()) return true;
-  if (typeof node.instrument_number === "string" && node.instrument_number.trim())
-    return true;
-  if (typeof node.volume === "string" && node.volume.trim()) return true;
-  return false;
-}
-
-function nodeLooksLikeFile(node) {
-  if (!node || typeof node !== "object") return false;
-  if (typeof node.request_identifier === "string" && node.request_identifier.trim())
-    return true;
-  if (typeof node.document_type === "string" && node.document_type.trim())
-    return true;
-  if (typeof node.file_format === "string" && node.file_format.trim()) return true;
-  if (typeof node.ipfs_url === "string" && node.ipfs_url.trim()) return true;
-  if (typeof node.original_url === "string" && node.original_url.trim()) return true;
-  if (typeof node.name === "string" && node.name.trim()) return true;
-  return false;
-}
-
-function nodeLooksLikeSalesHistory(node) {
-  if (!node || typeof node !== "object") return false;
-  if (
-    typeof node.ownership_transfer_date === "string" &&
-    node.ownership_transfer_date.trim()
-  )
-    return true;
-  if (node.purchase_price_amount != null) return true;
-  if (typeof node.sale_type === "string" && node.sale_type.trim()) return true;
-  return false;
-}
-
-function pointerSchemaValueIncludes(pointer, keyword) {
-  if (!pointer || !keyword) return false;
-  const pointerString = pointerSchemaValueToString(pointer);
-  if (!pointerString) return false;
-  return pointerString.toLowerCase().includes(String(keyword).toLowerCase());
-}
-
-function pointerMatchesParticipantRole(pointer, node, role) {
-  if (!pointer || !role) return false;
-  if (looksLikePointerOfType(pointer, role)) return true;
-  if (pointerSchemaValueIncludes(pointer, role)) return true;
-  if (role === "deed") return nodeLooksLikeDeed(node);
-  if (role === "file") return nodeLooksLikeFile(node);
-  if (role === "sales_history") return nodeLooksLikeSalesHistory(node);
-  return false;
-}
-
-function looksLikePointerOfType(participant, keyword) {
-  if (!keyword) return true;
-  const loweredKeyword = keyword.toLowerCase();
-  const matchesKeyword = (value) => {
-    if (!value || typeof value !== "string") return false;
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) return false;
-    if (normalized.startsWith("cid:")) return true;
-    return normalized.includes(loweredKeyword);
-  };
-
-  if (typeof participant === "string") {
-    return matchesKeyword(participant);
-  }
-  if (!participant || typeof participant !== "object") return false;
-  if (
-    typeof participant._class === "string" &&
-    participant._class.trim().toLowerCase() === loweredKeyword
-  ) {
-    return true;
-  }
-  if (typeof participant.cid === "string" && participant.cid.trim()) {
-    if (matchesKeyword(participant.cid)) return true;
-    // CIDs do not carry semantic labels, so treat any present CID as acceptable.
-    return true;
-  }
-  if (matchesKeyword(participant.uri)) return true;
-  if (matchesKeyword(participant.path)) return true;
-  if (matchesKeyword(participant["/"])) return true;
-  if (matchesKeyword(participant["@ref"])) return true;
-  return false;
+  return sanitizePointerObject(rawPointer);
 }
 
 function buildStrictPathPointer(refLike) {
   if (typeof refLike !== "string") return null;
   const normalized = normalizePointerOutput(refLike);
-  if (!normalized || typeof normalized !== "object") return null;
-  const pathValue =
-    typeof normalized["/"] === "string" ? normalized["/"].trim() : null;
-  if (!pathValue) return null;
-  return { "/": pathValue };
+  const pointer = sanitizePointerObject(normalized);
+  if (!pointer || typeof pointer["/"] !== "string") return null;
+  return { "/": pointer["/"] };
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   if (typeof type !== "string") return;
-  const normalizedType = type.trim();
-  if (!normalizedType) return;
+  const relationshipType = type.trim();
+  if (!relationshipType) return;
 
-  const opts = options || {};
-  const expectedFromKeyword =
-    typeof opts.expectedFromKeyword === "string"
-      ? opts.expectedFromKeyword.trim()
-      : null;
-  const expectedToKeyword =
-    typeof opts.expectedToKeyword === "string"
-      ? opts.expectedToKeyword.trim()
-      : null;
-
-  const fromPointer = relationshipPointerFrom(fromRefLike);
-  const toPointer = relationshipPointerFrom(toRefLike);
+  const fromPointer = pointerFrom(fromRefLike);
+  const toPointer = pointerFrom(toRefLike);
   if (!fromPointer || !toPointer) return;
 
-  if (
-    (expectedFromKeyword &&
-      !looksLikePointerOfType(fromPointer, expectedFromKeyword)) ||
-    (expectedToKeyword &&
-      !looksLikePointerOfType(toPointer, expectedToKeyword))
-  ) {
-    return;
-  }
-
-  const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromPointer);
-  const sanitizedTo = sanitizeRelationshipParticipantPointer(toPointer);
-  if (!sanitizedFrom || !sanitizedTo) return;
-
-  const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
-    ? Boolean(opts.omitType)
-    : false;
-  const relationship = omitType ? {} : { type: normalizedType };
+  const relationship = options && options.omitType ? {} : { type: relationshipType };
   relationship.from = {};
   relationship.to = {};
+
   for (const key of POINTER_ALLOWED_KEYS) {
-    if (sanitizedFrom[key]) relationship.from[key] = sanitizedFrom[key];
-    if (sanitizedTo[key]) relationship.to[key] = sanitizedTo[key];
+    if (typeof fromPointer[key] === "string" && fromPointer[key].trim()) {
+      relationship.from[key] = fromPointer[key].trim();
+    }
+    if (typeof toPointer[key] === "string" && toPointer[key].trim()) {
+      relationship.to[key] = toPointer[key].trim();
+    }
   }
+
   if (!Object.keys(relationship.from).length || !Object.keys(relationship.to).length) {
     return;
   }
 
   const suffixPortion =
-    suffix === undefined || suffix === null || suffix === ""
-      ? ""
-      : `_${suffix}`;
+    suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
+
   writeJSON(
-    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
+    path.join("data", `relationship_${relationshipType}${suffixPortion}.json`),
     relationship,
   );
 }
@@ -912,12 +734,11 @@ function writeProperty($, parcelId, context) {
 
 function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const { parcelId, defaultSourceHttpRequest } = context || {};
-  const propertyFilePath = path.join("data", "property.json");
-  const hasPropertyFile = fs.existsSync(propertyFilePath);
-  const propertyPointerPath = hasPropertyFile
+  const propertyFileOnDisk = path.join("data", "property.json");
+  const propertyPointerSource = fs.existsSync(propertyFileOnDisk)
     ? (context && context.propertyFile) || "property.json"
     : null;
-  // Remove old deed/file and sales artifacts if present to avoid duplicates
+
   removeFilesMatchingPatterns([
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
     /^relationship_(file_has_fact_sheet|layout_has_fact_sheet)(?:_\d+)?\.json$/i,
@@ -927,181 +748,84 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
   const processedSales = [];
   let saleCounter = 0;
-  sales.forEach((s, i) => {
-    const transferDate = normalizeSaleDate(s.saleDate);
-    if (!transferDate) {
-      return;
-    }
-    const purchasePrice = parseCurrencyToNumber(s.salePrice);
+
+  sales.forEach((saleRecord) => {
+    const transferDate = normalizeSaleDate(saleRecord.saleDate);
+    if (!transferDate) return;
+
     const saleCandidate = {
       ownership_transfer_date: transferDate,
     };
+    const purchasePrice = parseCurrencyToNumber(saleRecord.salePrice);
     if (purchasePrice != null) {
       saleCandidate.purchase_price_amount = purchasePrice;
     }
     attachSourceHttpRequest(saleCandidate, defaultSourceHttpRequest);
-    const sanitizedSale = sanitizeSalesHistoryRecord(saleCandidate);
-    if (!sanitizedSale) {
-      return;
-    }
+    const saleNode = sanitizeSalesHistoryRecord(saleCandidate);
+    if (!saleNode) return;
+
     saleCounter += 1;
     const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
-    writeJSON(path.join("data", saleFilename), sanitizedSale);
+    writeJSON(path.join("data", saleFilename), saleNode);
     const salePointer = buildStrictPathPointer(saleFilename);
-    processedSales.push({
-      source: s,
-      idx,
-      saleFilename,
-      salePointer,
-      transferDate: sanitizedSale.ownership_transfer_date,
-      saleNode: sanitizedSale,
-    });
-    const deedType = mapInstrumentToDeedType(s.instrument);
-    const { book, page } = parseBookAndPage(s.bookPage);
-    const deedFilename = `deed_${idx}.json`;
+
     const deedCandidate = {};
+    const deedType = mapInstrumentToDeedType(saleRecord.instrument);
+    const { book, page } = parseBookAndPage(saleRecord.bookPage);
     if (deedType) deedCandidate.deed_type = deedType;
     if (book) deedCandidate.book = book;
     if (page) deedCandidate.page = page;
     attachSourceHttpRequest(deedCandidate, defaultSourceHttpRequest);
-    const sanitizedDeed = sanitizeDeedMetadata(deedCandidate);
-    writeJSON(path.join("data", deedFilename), sanitizedDeed);
-    const fileFilename = `file_${idx}.json`;
-    const parcelIdForRequest =
-      parcelId != null ? String(parcelId).trim() : "";
+    const deedNode = sanitizeDeedMetadata(deedCandidate);
+    const deedFilename = `deed_${idx}.json`;
+    writeJSON(path.join("data", deedFilename), deedNode);
+    const deedPointer = buildStrictPathPointer(deedFilename);
+
+    const parcelIdForRequest = parcelId != null ? String(parcelId).trim() : "";
     const fileRequestIdentifier = parcelIdForRequest
       ? `${parcelIdForRequest}-deed-file-${idx}`
       : `deed-file-${idx}`;
-    const fileObj = {
-      request_identifier: fileRequestIdentifier,
-    };
-    attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
-    const sanitizedFile = sanitizeFileMetadata(fileObj);
-    writeJSON(path.join("data", fileFilename), sanitizedFile);
-    let deedPointerRef = buildStrictPathPointer(deedFilename);
-    let filePointerRef = buildStrictPathPointer(fileFilename);
-    const salePointerRef =
-      sanitizeRelationshipParticipantPointer(salePointer) ||
-      buildStrictPathPointer(saleFilename);
+    const fileNodeInput = { request_identifier: fileRequestIdentifier };
+    attachSourceHttpRequest(fileNodeInput, defaultSourceHttpRequest);
+    const fileNode = sanitizeFileMetadata(fileNodeInput);
+    const fileFilename = `file_${idx}.json`;
+    writeJSON(path.join("data", fileFilename), fileNode);
+    const filePointer = buildStrictPathPointer(fileFilename);
 
-    let deedNode = sanitizeNodeOnDisk(deedFilename, sanitizeDeedMetadata);
-    let fileNode = sanitizeNodeOnDisk(fileFilename, sanitizeFileMetadata);
-    const saleNode = sanitizedSale || readDataRecord(saleFilename);
+    processedSales.push({
+      source: saleRecord,
+      idx,
+      saleFilename,
+      salePointer,
+      transferDate: saleNode.ownership_transfer_date,
+      saleNode,
+    });
 
-    const normalizeDeedFileOrientation = () => {
-      const swapDeedAndFile = () => {
-        const swappedPointer = deedPointerRef;
-        deedPointerRef = filePointerRef;
-        filePointerRef = swappedPointer;
-        const swappedNode = deedNode;
-        deedNode = fileNode;
-        fileNode = swappedNode;
-      };
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const deedLooksDeed = pointerMatchesParticipantRole(
-          deedPointerRef,
-          deedNode,
-          "deed",
-        );
-        const fileLooksFile = pointerMatchesParticipantRole(
-          filePointerRef,
-          fileNode,
-          "file",
-        );
-        const deedLooksFile = pointerMatchesParticipantRole(
-          deedPointerRef,
-          deedNode,
-          "file",
-        );
-        const fileLooksDeed = pointerMatchesParticipantRole(
-          filePointerRef,
-          fileNode,
-          "deed",
-        );
-        if ((!deedLooksDeed && fileLooksDeed) || (!fileLooksFile && deedLooksFile)) {
-          swapDeedAndFile();
-          continue;
+    if (deedPointer && filePointer) {
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+    }
+    if (salePointer && deedPointer) {
+      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+    }
+    if (propertyPointerSource) {
+      const propertyPointer = buildStrictPathPointer(propertyPointerSource);
+      if (propertyPointer) {
+        if (filePointer) {
+          writeRelationship("property_has_file", propertyPointer, filePointer, idx);
         }
-        break;
-      }
-    };
-
-    normalizeDeedFileOrientation();
-
-    if (!pointerMatchesParticipantRole(salePointerRef, saleNode, "sales_history")) {
-      salePointerRef =
-        sanitizeRelationshipParticipantPointer(salePointer) ||
-        buildStrictPathPointer(saleFilename);
-    }
-
-    const hasValidDeed =
-      deedPointerRef &&
-      nodeLooksLikeDeed(deedNode) &&
-      pointerMatchesParticipantRole(deedPointerRef, deedNode, "deed");
-    const hasValidFile =
-      filePointerRef &&
-      nodeLooksLikeFile(fileNode) &&
-      pointerMatchesParticipantRole(filePointerRef, fileNode, "file");
-    const hasValidSale =
-      salePointerRef &&
-      nodeLooksLikeSalesHistory(saleNode) &&
-      pointerMatchesParticipantRole(salePointerRef, saleNode, "sales_history");
-
-    if (hasValidDeed && hasValidFile) {
-      writeRelationship(
-        "deed_has_file",
-        deedPointerRef,
-        filePointerRef,
-        idx,
-        {
-          expectedFromKeyword: "deed",
-          expectedToKeyword: "file",
-        },
-      );
-    }
-    if (hasValidSale && hasValidDeed) {
-      writeRelationship(
-        "sales_history_has_deed",
-        salePointerRef,
-        deedPointerRef,
-        idx,
-        {
-          expectedFromKeyword: "sales_history",
-          expectedToKeyword: "deed",
-        },
-      );
-    }
-    // Emit only relationships supported by the County relationship schema.
-    if (propertyPointerPath) {
-      const propertyPointerRef =
-        buildStrictPathPointer(propertyPointerPath) || null;
-      if (propertyPointerRef && hasValidFile) {
-        writeRelationship(
-          "property_has_file",
-          propertyPointerRef,
-          filePointerRef,
-          idx,
-          {
-            expectedFromKeyword: "property",
-            expectedToKeyword: "file",
-          },
-        );
-      }
-      if (propertyPointerRef && hasValidSale) {
-        writeRelationship(
-          "property_has_sales_history",
-          propertyPointerRef,
-          salePointerRef,
-          idx,
-          {
-            expectedFromKeyword: "property",
-            expectedToKeyword: "sales_history",
-          },
-        );
+        if (salePointer) {
+          writeRelationship(
+            "property_has_sales_history",
+            propertyPointer,
+            salePointer,
+            idx,
+          );
+        }
       }
     }
   });
+
   return processedSales;
 }
 let people = [];
@@ -1386,15 +1110,16 @@ function writeLayout(parcelId, context) {
       String(out.space_type_index).trim() !== ""
         ? String(out.space_type_index).trim()
         : String(layoutIdx);
-    const normalizedIndexValue =
+    let normalizedIndexValue =
       ensuredIndex && ensuredIndex !== "" ? ensuredIndex : String(layoutIdx);
-    if (
-      normalizedIndexValue == null ||
-      String(normalizedIndexValue).trim() === ""
-    ) {
-      return;
+    normalizedIndexValue = String(normalizedIndexValue).trim();
+    if (!normalizedIndexValue) {
+      normalizedIndexValue = String(layoutIdx);
     }
-    out.space_type_index = String(normalizedIndexValue).trim();
+    if (!/^\d+(\.\d+)?(\.\d+)?$/.test(normalizedIndexValue)) {
+      normalizedIndexValue = String(layoutIdx);
+    }
+    out.space_type_index = normalizedIndexValue;
     layoutCounter += 1;
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;

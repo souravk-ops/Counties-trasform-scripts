@@ -265,7 +265,14 @@ function main() {
       layout && layout.space_type_index != null
         ? String(layout.space_type_index).trim()
         : "";
-    const ensuredIndex = indexFromSource || String(idx + 1);
+    let ensuredIndex = indexFromSource || String(idx + 1);
+    ensuredIndex = String(ensuredIndex).trim();
+    if (!ensuredIndex) {
+      ensuredIndex = String(idx + 1);
+    }
+    if (!/^\d+(\.\d+)?(\.\d+)?$/.test(ensuredIndex)) {
+      ensuredIndex = String(idx + 1);
+    }
     return {
       ...layout,
       space_type_index: ensuredIndex,
