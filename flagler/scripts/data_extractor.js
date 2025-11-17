@@ -179,6 +179,56 @@ function buildStrictPathPointer(refLike) {
   return { "/": pointer["/"] };
 }
 
+function orientDeedHasFileEndpoints(initialFrom, initialTo) {
+  const candidates = [
+    {
+      pointer: initialFrom,
+      isDeed: pointerLooksLikeDeed(initialFrom),
+      isFile: pointerLooksLikeFile(initialFrom),
+    },
+    {
+      pointer: initialTo,
+      isDeed: pointerLooksLikeDeed(initialTo),
+      isFile: pointerLooksLikeFile(initialTo),
+    },
+  ];
+
+  let deedPointer = null;
+  let filePointer = null;
+
+  candidates.forEach(({ pointer, isDeed, isFile }) => {
+    if (!pointer) return;
+    if (isDeed && !deedPointer) deedPointer = pointer;
+    if (isFile && !filePointer) filePointer = pointer;
+  });
+
+  if (deedPointer && filePointer) {
+    return {
+      from: deedPointer,
+      to: filePointer,
+    };
+  }
+
+  if (filePointer && !deedPointer) {
+    return {
+      from: initialFrom === filePointer ? initialTo : initialFrom,
+      to: filePointer,
+    };
+  }
+
+  if (deedPointer && !filePointer) {
+    return {
+      from: deedPointer,
+      to: initialFrom === deedPointer ? initialTo : initialFrom,
+    };
+  }
+
+  return {
+    from: initialFrom,
+    to: initialTo,
+  };
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
@@ -187,31 +237,9 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   let fromPointer = pointerFrom(fromRefLike);
   let toPointer = pointerFrom(toRefLike);
   if (relationshipType === "deed_has_file" && fromPointer && toPointer) {
-    const fromIsDeed = pointerLooksLikeDeed(fromPointer);
-    const fromIsFile = pointerLooksLikeFile(fromPointer);
-    const toIsDeed = pointerLooksLikeDeed(toPointer);
-    const toIsFile = pointerLooksLikeFile(toPointer);
-
-    if ((!fromIsDeed && toIsDeed) || (fromIsFile && !toIsFile && toIsDeed)) {
-      const tmp = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmp;
-    } else if (!fromIsDeed && !toIsDeed && toIsFile && !fromIsFile) {
-      const tmp = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmp;
-    }
-
-    if (!pointerLooksLikeDeed(fromPointer) && pointerLooksLikeDeed(toPointer)) {
-      const tmp = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmp;
-    }
-    if (!pointerLooksLikeFile(toPointer) && pointerLooksLikeFile(fromPointer)) {
-      const tmp = fromPointer;
-      fromPointer = toPointer;
-      toPointer = tmp;
-    }
+    const oriented = orientDeedHasFileEndpoints(fromPointer, toPointer);
+    fromPointer = oriented.from;
+    toPointer = oriented.to;
   }
   const sanitizedFrom = sanitizeRelationshipEndpoint(fromPointer);
   const sanitizedTo = sanitizeRelationshipEndpoint(toPointer);
