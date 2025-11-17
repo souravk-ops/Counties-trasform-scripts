@@ -336,6 +336,24 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const normalizedType = type.trim();
   if (!normalizedType) return;
 
+  const normalizeClassName = (value) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed.toLowerCase() : null;
+  };
+
+  const deriveClassesFromType = (relType) => {
+    if (!relType) return { from: null, to: null };
+    const parts = relType.split("_has_");
+    if (parts.length !== 2) {
+      return { from: null, to: null };
+    }
+    return {
+      from: normalizeClassName(parts[0]),
+      to: normalizeClassName(parts[1]),
+    };
+  };
+
   const opts = options || {};
   const expectedFromKeyword =
     typeof opts.expectedFromKeyword === "string"
@@ -359,22 +377,46 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     return;
   }
 
+  let fromClass =
+    normalizeClassName(opts.fromClass) || normalizeClassName(expectedFromKeyword);
+  let toClass =
+    normalizeClassName(opts.toClass) || normalizeClassName(expectedToKeyword);
+  if (!fromClass || !toClass) {
+    const derived = deriveClassesFromType(normalizedType);
+    if (!fromClass) fromClass = derived.from;
+    if (!toClass) toClass = derived.to;
+  }
+
   const fromValue = relationshipPointerToSchemaValue(fromPointer);
   const toValue = relationshipPointerToSchemaValue(toPointer);
   const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromValue);
   const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
   if (!sanitizedFrom || !sanitizedTo) return;
 
-  const fromString = pointerSchemaValueToString(sanitizedFrom);
-  const toString = pointerSchemaValueToString(sanitizedTo);
-  if (!fromString || !toString) return;
+  const buildParticipant = (sanitizedPointer, className) => {
+    if (!sanitizedPointer) return null;
+    if (className) {
+      const participant = buildRelationshipParticipant(
+        sanitizedPointer,
+        className,
+      );
+      if (participant) {
+        return participant;
+      }
+    }
+    return cloneDeep(sanitizedPointer);
+  };
+
+  const fromParticipant = buildParticipant(sanitizedFrom, fromClass);
+  const toParticipant = buildParticipant(sanitizedTo, toClass);
+  if (!fromParticipant || !toParticipant) return;
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = fromString;
-  relationship.to = toString;
+  relationship.from = fromParticipant;
+  relationship.to = toParticipant;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
