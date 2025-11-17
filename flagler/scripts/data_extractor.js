@@ -111,19 +111,6 @@ function pointerObjectToSchemaValue(pointer) {
   return sanitizePointerObject(pointer);
 }
 
-function stripPointerToAllowedKeys(value) {
-  if (!value || typeof value !== "object") return null;
-  const cleaned = {};
-  for (const key of POINTER_ALLOWED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-    const raw = value[key];
-    if (typeof raw !== "string") continue;
-    const trimmed = raw.trim();
-    if (trimmed) cleaned[key] = trimmed;
-  }
-  return Object.keys(cleaned).length ? cleaned : null;
-}
-
 function sanitizeRelationshipParticipantPointer(pointerLike) {
   if (!pointerLike || typeof pointerLike !== "object") return null;
   const sanitized = sanitizePointerObject(pointerLike);
@@ -213,6 +200,25 @@ function relationshipPointerToSchemaValue(pointer) {
   const sanitized = pointerObjectToSchemaValue(normalized);
   if (!sanitized || typeof sanitized !== "object") return null;
   return sanitized;
+}
+
+function pointerSchemaValueToString(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string") {
+    const cid = pointer.cid.trim();
+    if (cid) return cid;
+  }
+  if (typeof pointer.uri === "string") {
+    const uri = pointer.uri.trim();
+    if (uri) return uri;
+  }
+  if (typeof pointer["/"] === "string") {
+    const normalized = normalizePointerPath(pointer["/"]);
+    if (normalized) return normalized;
+    const trimmed = pointer["/"].trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
 }
 
 function readDataRecord(filename) {
@@ -353,22 +359,22 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
     return;
   }
 
-  const fromValue = stripPointerToAllowedKeys(
-    relationshipPointerToSchemaValue(fromPointer),
-  );
-  const toValue = stripPointerToAllowedKeys(
-    relationshipPointerToSchemaValue(toPointer),
-  );
+  const fromValue = relationshipPointerToSchemaValue(fromPointer);
+  const toValue = relationshipPointerToSchemaValue(toPointer);
   const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromValue);
   const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
   if (!sanitizedFrom || !sanitizedTo) return;
+
+  const fromString = pointerSchemaValueToString(sanitizedFrom);
+  const toString = pointerSchemaValueToString(sanitizedTo);
+  if (!fromString || !toString) return;
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
     ? Boolean(opts.omitType)
     : false;
   const relationship = omitType ? {} : { type: normalizedType };
-  relationship.from = sanitizedFrom;
-  relationship.to = sanitizedTo;
+  relationship.from = fromString;
+  relationship.to = toString;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
@@ -427,11 +433,6 @@ const DEED_FIELDS_ALLOWLIST = new Set([
 ]);
 
 const FILE_FIELDS_ALLOWLIST = new Set([
-  "document_type",
-  "file_format",
-  "ipfs_url",
-  "name",
-  "original_url",
   "request_identifier",
   "source_http_request",
 ]);
@@ -455,6 +456,11 @@ const DEED_FIELDS_DISALLOWED = new Set([
 ]);
 
 const FILE_FIELDS_DISALLOWED = new Set([
+  "document_type",
+  "file_format",
+  "ipfs_url",
+  "name",
+  "original_url",
   "book",
   "deed_type",
   "instrument_number",
@@ -465,26 +471,6 @@ const FILE_FIELDS_DISALLOWED = new Set([
   "volume",
 ]);
 
-function isValidHttpUrl(value) {
-  if (typeof value !== "string") return false;
-  let parsed;
-  try {
-    parsed = new URL(value.trim());
-  } catch (_err) {
-    return false;
-  }
-  const protocol = parsed.protocol.toLowerCase();
-  return protocol === "http:" || protocol === "https:";
-}
-
-function isValidIpfsUrl(value) {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (/^ipfs:\/\//i.test(trimmed)) return true;
-  return isValidHttpUrl(trimmed);
-}
-
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
   FILE_FIELDS_DISALLOWED.forEach((key) => {
@@ -493,7 +479,7 @@ function sanitizeFileMetadata(file) {
     }
   });
   const sanitized = {};
-  const assignString = (key, validator) => {
+  const assignString = (key) => {
     if (!FILE_FIELDS_ALLOWLIST.has(key)) return;
     const raw = file[key];
     if (raw == null) return;
@@ -503,17 +489,11 @@ function sanitizeFileMetadata(file) {
         : raw;
     if (typeof next === "string") {
       if (!next) return;
-      if (typeof validator === "function" && !validator(next)) return;
       sanitized[key] = next;
       return;
     }
     sanitized[key] = next;
   };
-  assignString("document_type");
-  assignString("file_format");
-  assignString("ipfs_url", isValidIpfsUrl);
-  assignString("name");
-  assignString("original_url", isValidHttpUrl);
   assignString("request_identifier");
   if (
     FILE_FIELDS_ALLOWLIST.has("source_http_request") &&
