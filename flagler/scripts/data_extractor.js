@@ -243,11 +243,38 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
-function writeRelationshipFromPaths(type, fromPath, toPath, suffix, options) {
+function buildPathRelationshipPointer(pathLike, expectedKeyword) {
+  if (typeof pathLike !== "string") return null;
+  const trimmed = pathLike.trim();
+  if (!trimmed) return null;
+  const pointerCandidate = buildStrictPathPointer(trimmed);
+  if (!pointerCandidate) return null;
+
+  if (
+    expectedKeyword &&
+    !looksLikePointerOfType(pointerCandidate, expectedKeyword)
+  ) {
+    return null;
+  }
+
+  const sanitized = sanitizePointerObject(pointerCandidate);
+  if (!sanitized) return null;
+
+  const stripped = stripPointerToAllowedKeys(sanitized);
+  if (!stripped) return null;
+
+  const pathValue = stripped["/"];
+  if (typeof pathValue !== "string") return null;
+  const normalizedPath = pathValue.trim();
+  if (!normalizedPath) return null;
+
+  return { "/": normalizedPath };
+}
+
+function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) {
   if (typeof type !== "string") return;
   const normalizedType = type.trim();
   if (!normalizedType) return;
-  if (typeof fromPath !== "string" || typeof toPath !== "string") return;
 
   const opts = options || {};
   const expectedFromKeyword =
@@ -259,36 +286,25 @@ function writeRelationshipFromPaths(type, fromPath, toPath, suffix, options) {
       ? opts.expectedToKeyword.trim()
       : null;
 
-  const fromPointerRaw = buildStrictPathPointer(fromPath);
-  const toPointerRaw = buildStrictPathPointer(toPath);
-  if (!fromPointerRaw || !toPointerRaw) return;
-
-  if (
-    (expectedFromKeyword &&
-      !looksLikePointerOfType(fromPointerRaw, expectedFromKeyword)) ||
-    (expectedToKeyword &&
-      !looksLikePointerOfType(toPointerRaw, expectedToKeyword))
-  ) {
-    return;
-  }
-
-  const sanitizedFrom = stripPointerToAllowedKeys(
-    sanitizePointerObject(fromPointerRaw),
+  const fromPointer = buildPathRelationshipPointer(
+    fromPath,
+    expectedFromKeyword,
   );
-  const sanitizedTo = stripPointerToAllowedKeys(
-    sanitizePointerObject(toPointerRaw),
-  );
-  if (!sanitizedFrom || !sanitizedTo) return;
+  const toPointer = buildPathRelationshipPointer(toPath, expectedToKeyword);
+
+  if (!fromPointer || !toPointer) return;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === ""
       ? ""
       : `_${suffix}`;
+
   const relationship = {
     type: normalizedType,
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: fromPointer,
+    to: toPointer,
   };
+
   writeJSON(
     path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
     relationship,
@@ -973,7 +989,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
     // Relationships follow the pattern {subject}_has_{object}: deed→file, sales_history→deed.
-    writeRelationshipFromPaths(
+    writeRelationshipFromPathRefs(
       "deed_has_file",
       deedFilename,
       fileFilename,
@@ -983,7 +999,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         expectedToKeyword: "file",
       },
     );
-    writeRelationshipFromPaths(
+    writeRelationshipFromPathRefs(
       "sales_history_has_deed",
       saleFilename,
       deedFilename,
@@ -994,7 +1010,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       },
     );
     if (propertyPointerPath) {
-      writeRelationshipFromPaths(
+      writeRelationshipFromPathRefs(
         "property_has_file",
         propertyPointerPath,
         fileFilename,
@@ -1004,7 +1020,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
           expectedToKeyword: "file",
         },
       );
-      writeRelationshipFromPaths(
+      writeRelationshipFromPathRefs(
         "property_has_sales_history",
         propertyPointerPath,
         saleFilename,
@@ -1318,7 +1334,7 @@ function writeLayout(parcelId, context) {
         (typeof context.propertyFile === "string" &&
           context.propertyFile.trim()) ||
         "property.json";
-      writeRelationshipFromPaths(
+      writeRelationshipFromPathRefs(
         "property_has_layout",
         propertyRelationshipPath,
         layoutFilename,
