@@ -105,6 +105,8 @@ function sanitizePointerObject(pointer) {
 }
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
+const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
+const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
 
 function pointerFrom(refLike) {
   if (refLike == null) return null;
@@ -148,8 +150,21 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const fromPointer = pointerFrom(fromRefLike);
-  const toPointer = pointerFrom(toRefLike);
+  let fromPointer = pointerFrom(fromRefLike);
+  let toPointer = pointerFrom(toRefLike);
+  if (relationshipType === "deed_has_file" && fromPointer && toPointer) {
+    const fromPath = typeof fromPointer["/"] === "string" ? fromPointer["/"].toLowerCase() : "";
+    const toPath = typeof toPointer["/"] === "string" ? toPointer["/"].toLowerCase() : "";
+    const fromLooksLikeFile = fromPath && FILE_POINTER_PATTERN.test(fromPath);
+    const toLooksLikeDeed = toPath && DEED_POINTER_PATTERN.test(toPath);
+    const fromLooksLikeDeed = fromPath && DEED_POINTER_PATTERN.test(fromPath);
+    const toLooksLikeFile = toPath && FILE_POINTER_PATTERN.test(toPath);
+    if (fromLooksLikeFile && toLooksLikeDeed && (!fromLooksLikeDeed || !toLooksLikeFile)) {
+      const tmp = fromPointer;
+      fromPointer = toPointer;
+      toPointer = tmp;
+    }
+  }
   if (!fromPointer || !toPointer) return;
 
   const relationship = { type: relationshipType };
