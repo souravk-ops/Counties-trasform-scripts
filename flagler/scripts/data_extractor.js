@@ -230,13 +230,23 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
-function writeRelationshipFromPaths(type, fromPath, toPath, suffix) {
-  const fromPointer =
-    typeof fromPath === "string" ? buildStrictPathPointer(fromPath) : null;
-  const toPointer =
-    typeof toPath === "string" ? buildStrictPathPointer(toPath) : null;
+function writeRelationshipFromPaths(type, fromPath, toPath, suffix, options) {
+  const coerceFrom = () => {
+    if (typeof fromPath === "string") return buildStrictPathPointer(fromPath);
+    if (fromPath && typeof fromPath === "object")
+      return coerceRelationshipPointer(fromPath);
+    return null;
+  };
+  const coerceTo = () => {
+    if (typeof toPath === "string") return buildStrictPathPointer(toPath);
+    if (toPath && typeof toPath === "object")
+      return coerceRelationshipPointer(toPath);
+    return null;
+  };
+  const fromPointer = coerceFrom();
+  const toPointer = coerceTo();
   if (!fromPointer || !toPointer) return;
-  writeRelationship(type, fromPointer, toPointer, suffix);
+  writeRelationship(type, fromPointer, toPointer, suffix, options);
 }
 
 function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
@@ -929,12 +939,25 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
     // Relationships follow the pattern {subject}_has_{object}: deed→file, sales_history→deed.
-    writeRelationshipFromPaths("deed_has_file", deedFilename, fileFilename, idx);
+    writeRelationshipFromPaths(
+      "deed_has_file",
+      deedFilename,
+      fileFilename,
+      idx,
+      {
+        expectedFromKeyword: "deed",
+        expectedToKeyword: "file",
+      },
+    );
     writeRelationshipFromPaths(
       "sales_history_has_deed",
       saleFilename,
       deedFilename,
       idx,
+      {
+        expectedFromKeyword: "sales_history",
+        expectedToKeyword: "deed",
+      },
     );
     if (propertyPointerPath) {
       writeRelationshipFromPaths(
@@ -942,12 +965,20 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         propertyPointerPath,
         fileFilename,
         idx,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "file",
+        },
       );
       writeRelationshipFromPaths(
         "property_has_sales_history",
         propertyPointerPath,
         saleFilename,
         idx,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "sales_history",
+        },
       );
     }
   });
@@ -1235,8 +1266,15 @@ function writeLayout(parcelId, context) {
       String(out.space_type_index).trim() !== ""
         ? String(out.space_type_index).trim()
         : String(layoutIdx);
-    out.space_type_index =
+    const normalizedIndexValue =
       ensuredIndex && ensuredIndex !== "" ? ensuredIndex : String(layoutIdx);
+    if (
+      normalizedIndexValue == null ||
+      String(normalizedIndexValue).trim() === ""
+    ) {
+      return;
+    }
+    out.space_type_index = String(normalizedIndexValue).trim();
     layoutCounter += 1;
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
@@ -1251,6 +1289,10 @@ function writeLayout(parcelId, context) {
         propertyRelationshipPath,
         layoutFilename,
         layoutCounter,
+        {
+          expectedFromKeyword: "property",
+          expectedToKeyword: "layout",
+        },
       );
     }
   });
