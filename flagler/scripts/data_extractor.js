@@ -244,22 +244,55 @@ function buildStrictPathPointer(refLike) {
 }
 
 function writeRelationshipFromPaths(type, fromPath, toPath, suffix, options) {
-  const coerceFrom = () => {
-    if (typeof fromPath === "string") return buildStrictPathPointer(fromPath);
-    if (fromPath && typeof fromPath === "object")
-      return coerceRelationshipPointer(fromPath);
-    return null;
+  if (typeof type !== "string") return;
+  const normalizedType = type.trim();
+  if (!normalizedType) return;
+  if (typeof fromPath !== "string" || typeof toPath !== "string") return;
+
+  const opts = options || {};
+  const expectedFromKeyword =
+    typeof opts.expectedFromKeyword === "string"
+      ? opts.expectedFromKeyword.trim()
+      : null;
+  const expectedToKeyword =
+    typeof opts.expectedToKeyword === "string"
+      ? opts.expectedToKeyword.trim()
+      : null;
+
+  const fromPointerRaw = buildStrictPathPointer(fromPath);
+  const toPointerRaw = buildStrictPathPointer(toPath);
+  if (!fromPointerRaw || !toPointerRaw) return;
+
+  if (
+    (expectedFromKeyword &&
+      !looksLikePointerOfType(fromPointerRaw, expectedFromKeyword)) ||
+    (expectedToKeyword &&
+      !looksLikePointerOfType(toPointerRaw, expectedToKeyword))
+  ) {
+    return;
+  }
+
+  const sanitizedFrom = stripPointerToAllowedKeys(
+    sanitizePointerObject(fromPointerRaw),
+  );
+  const sanitizedTo = stripPointerToAllowedKeys(
+    sanitizePointerObject(toPointerRaw),
+  );
+  if (!sanitizedFrom || !sanitizedTo) return;
+
+  const suffixPortion =
+    suffix === undefined || suffix === null || suffix === ""
+      ? ""
+      : `_${suffix}`;
+  const relationship = {
+    type: normalizedType,
+    from: sanitizedFrom,
+    to: sanitizedTo,
   };
-  const coerceTo = () => {
-    if (typeof toPath === "string") return buildStrictPathPointer(toPath);
-    if (toPath && typeof toPath === "object")
-      return coerceRelationshipPointer(toPath);
-    return null;
-  };
-  const fromPointer = coerceFrom();
-  const toPointer = coerceTo();
-  if (!fromPointer || !toPointer) return;
-  writeRelationship(type, fromPointer, toPointer, suffix, options);
+  writeJSON(
+    path.join("data", `relationship_${normalizedType}${suffixPortion}.json`),
+    relationship,
+  );
 }
 
 function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
