@@ -215,6 +215,57 @@ function relationshipPointerToSchemaValue(pointer) {
   return sanitized;
 }
 
+function readDataRecord(filename) {
+  if (typeof filename !== "string") return null;
+  const trimmed = filename.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.startsWith("./") ? trimmed.slice(2) : trimmed;
+  const resolved = path.join("data", normalized);
+  try {
+    const raw = fs.readFileSync(resolved, "utf8");
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function nodeLooksLikeDeed(node) {
+  if (!node || typeof node !== "object") return false;
+  if (typeof node.deed_type === "string" && node.deed_type.trim()) return true;
+  if (typeof node.book === "string" && node.book.trim()) return true;
+  if (typeof node.page === "string" && node.page.trim()) return true;
+  if (typeof node.instrument_number === "string" && node.instrument_number.trim())
+    return true;
+  if (typeof node.volume === "string" && node.volume.trim()) return true;
+  return false;
+}
+
+function nodeLooksLikeFile(node) {
+  if (!node || typeof node !== "object") return false;
+  if (typeof node.request_identifier === "string" && node.request_identifier.trim())
+    return true;
+  if (typeof node.document_type === "string" && node.document_type.trim())
+    return true;
+  if (typeof node.file_format === "string" && node.file_format.trim()) return true;
+  if (typeof node.ipfs_url === "string" && node.ipfs_url.trim()) return true;
+  if (typeof node.original_url === "string" && node.original_url.trim()) return true;
+  if (typeof node.name === "string" && node.name.trim()) return true;
+  return false;
+}
+
+function nodeLooksLikeSalesHistory(node) {
+  if (!node || typeof node !== "object") return false;
+  if (
+    typeof node.ownership_transfer_date === "string" &&
+    node.ownership_transfer_date.trim()
+  )
+    return true;
+  if (node.purchase_price_amount != null) return true;
+  if (typeof node.sale_type === "string" && node.sale_type.trim()) return true;
+  return false;
+}
+
 function looksLikePointerOfType(participant, keyword) {
   if (!keyword) return true;
   const loweredKeyword = keyword.toLowerCase();
@@ -900,12 +951,36 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    const deedPointerRef = buildStrictPathPointer(deedFilename);
-    const filePointerRef = buildStrictPathPointer(fileFilename);
+    let deedPointerRef = buildStrictPathPointer(deedFilename);
+    let filePointerRef = buildStrictPathPointer(fileFilename);
     const salePointerRef =
       sanitizeRelationshipParticipantPointer(salePointer) ||
       buildStrictPathPointer(saleFilename);
-    if (deedPointerRef && filePointerRef) {
+
+    let deedNode = readDataRecord(deedFilename);
+    let fileNode = readDataRecord(fileFilename);
+    const saleNode = sanitizedSale || readDataRecord(saleFilename);
+
+    if (
+      deedNode &&
+      fileNode &&
+      !nodeLooksLikeDeed(deedNode) &&
+      nodeLooksLikeFile(deedNode) &&
+      nodeLooksLikeDeed(fileNode)
+    ) {
+      const swappedPointer = deedPointerRef;
+      deedPointerRef = filePointerRef;
+      filePointerRef = swappedPointer;
+      const swappedNode = deedNode;
+      deedNode = fileNode;
+      fileNode = swappedNode;
+    }
+
+    const hasValidDeed = deedPointerRef && nodeLooksLikeDeed(deedNode);
+    const hasValidFile = filePointerRef && nodeLooksLikeFile(fileNode);
+    const hasValidSale = salePointerRef && nodeLooksLikeSalesHistory(saleNode);
+
+    if (hasValidDeed && hasValidFile) {
       writeRelationship(
         "deed_has_file",
         deedPointerRef,
@@ -917,7 +992,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         },
       );
     }
-    if (salePointerRef && deedPointerRef) {
+    if (hasValidSale && hasValidDeed) {
       writeRelationship(
         "sales_history_has_deed",
         salePointerRef,
@@ -933,7 +1008,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     if (propertyPointerPath) {
       const propertyPointerRef =
         buildStrictPathPointer(propertyPointerPath) || null;
-      if (propertyPointerRef && filePointerRef) {
+      if (propertyPointerRef && hasValidFile) {
         writeRelationship(
           "property_has_file",
           propertyPointerRef,
@@ -945,7 +1020,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
           },
         );
       }
-      if (propertyPointerRef && salePointerRef) {
+      if (propertyPointerRef && hasValidSale) {
         writeRelationship(
           "property_has_sales_history",
           propertyPointerRef,
