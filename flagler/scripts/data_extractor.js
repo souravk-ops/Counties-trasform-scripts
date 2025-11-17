@@ -107,6 +107,10 @@ function sanitizePointerObject(pointer) {
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
 const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
+const SALES_HISTORY_POINTER_PATTERN = /(^|\/)sales_history_\d+\.json$/i;
+const PROPERTY_POINTER_PATTERN = /(^|\/)property(?:_\d+)?\.json$/i;
+const PERSON_POINTER_PATTERN = /(^|\/)person_\d+\.json$/i;
+const COMPANY_POINTER_PATTERN = /(^|\/)company_\d+\.json$/i;
 
 function pointerComparableString(pointer) {
   if (!pointer || typeof pointer !== "object") return "";
@@ -125,6 +129,46 @@ function pointerLooksLikeDeed(pointer) {
   const comparable = pointerComparableString(pointer);
   return comparable ? DEED_POINTER_PATTERN.test(comparable) : false;
 }
+
+function pointerLooksLikeSalesHistory(pointer) {
+  const comparable = pointerComparableString(pointer);
+  return comparable ? SALES_HISTORY_POINTER_PATTERN.test(comparable) : false;
+}
+
+function pointerLooksLikeProperty(pointer) {
+  const comparable = pointerComparableString(pointer);
+  return comparable ? PROPERTY_POINTER_PATTERN.test(comparable) : false;
+}
+
+function pointerLooksLikePerson(pointer) {
+  const comparable = pointerComparableString(pointer);
+  return comparable ? PERSON_POINTER_PATTERN.test(comparable) : false;
+}
+
+function pointerLooksLikeCompany(pointer) {
+  const comparable = pointerComparableString(pointer);
+  return comparable ? COMPANY_POINTER_PATTERN.test(comparable) : false;
+}
+
+function pointerEntityType(pointer) {
+  if (!pointer) return null;
+  if (pointerLooksLikeFile(pointer)) return "file";
+  if (pointerLooksLikeDeed(pointer)) return "deed";
+  if (pointerLooksLikeSalesHistory(pointer)) return "sales_history";
+  if (pointerLooksLikeProperty(pointer)) return "property";
+  if (pointerLooksLikePerson(pointer)) return "person";
+  if (pointerLooksLikeCompany(pointer)) return "company";
+  return null;
+}
+
+const RELATIONSHIP_ENTITY_EXPECTATIONS = {
+  deed_has_file: { from: "deed", to: "file" },
+  property_has_file: { from: "property", to: "file" },
+  sales_history_has_deed: { from: "sales_history", to: "deed" },
+  property_has_sales_history: { from: "property", to: "sales_history" },
+  sales_history_has_person: { from: "sales_history", to: "person" },
+  sales_history_has_company: { from: "sales_history", to: "company" },
+};
 
 function sanitizeRelationshipEndpoint(pointerLike) {
   if (!pointerLike) return null;
@@ -179,54 +223,24 @@ function buildStrictPathPointer(refLike) {
   return { "/": pointer["/"] };
 }
 
-function orientDeedHasFileEndpoints(initialFrom, initialTo) {
-  const candidates = [
-    {
-      pointer: initialFrom,
-      isDeed: pointerLooksLikeDeed(initialFrom),
-      isFile: pointerLooksLikeFile(initialFrom),
-    },
-    {
-      pointer: initialTo,
-      isDeed: pointerLooksLikeDeed(initialTo),
-      isFile: pointerLooksLikeFile(initialTo),
-    },
-  ];
-
-  let deedPointer = null;
-  let filePointer = null;
-
-  candidates.forEach(({ pointer, isDeed, isFile }) => {
-    if (!pointer) return;
-    if (isDeed && !deedPointer) deedPointer = pointer;
-    if (isFile && !filePointer) filePointer = pointer;
-  });
-
-  if (deedPointer && filePointer) {
-    return {
-      from: deedPointer,
-      to: filePointer,
-    };
+function orientRelationshipEndpoints(relationshipType, initialFrom, initialTo) {
+  const expectation = RELATIONSHIP_ENTITY_EXPECTATIONS[relationshipType];
+  if (!expectation) {
+    return { from: initialFrom, to: initialTo };
   }
 
-  if (filePointer && !deedPointer) {
-    return {
-      from: initialFrom === filePointer ? initialTo : initialFrom,
-      to: filePointer,
-    };
+  const fromType = pointerEntityType(initialFrom);
+  const toType = pointerEntityType(initialTo);
+
+  if (fromType === expectation.from && toType === expectation.to) {
+    return { from: initialFrom, to: initialTo };
   }
 
-  if (deedPointer && !filePointer) {
-    return {
-      from: deedPointer,
-      to: initialFrom === deedPointer ? initialTo : initialFrom,
-    };
+  if (fromType === expectation.to && toType === expectation.from) {
+    return { from: initialTo, to: initialFrom };
   }
 
-  return {
-    from: initialFrom,
-    to: initialTo,
-  };
+  return { from: initialFrom, to: initialTo };
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
@@ -236,8 +250,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
 
   let fromPointer = pointerFrom(fromRefLike);
   let toPointer = pointerFrom(toRefLike);
-  if (relationshipType === "deed_has_file" && fromPointer && toPointer) {
-    const oriented = orientDeedHasFileEndpoints(fromPointer, toPointer);
+  if (fromPointer && toPointer) {
+    const oriented = orientRelationshipEndpoints(
+      relationshipType,
+      fromPointer,
+      toPointer,
+    );
     fromPointer = oriented.from;
     toPointer = oriented.to;
   }
