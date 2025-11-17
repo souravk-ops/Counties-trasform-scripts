@@ -955,13 +955,12 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     attachSourceHttpRequest(fileObj, defaultSourceHttpRequest);
     const sanitizedFile = sanitizeFileMetadata(fileObj);
     writeJSON(path.join("data", fileFilename), sanitizedFile);
-    // Hydrated relationship data expects deed→file and sales_history→deed.
-    // Store the operands swapped so the downstream resolver lands on the intended types.
-    writeRelationshipFromPaths("deed_has_file", fileFilename, deedFilename, idx);
+    // Relationships follow the pattern {subject}_has_{object}: deed→file, sales_history→deed.
+    writeRelationshipFromPaths("deed_has_file", deedFilename, fileFilename, idx);
     writeRelationshipFromPaths(
       "sales_history_has_deed",
-      deedFilename,
       saleFilename,
+      deedFilename,
       idx,
     );
     if (propertyPointerPath) {
