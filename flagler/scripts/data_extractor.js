@@ -182,16 +182,9 @@ function relationshipPointerToSchemaValue(pointer) {
   };
   const normalized = normalizeToPointerObject(pointer);
   if (!normalized || typeof normalized !== "object") return null;
-  if (typeof normalized.cid === "string" && normalized.cid.trim()) {
-    return normalized.cid.trim();
-  }
-  if (typeof normalized.uri === "string" && normalized.uri.trim()) {
-    return normalized.uri.trim();
-  }
-  if (typeof normalized["/"] === "string" && normalized["/"].trim()) {
-    return normalized["/"].trim();
-  }
-  return null;
+  const sanitized = pointerObjectToSchemaValue(normalized);
+  if (!sanitized || typeof sanitized !== "object") return null;
+  return sanitized;
 }
 
 function looksLikePointerOfType(participant, keyword) {
