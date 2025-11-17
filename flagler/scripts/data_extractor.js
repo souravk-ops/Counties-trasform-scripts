@@ -185,6 +185,63 @@ const RELATIONSHIP_ENTITY_EXPECTATIONS = {
 
 const RELATIONSHIP_OUTPUT_ORDER = {};
 
+function inferPointerTypeLoose(pointer) {
+  const strictType = pointerEntityType(pointer);
+  if (strictType) return strictType;
+  const comparable = pointerComparableString(pointer);
+  if (!comparable) return null;
+  if (FILE_POINTER_PATTERN.test(comparable)) return "file";
+  if (DEED_POINTER_PATTERN.test(comparable)) return "deed";
+  if (SALES_HISTORY_POINTER_PATTERN.test(comparable)) return "sales_history";
+  if (PROPERTY_POINTER_PATTERN.test(comparable)) return "property";
+  if (PERSON_POINTER_PATTERN.test(comparable)) return "person";
+  if (COMPANY_POINTER_PATTERN.test(comparable)) return "company";
+  return null;
+}
+
+function resolveRelationshipPointers(relationshipType, fromPointer, toPointer) {
+  const expectation = RELATIONSHIP_ENTITY_EXPECTATIONS[relationshipType];
+  if (!expectation) {
+    return { from: fromPointer, to: toPointer };
+  }
+
+  const oriented = orientRelationshipEndpoints(
+    relationshipType,
+    fromPointer,
+    toPointer,
+  );
+
+  const candidates = [
+    { pointer: oriented.from, type: inferPointerTypeLoose(oriented.from) },
+    { pointer: oriented.to, type: inferPointerTypeLoose(oriented.to) },
+  ].filter((entry) => entry.pointer);
+
+  const takePointer = (targetType) => {
+    if (!targetType) return null;
+    const idx = candidates.findIndex(
+      (entry) => entry.type === targetType && entry.pointer,
+    );
+    if (idx === -1) return null;
+    const [selected] = candidates.splice(idx, 1);
+    return selected.pointer;
+  };
+
+  let resolvedFrom = takePointer(expectation.from);
+  let resolvedTo = takePointer(expectation.to);
+
+  if (!resolvedFrom && candidates.length) {
+    resolvedFrom = candidates.shift().pointer;
+  }
+  if (!resolvedTo && candidates.length) {
+    resolvedTo = candidates.shift().pointer;
+  }
+
+  if (!resolvedFrom) resolvedFrom = oriented.from || fromPointer;
+  if (!resolvedTo) resolvedTo = oriented.to || toPointer;
+
+  return { from: resolvedFrom, to: resolvedTo };
+}
+
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -247,19 +304,18 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  let fromPointer = pointerFrom(fromRefLike);
-  let toPointer = pointerFrom(toRefLike);
-  if (fromPointer && toPointer) {
-    const oriented = orientRelationshipEndpoints(
-      relationshipType,
-      fromPointer,
-      toPointer,
-    );
-    fromPointer = oriented.from;
-    toPointer = oriented.to;
-  }
-  fromPointer = stripPointerToAllowedKeys(fromPointer);
-  toPointer = stripPointerToAllowedKeys(toPointer);
+  const initialFromPointer = pointerFrom(fromRefLike);
+  const initialToPointer = pointerFrom(toRefLike);
+  if (!initialFromPointer || !initialToPointer) return;
+
+  const resolvedPointers = resolveRelationshipPointers(
+    relationshipType,
+    initialFromPointer,
+    initialToPointer,
+  );
+
+  let fromPointer = stripPointerToAllowedKeys(resolvedPointers.from);
+  let toPointer = stripPointerToAllowedKeys(resolvedPointers.to);
   if (!fromPointer || !toPointer) return;
 
   const storageOrder = RELATIONSHIP_OUTPUT_ORDER[relationshipType] || "forward";
