@@ -243,32 +243,27 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
-function buildPathRelationshipPointer(pathLike, expectedKeyword) {
+function createRelationshipPathPointer(pathLike, expectedKeyword) {
   if (typeof pathLike !== "string") return null;
-  const trimmed = pathLike.trim();
+  let trimmed = pathLike.trim();
   if (!trimmed) return null;
-  const pointerCandidate = buildStrictPathPointer(trimmed);
-  if (!pointerCandidate) return null;
-
-  if (
-    expectedKeyword &&
-    !looksLikePointerOfType(pointerCandidate, expectedKeyword)
-  ) {
-    return null;
+  trimmed = trimmed.replace(/\\/g, "/");
+  if (trimmed.startsWith("./")) {
+    trimmed = `./${trimmed.slice(2).replace(/^\/+/, "")}`;
   }
-
-  const sanitized = sanitizePointerObject(pointerCandidate);
-  if (!sanitized) return null;
-
-  const stripped = stripPointerToAllowedKeys(sanitized);
-  if (!stripped) return null;
-
-  const pathValue = stripped["/"];
-  if (typeof pathValue !== "string") return null;
-  const normalizedPath = pathValue.trim();
-  if (!normalizedPath) return null;
-
-  return { "/": normalizedPath };
+  if (!trimmed.startsWith("./") && !trimmed.startsWith("../")) {
+    trimmed = trimmed.replace(/^\/+/, "");
+    if (!trimmed) return null;
+    trimmed = `./${trimmed}`;
+  }
+  if (!trimmed) return null;
+  if (expectedKeyword) {
+    const keyword = expectedKeyword.trim().toLowerCase();
+    if (keyword && !trimmed.toLowerCase().includes(keyword)) {
+      return null;
+    }
+  }
+  return { "/": trimmed };
 }
 
 function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) {
@@ -277,21 +272,16 @@ function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) 
   if (!normalizedType) return;
 
   const opts = options || {};
-  const expectedFromKeyword =
-    typeof opts.expectedFromKeyword === "string"
-      ? opts.expectedFromKeyword.trim()
-      : null;
-  const expectedToKeyword =
-    typeof opts.expectedToKeyword === "string"
-      ? opts.expectedToKeyword.trim()
-      : null;
-
-  const fromPointer = buildPathRelationshipPointer(
+  const fromPointer = createRelationshipPathPointer(
     fromPath,
-    expectedFromKeyword,
+    typeof opts.expectedFromKeyword === "string"
+      ? opts.expectedFromKeyword
+      : null,
   );
-  const toPointer = buildPathRelationshipPointer(toPath, expectedToKeyword);
-
+  const toPointer = createRelationshipPathPointer(
+    toPath,
+    typeof opts.expectedToKeyword === "string" ? opts.expectedToKeyword : null,
+  );
   if (!fromPointer || !toPointer) return;
 
   const suffixPortion =
