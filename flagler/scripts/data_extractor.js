@@ -124,6 +124,21 @@ function stripPointerToAllowedKeys(value) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
+function sanitizeRelationshipParticipantPointer(pointerLike) {
+  if (!pointerLike || typeof pointerLike !== "object") return null;
+  const sanitized = sanitizePointerObject(pointerLike);
+  if (!sanitized) return null;
+  const cleaned = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
+    const raw = sanitized[key];
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed) cleaned[key] = trimmed;
+  }
+  return Object.keys(cleaned).length ? cleaned : null;
+}
+
 function coerceRelationshipPointer(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -287,8 +302,10 @@ function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) 
   );
   if (!fromPathNormalized || !toPathNormalized) return;
 
-  const fromPointer = sanitizePointerObject({ "/": fromPathNormalized });
-  const toPointer = sanitizePointerObject({ "/": toPathNormalized });
+  const fromPointerRaw = buildStrictPathPointer(fromPathNormalized);
+  const toPointerRaw = buildStrictPathPointer(toPathNormalized);
+  const fromPointer = sanitizeRelationshipParticipantPointer(fromPointerRaw);
+  const toPointer = sanitizeRelationshipParticipantPointer(toPointerRaw);
   if (!fromPointer || !toPointer) return;
 
   const suffixPortion =
@@ -322,8 +339,8 @@ function writeRelationshipFromPointers(type, fromPointer, toPointer, suffix) {
   const toValue = stripPointerToAllowedKeys(
     relationshipPointerToSchemaValue(normalizedTo),
   );
-  const sanitizedFrom = sanitizePointerObject(fromValue);
-  const sanitizedTo = sanitizePointerObject(toValue);
+  const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromValue);
+  const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
   if (!sanitizedFrom || !sanitizedTo) return;
 
   const suffixPortion =
@@ -375,8 +392,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix, options) {
   const toValue = stripPointerToAllowedKeys(
     relationshipPointerToSchemaValue(toPointer),
   );
-  const sanitizedFrom = sanitizePointerObject(fromValue);
-  const sanitizedTo = sanitizePointerObject(toValue);
+  const sanitizedFrom = sanitizeRelationshipParticipantPointer(fromValue);
+  const sanitizedTo = sanitizeRelationshipParticipantPointer(toValue);
   if (!sanitizedFrom || !sanitizedTo) return;
 
   const omitType = Object.prototype.hasOwnProperty.call(opts, "omitType")
