@@ -101,10 +101,23 @@ function sanitizePointerObject(pointer) {
     const normalizedPath = normalizePointerPath(pointer["/"]);
     if (normalizedPath) sanitized["/"] = normalizedPath;
   }
-  return Object.keys(sanitized).length ? sanitized : null;
+  return stripPointerToAllowedKeys(sanitized);
 }
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
+
+function stripPointerToAllowedKeys(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const cleaned = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
+    const raw = pointer[key];
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (trimmed) cleaned[key] = trimmed;
+  }
+  return Object.keys(cleaned).length ? cleaned : null;
+}
 const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
 const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
 const SALES_HISTORY_POINTER_PATTERN = /(^|\/)sales_history_\d+\.json$/i;
@@ -196,7 +209,7 @@ function pointerFrom(refLike) {
     const normalizedPath = normalizePointerPath(pathCandidate);
     if (normalizedPath) rawPointer["/"] = normalizedPath;
   }
-  return sanitizePointerObject(rawPointer);
+  return stripPointerToAllowedKeys(rawPointer);
 }
 
 function buildStrictPathPointer(refLike) {
@@ -243,12 +256,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     fromPointer = oriented.from;
     toPointer = oriented.to;
   }
+  fromPointer = stripPointerToAllowedKeys(fromPointer);
+  toPointer = stripPointerToAllowedKeys(toPointer);
   if (!fromPointer || !toPointer) return;
 
   const relationship = {
     type: relationshipType,
-    from: fromPointer,
-    to: toPointer,
+    from: { ...fromPointer },
+    to: { ...toPointer },
   };
 
   const suffixPortion =
