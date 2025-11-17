@@ -243,27 +243,25 @@ function buildStrictPathPointer(refLike) {
   return { "/": pathValue };
 }
 
-function createRelationshipPathPointer(pathLike, expectedKeyword) {
+function normalizeRelationshipPath(pathLike, expectedKeyword) {
   if (typeof pathLike !== "string") return null;
   let trimmed = pathLike.trim();
   if (!trimmed) return null;
   trimmed = trimmed.replace(/\\/g, "/");
-  if (trimmed.startsWith("./")) {
-    trimmed = `./${trimmed.slice(2).replace(/^\/+/, "")}`;
-  }
-  if (!trimmed.startsWith("./") && !trimmed.startsWith("../")) {
+  if (trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    trimmed = trimmed.replace(/^\.\/+/, "./");
+  } else {
     trimmed = trimmed.replace(/^\/+/, "");
     if (!trimmed) return null;
     trimmed = `./${trimmed}`;
   }
-  if (!trimmed) return null;
   if (expectedKeyword) {
     const keyword = expectedKeyword.trim().toLowerCase();
     if (keyword && !trimmed.toLowerCase().includes(keyword)) {
       return null;
     }
   }
-  return { "/": trimmed };
+  return trimmed;
 }
 
 function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) {
@@ -272,16 +270,25 @@ function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) 
   if (!normalizedType) return;
 
   const opts = options || {};
-  const fromPointer = createRelationshipPathPointer(
-    fromPath,
+  const expectedFromKeyword =
     typeof opts.expectedFromKeyword === "string"
       ? opts.expectedFromKeyword
-      : null,
+      : null;
+  const expectedToKeyword =
+    typeof opts.expectedToKeyword === "string" ? opts.expectedToKeyword : null;
+
+  const fromPathNormalized = normalizeRelationshipPath(
+    fromPath,
+    expectedFromKeyword,
   );
-  const toPointer = createRelationshipPathPointer(
+  const toPathNormalized = normalizeRelationshipPath(
     toPath,
-    typeof opts.expectedToKeyword === "string" ? opts.expectedToKeyword : null,
+    expectedToKeyword,
   );
+  if (!fromPathNormalized || !toPathNormalized) return;
+
+  const fromPointer = sanitizePointerObject({ "/": fromPathNormalized });
+  const toPointer = sanitizePointerObject({ "/": toPathNormalized });
   if (!fromPointer || !toPointer) return;
 
   const suffixPortion =
@@ -289,14 +296,10 @@ function writeRelationshipFromPathRefs(type, fromPath, toPath, suffix, options) 
       ? ""
       : `_${suffix}`;
 
-  const sanitizedFrom = sanitizePointerObject(fromPointer);
-  const sanitizedTo = sanitizePointerObject(toPointer);
-  if (!sanitizedFrom || !sanitizedTo) return;
-
   const relationship = {
     type: normalizedType,
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: fromPointer,
+    to: toPointer,
   };
 
   writeJSON(
