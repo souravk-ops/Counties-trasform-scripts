@@ -108,6 +108,22 @@ const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
 const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
 
+function sanitizeRelationshipEndpoint(pointerLike) {
+  if (!pointerLike) return null;
+  const pointer = sanitizePointerObject(pointerLike);
+  if (!pointer) return null;
+  const sanitized = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
+    const value = pointer[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    sanitized[key] = trimmed;
+  }
+  return Object.keys(sanitized).length ? sanitized : null;
+}
+
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -165,24 +181,15 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
       toPointer = tmp;
     }
   }
-  if (!fromPointer || !toPointer) return;
+  const sanitizedFrom = sanitizeRelationshipEndpoint(fromPointer);
+  const sanitizedTo = sanitizeRelationshipEndpoint(toPointer);
+  if (!sanitizedFrom || !sanitizedTo) return;
 
-  const relationship = { type: relationshipType };
-  relationship.from = {};
-  relationship.to = {};
-
-  for (const key of POINTER_ALLOWED_KEYS) {
-    if (typeof fromPointer[key] === "string" && fromPointer[key].trim()) {
-      relationship.from[key] = fromPointer[key].trim();
-    }
-    if (typeof toPointer[key] === "string" && toPointer[key].trim()) {
-      relationship.to[key] = toPointer[key].trim();
-    }
-  }
-
-  if (!Object.keys(relationship.from).length || !Object.keys(relationship.to).length) {
-    return;
-  }
+  const relationship = {
+    type: relationshipType,
+    from: sanitizedFrom,
+    to: sanitizedTo,
+  };
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
@@ -227,12 +234,15 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
+const FILE_METADATA_ALLOWED_STRING_FIELDS = ["request_identifier"];
+
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
   const sanitized = {};
-  if (typeof file.request_identifier === "string") {
-    const trimmed = file.request_identifier.trim();
-    if (trimmed) sanitized.request_identifier = trimmed;
+  for (const key of FILE_METADATA_ALLOWED_STRING_FIELDS) {
+    if (typeof file[key] !== "string") continue;
+    const trimmed = file[key].trim();
+    if (trimmed) sanitized[key] = trimmed;
   }
   if (file.source_http_request && typeof file.source_http_request === "object") {
     const clonedRequest = cloneDeep(file.source_http_request);
