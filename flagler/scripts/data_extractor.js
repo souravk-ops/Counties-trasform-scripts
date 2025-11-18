@@ -308,6 +308,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   writeJSON(path.join("data", filename), relationship);
 }
 
+function writeRelationshipFromFilenames(type, fromFilename, toFilename, suffix) {
+  if (!fromFilename || !toFilename) return;
+  const fromPointer = buildStrictPathPointer(fromFilename);
+  const toPointer = buildStrictPathPointer(toFilename);
+  if (!fromPointer || !toPointer) return;
+  writeRelationship(type, fromPointer, toPointer, suffix);
+}
+
 function normalizeSaleDate(value) {
   const iso = parseDateToISO(value);
   if (iso) return iso;
@@ -360,6 +368,18 @@ function sanitizeFileMetadata(file) {
       sanitized.source_http_request = clonedRequest;
     }
   }
+
+  [
+    "document_type",
+    "file_format",
+    "ipfs_url",
+    "name",
+    "original_url",
+  ].forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+      delete sanitized[key];
+    }
+  });
 
   return sanitized;
 }
@@ -819,7 +839,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
-    const deedPointer = buildStrictPathPointer(deedFilename);
 
     const parcelIdForRequest = parcelId != null ? String(parcelId).trim() : "";
     const fileRequestIdentifier = parcelIdForRequest
@@ -830,7 +849,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileNode = sanitizeFileMetadata(fileNodeInput);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileNode);
-    const filePointer = buildStrictPathPointer(fileFilename);
 
     processedSales.push({
       source: saleRecord,
@@ -841,36 +859,34 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleNode,
     });
 
-    if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
-    }
-    if (salePointer && deedPointer) {
-      writeRelationship(
+    writeRelationshipFromFilenames(
+      "deed_has_file",
+      deedFilename,
+      fileFilename,
+      idx,
+    );
+    if (salePointer) {
+      writeRelationshipFromFilenames(
         "sales_history_has_deed",
-        salePointer,
-        deedPointer,
+        saleFilename,
+        deedFilename,
         idx,
       );
     }
     if (propertyPointerSource) {
-      const propertyPointer = buildStrictPathPointer(propertyPointerSource);
-      if (propertyPointer) {
-        if (filePointer) {
-          writeRelationship(
-            "property_has_file",
-            propertyPointer,
-            filePointer,
-            idx,
-          );
-        }
-        if (salePointer) {
-          writeRelationship(
-            "property_has_sales_history",
-            propertyPointer,
-            salePointer,
-            idx,
-          );
-        }
+      writeRelationshipFromFilenames(
+        "property_has_file",
+        propertyPointerSource,
+        fileFilename,
+        idx,
+      );
+      if (salePointer) {
+        writeRelationshipFromFilenames(
+          "property_has_sales_history",
+          propertyPointerSource,
+          saleFilename,
+          idx,
+        );
       }
     }
   });
