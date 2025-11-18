@@ -190,6 +190,46 @@ function sanitizeRelationshipReference(refLike) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
+function normalizeRelationshipEndpoint(refLike) {
+  if (refLike == null) return null;
+  if (typeof refLike === "string") {
+    const pointerFromString = buildStrictPathPointer(refLike);
+    if (pointerFromString) return pointerFromString;
+    return sanitizeRelationshipReference(refLike);
+  }
+  if (typeof refLike !== "object") return null;
+
+  if (typeof refLike.cid === "string") {
+    const rawCid = refLike.cid.trim();
+    if (rawCid) {
+      return {
+        cid: rawCid.startsWith("cid:") ? rawCid : `cid:${rawCid}`,
+      };
+    }
+  }
+
+  if (typeof refLike.uri === "string") {
+    const rawUri = refLike.uri.trim();
+    if (rawUri) {
+      return { uri: rawUri };
+    }
+  }
+
+  const pathCandidate =
+    (typeof refLike["/"] === "string" && refLike["/"]) ||
+    (typeof refLike.path === "string" && refLike.path) ||
+    (typeof refLike["@ref"] === "string" && refLike["@ref"]) ||
+    (typeof refLike.filename === "string" && refLike.filename) ||
+    (typeof refLike.file === "string" && refLike.file);
+
+  if (typeof pathCandidate === "string") {
+    const pointerFromPath = buildStrictPathPointer(pathCandidate);
+    if (pointerFromPath) return pointerFromPath;
+  }
+
+  return sanitizeRelationshipReference(refLike);
+}
+
 function pointerNormalizedPath(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
   const path = pointer["/"];
@@ -245,8 +285,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const fromReference = sanitizeRelationshipReference(fromRefLike);
-  const toReference = sanitizeRelationshipReference(toRefLike);
+  const fromReference = normalizeRelationshipEndpoint(fromRefLike);
+  const toReference = normalizeRelationshipEndpoint(toRefLike);
   if (!fromReference || !toReference) return;
 
   const relationship = maybeReorientRelationship(
@@ -307,6 +347,12 @@ function sanitizeFileMetadata(file) {
     const trimmed = file.request_identifier.trim();
     if (trimmed) sanitized.request_identifier = trimmed;
   }
+  // Explicitly drop metadata fields that are populated later in the pipeline.
+  delete sanitized.document_type;
+  delete sanitized.file_format;
+  delete sanitized.ipfs_url;
+  delete sanitized.name;
+  delete sanitized.original_url;
   if (file.source_http_request && typeof file.source_http_request === "object") {
     const clonedRequest = cloneDeep(file.source_http_request);
     if (clonedRequest && Object.keys(clonedRequest).length > 0) {
