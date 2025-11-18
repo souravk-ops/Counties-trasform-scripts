@@ -484,91 +484,6 @@ function normalizeRelationshipEndpoint(refLike) {
   return fallback;
 }
 
-function pointerNormalizedPath(pointer) {
-  if (!pointer) return null;
-  if (typeof pointer === "string") {
-    const normalized = normalizePointerPath(pointer);
-    return normalized || null;
-  }
-  if (typeof pointer !== "object") return null;
-  const path = pointer["/"];
-  if (typeof path !== "string") return null;
-  const trimmed = path.trim();
-  if (!trimmed) return null;
-  const normalized = normalizePointerPath(trimmed);
-  return normalized || null;
-}
-
-const RELATIONSHIP_EXPECTED_PREFIXES = {
-  deed_has_file: { from: "./deed_", to: "./file_" },
-  sales_history_has_deed: { from: "./sales_history_", to: "./deed_" },
-  property_has_file: { from: "./property", to: "./file_" },
-  property_has_sales_history: { from: "./property", to: "./sales_history_" },
-  property_has_layout: { from: "./property", to: "./layout_" },
-  sales_history_has_person: { from: "./sales_history_", to: "./person_" },
-  sales_history_has_company: { from: "./sales_history_", to: "./company_" },
-};
-
-function enforceRelationshipOrientation(type, fromPointer, toPointer) {
-  const expected = RELATIONSHIP_EXPECTED_PREFIXES[type];
-  if (!expected) {
-    return { from: fromPointer, to: toPointer };
-  }
-
-  const fromPath = pointerNormalizedPath(fromPointer);
-  const toPath = pointerNormalizedPath(toPointer);
-  const matchesPrefix = (value, prefix) =>
-    typeof value === "string" &&
-    typeof prefix === "string" &&
-    value.toLowerCase().startsWith(prefix.toLowerCase());
-
-  const fromMatches = matchesPrefix(fromPath, expected.from);
-  const toMatches = matchesPrefix(toPath, expected.to);
-  if (fromMatches && toMatches) {
-    return { from: fromPointer, to: toPointer };
-  }
-
-  const swappedFromMatches = matchesPrefix(toPath, expected.from);
-  const swappedToMatches = matchesPrefix(fromPath, expected.to);
-  if (swappedFromMatches && swappedToMatches) {
-    return { from: toPointer, to: fromPointer };
-  }
-
-  return { from: fromPointer, to: toPointer };
-}
-
-function maybeReorientRelationship(type, fromReference, toReference) {
-  if (!fromReference || !toReference) {
-    return { from: fromReference, to: toReference };
-  }
-
-  const expected = RELATIONSHIP_EXPECTED_PREFIXES[type];
-  if (!expected) {
-    return { from: fromReference, to: toReference };
-  }
-
-  const fromPath = pointerNormalizedPath(fromReference);
-  const toPath = pointerNormalizedPath(toReference);
-  const matches = (value, prefix) =>
-    typeof value === "string" &&
-    typeof prefix === "string" &&
-    value.toLowerCase().startsWith(prefix.toLowerCase());
-
-  const fromMatchesExpected = matches(fromPath, expected.from);
-  const toMatchesExpected = matches(toPath, expected.to);
-  if (fromMatchesExpected && toMatchesExpected) {
-    return { from: fromReference, to: toReference };
-  }
-
-  const fromMatchesReversed = matches(fromPath, expected.to);
-  const toMatchesReversed = matches(toPath, expected.from);
-  if (fromMatchesReversed && toMatchesReversed) {
-    return { from: toReference, to: fromReference };
-  }
-
-  return { from: fromReference, to: toReference };
-}
-
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
@@ -578,28 +493,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const toReference = normalizeRelationshipEndpoint(toRefLike);
   if (!fromReference || !toReference) return;
 
-  const reoriented = maybeReorientRelationship(
-    relationshipType,
-    fromReference,
-    toReference,
-  );
-  const sanitizedFrom = finalizeRelationshipEndpoint(
-    reoriented && reoriented.from,
-  );
-  const sanitizedTo = finalizeRelationshipEndpoint(reoriented && reoriented.to);
+  const sanitizedFrom = finalizeRelationshipEndpoint(fromReference);
+  const sanitizedTo = finalizeRelationshipEndpoint(toReference);
   const strictFrom = toStrictRelationshipPointer(sanitizedFrom);
   const strictTo = toStrictRelationshipPointer(sanitizedTo);
   if (!strictFrom || !strictTo) return;
 
-  const oriented = enforceRelationshipOrientation(
-    relationshipType,
-    strictFrom,
-    strictTo,
-  );
-  if (!oriented || !oriented.from || !oriented.to) return;
-
-  const finalFrom = cleanRelationshipPointer(oriented.from);
-  const finalTo = cleanRelationshipPointer(oriented.to);
+  const finalFrom = cleanRelationshipPointer(strictFrom);
+  const finalTo = cleanRelationshipPointer(strictTo);
   if (!finalFrom || !finalTo) return;
 
   const relationship = {
