@@ -91,6 +91,27 @@ function stripPointerToAllowedKeys(value) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
+function pointerToReference(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string") {
+    const cid = pointer.cid.trim();
+    if (cid) return cid.startsWith("cid:") ? cid : `cid:${cid}`;
+  }
+  if (typeof pointer.uri === "string") {
+    const uri = pointer.uri.trim();
+    if (uri) return uri;
+  }
+  if (typeof pointer["/"] === "string") {
+    const pathRef = pointer["/"].trim();
+    if (pathRef) {
+      if (pathRef.startsWith("./") || pathRef.startsWith("../")) return pathRef;
+      const stripped = pathRef.replace(/^\/+/, "");
+      return stripped ? `./${stripped}` : null;
+    }
+  }
+  return null;
+}
+
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
   const normalizePointerString = (value) => {
@@ -99,7 +120,8 @@ function makeRelationshipPointer(ref) {
     if (!trimmed) return null;
     const normalized = normalizePointerOutput(trimmed);
     const sanitized = sanitizePointerObject(normalized);
-    return stripPointerToAllowedKeys(sanitized);
+    const pointer = stripPointerToAllowedKeys(sanitized);
+    return pointerToReference(pointer);
   };
   if (typeof ref === "string") {
     return normalizePointerString(ref);
@@ -107,11 +129,11 @@ function makeRelationshipPointer(ref) {
   if (typeof ref !== "object") return null;
   if (typeof ref.cid === "string" && ref.cid.trim()) {
     const cidPointer = normalizePointerOutput(ref.cid);
-    return sanitizePointerObject(cidPointer);
+    return pointerToReference(stripPointerToAllowedKeys(sanitizePointerObject(cidPointer)));
   }
   if (typeof ref.uri === "string" && ref.uri.trim()) {
     const uriPointer = normalizePointerOutput(ref.uri);
-    return sanitizePointerObject(uriPointer);
+    return pointerToReference(stripPointerToAllowedKeys(sanitizePointerObject(uriPointer)));
   }
   const pathCandidate =
     (typeof ref["/"] === "string" && ref["/"]) ||
@@ -119,10 +141,8 @@ function makeRelationshipPointer(ref) {
     (typeof ref["@ref"] === "string" && ref["@ref"]) ||
     (typeof ref.filename === "string" && ref.filename) ||
     (typeof ref.file === "string" && ref.file);
-  if (pathCandidate) {
-    return normalizePointerString(pathCandidate);
-  }
-  return null;
+  if (!pathCandidate) return null;
+  return normalizePointerString(pathCandidate);
 }
 
 function collectBuildings($) {
