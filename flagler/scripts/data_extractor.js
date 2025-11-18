@@ -198,70 +198,42 @@ function pointerNormalizedPath(pointer) {
   return trimmed || null;
 }
 
+const RELATIONSHIP_EXPECTED_PREFIXES = {
+  deed_has_file: { from: "./deed_", to: "./file_" },
+  sales_history_has_deed: { from: "./sales_history_", to: "./deed_" },
+  property_has_file: { from: "./property", to: "./file_" },
+  property_has_sales_history: { from: "./property", to: "./sales_history_" },
+  property_has_layout: { from: "./property", to: "./layout_" },
+  sales_history_has_person: { from: "./sales_history_", to: "./person_" },
+  sales_history_has_company: { from: "./sales_history_", to: "./company_" },
+};
+
 function maybeReorientRelationship(type, fromReference, toReference) {
   if (!fromReference || !toReference) {
     return { from: fromReference, to: toReference };
   }
+
+  const expected = RELATIONSHIP_EXPECTED_PREFIXES[type];
+  if (!expected) {
+    return { from: fromReference, to: toReference };
+  }
+
   const fromPath = pointerNormalizedPath(fromReference);
   const toPath = pointerNormalizedPath(toReference);
-  const hasPrefix = (value, prefix) =>
+  const matches = (value, prefix) =>
     typeof value === "string" &&
     typeof prefix === "string" &&
     value.toLowerCase().startsWith(prefix.toLowerCase());
 
-  if (
-    type === "deed_has_file" &&
-    hasPrefix(fromPath, "./deed_") &&
-    hasPrefix(toPath, "./file_")
-  ) {
-    return { from: toReference, to: fromReference };
+  const fromMatchesExpected = matches(fromPath, expected.from);
+  const toMatchesExpected = matches(toPath, expected.to);
+  if (fromMatchesExpected && toMatchesExpected) {
+    return { from: fromReference, to: toReference };
   }
 
-  if (
-    type === "sales_history_has_deed" &&
-    hasPrefix(fromPath, "./sales_history_") &&
-    hasPrefix(toPath, "./deed_")
-  ) {
-    return { from: toReference, to: fromReference };
-  }
-
-  if (
-    type === "property_has_file" &&
-    hasPrefix(fromPath, "./property") &&
-    hasPrefix(toPath, "./file_")
-  ) {
-    return { from: toReference, to: fromReference };
-  }
-
-  if (
-    type === "property_has_sales_history" &&
-    hasPrefix(fromPath, "./property") &&
-    hasPrefix(toPath, "./sales_history_")
-  ) {
-    return { from: toReference, to: fromReference };
-  }
-
-  if (
-    type === "property_has_layout" &&
-    hasPrefix(fromPath, "./property") &&
-    hasPrefix(toPath, "./layout_")
-  ) {
-    return { from: toReference, to: fromReference };
-  }
-
-  if (
-    type === "sales_history_has_person" &&
-    hasPrefix(fromPath, "./sales_history_") &&
-    hasPrefix(toPath, "./person_")
-  ) {
-    return { from: toReference, to: fromReference };
-  }
-
-  if (
-    type === "sales_history_has_company" &&
-    hasPrefix(fromPath, "./sales_history_") &&
-    hasPrefix(toPath, "./company_")
-  ) {
+  const fromMatchesReversed = matches(fromPath, expected.to);
+  const toMatchesReversed = matches(toPath, expected.from);
+  if (fromMatchesReversed && toMatchesReversed) {
     return { from: toReference, to: fromReference };
   }
 
@@ -822,22 +794,32 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
 
     if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", filePointer, deedPointer, idx);
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
     if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", deedPointer, salePointer, idx);
+      writeRelationship(
+        "sales_history_has_deed",
+        salePointer,
+        deedPointer,
+        idx,
+      );
     }
     if (propertyPointerSource) {
       const propertyPointer = buildStrictPathPointer(propertyPointerSource);
       if (propertyPointer) {
         if (filePointer) {
-          writeRelationship("property_has_file", filePointer, propertyPointer, idx);
+          writeRelationship(
+            "property_has_file",
+            propertyPointer,
+            filePointer,
+            idx,
+          );
         }
         if (salePointer) {
           writeRelationship(
             "property_has_sales_history",
-            salePointer,
             propertyPointer,
+            salePointer,
             idx,
           );
         }
@@ -954,8 +936,8 @@ function writePersonCompaniesSalesRelationships(
           relPersonCounter++;
           writeRelationship(
             "sales_history_has_person",
-            personRef,
             saleRef,
+            personRef,
             relPersonCounter,
           );
         }
@@ -970,8 +952,8 @@ function writePersonCompaniesSalesRelationships(
           relCompanyCounter++;
           writeRelationship(
             "sales_history_has_company",
-            companyRef,
             saleRef,
+            companyRef,
             relCompanyCounter,
           );
         }
@@ -1145,8 +1127,8 @@ function writeLayout(parcelId, context) {
       if (propertyPointer && layoutPointer) {
         writeRelationship(
           "property_has_layout",
-          layoutPointer,
           propertyPointer,
+          layoutPointer,
           layoutCounter,
         );
       }
