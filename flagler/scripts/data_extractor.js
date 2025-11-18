@@ -329,21 +329,53 @@ function toStrictRelationshipPointer(pointer) {
 
 function cleanRelationshipPointer(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
-  const cleaned = {};
-  for (const key of POINTER_ALLOWED_KEYS) {
-    const value = pointer[key];
-    if (value == null) continue;
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) continue;
-      cleaned[key] = trimmed;
-    } else if (typeof value === "number") {
-      if (!Number.isNaN(value)) cleaned[key] = value;
-    } else {
-      cleaned[key] = value;
+  const extras = {};
+
+  if (pointer.space_type_index != null) {
+    const stringValue = String(pointer.space_type_index).trim();
+    if (stringValue) extras.space_type_index = stringValue;
+  }
+
+  if (pointer.ownership_transfer_date) {
+    if (pointer.ownership_transfer_date instanceof Date) {
+      extras.ownership_transfer_date =
+        pointer.ownership_transfer_date.toISOString().slice(0, 10);
+    } else if (typeof pointer.ownership_transfer_date === "string") {
+      const trimmed = pointer.ownership_transfer_date.trim();
+      if (trimmed) extras.ownership_transfer_date = trimmed;
     }
   }
-  return Object.keys(cleaned).length ? cleaned : null;
+
+  if (typeof pointer.request_identifier === "string") {
+    const trimmed = pointer.request_identifier.trim();
+    if (trimmed) extras.request_identifier = trimmed;
+  }
+
+  let base = null;
+
+  if (typeof pointer.cid === "string") {
+    const trimmed = pointer.cid.trim();
+    if (trimmed) {
+      base = { cid: trimmed.startsWith("cid:") ? trimmed : `cid:${trimmed}` };
+    }
+  }
+
+  if (!base && typeof pointer.uri === "string") {
+    const trimmed = pointer.uri.trim();
+    if (trimmed) {
+      base = { uri: trimmed };
+    }
+  }
+
+  if (!base && typeof pointer["/"] === "string") {
+    const trimmed = pointer["/"].trim();
+    if (trimmed) {
+      base = { "/": normalizePointerPath(trimmed) };
+    }
+  }
+
+  if (!base) return null;
+  return Object.keys(extras).length ? Object.assign(base, extras) : base;
 }
 
 function pointerFrom(refLike) {
