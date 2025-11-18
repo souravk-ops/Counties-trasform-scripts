@@ -349,29 +349,6 @@ function pointerNormalizedPath(pointer) {
   return normalized || null;
 }
 
-function pointerToRelationshipValue(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-
-  if (typeof pointer.cid === "string") {
-    const rawCid = pointer.cid.trim();
-    if (rawCid) {
-      return rawCid.startsWith("cid:") ? rawCid : `cid:${rawCid}`;
-    }
-  }
-
-  if (typeof pointer.uri === "string") {
-    const rawUri = pointer.uri.trim();
-    if (rawUri) return rawUri;
-  }
-
-  if (typeof pointer["/"] === "string") {
-    const normalized = normalizePointerPath(pointer["/"]);
-    if (normalized) return normalized;
-  }
-
-  return null;
-}
-
 const RELATIONSHIP_EXPECTED_PREFIXES = {
   deed_has_file: { from: "./deed_", to: "./file_" },
   sales_history_has_deed: { from: "./sales_history_", to: "./deed_" },
@@ -458,13 +435,9 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     }
   }
 
-  const fromValue = pointerToRelationshipValue(strictFrom);
-  const toValue = pointerToRelationshipValue(strictTo);
-  if (!fromValue || !toValue) return;
-
   const relationship = {
-    from: fromValue,
-    to: toValue,
+    from: strictFrom,
+    to: strictTo,
   };
 
   const suffixPortion =
