@@ -289,11 +289,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const toReference = normalizeRelationshipEndpoint(toRefLike);
   if (!fromReference || !toReference) return;
 
-  const relationship = maybeReorientRelationship(
+  const reoriented = maybeReorientRelationship(
     relationshipType,
     fromReference,
     toReference,
   );
+  const sanitizedFrom =
+    stripPointerToAllowedKeys(reoriented && reoriented.from) || null;
+  const sanitizedTo =
+    stripPointerToAllowedKeys(reoriented && reoriented.to) || null;
+  if (!sanitizedFrom || !sanitizedTo) return;
+  const relationship = { from: sanitizedFrom, to: sanitizedTo };
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
