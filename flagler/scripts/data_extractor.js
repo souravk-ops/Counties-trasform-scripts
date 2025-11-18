@@ -344,8 +344,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const fromPointerOrdered = storageOrder === "swap" ? toPointer : fromPointer;
   const toPointerOrdered = storageOrder === "swap" ? fromPointer : toPointer;
 
-  const fromPayload = fromPointerOrdered;
-  const toPayload = toPointerOrdered;
+  const fromPayload = pointerToReference(fromPointerOrdered);
+  const toPayload = pointerToReference(toPointerOrdered);
   if (!fromPayload || !toPayload) return;
 
   const relationship = {
