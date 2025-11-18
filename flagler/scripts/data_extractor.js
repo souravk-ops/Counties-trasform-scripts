@@ -106,12 +106,25 @@ function sanitizePointerObject(pointer) {
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
 const RELATIONSHIP_ENDPOINT_BLOCKLIST = new Set([
+  "book",
+  "deed_type",
   "document_type",
   "file_format",
+  "grantor",
+  "grantee",
+  "instrument",
+  "instrument_number",
   "ipfs_url",
+  "link",
   "name",
   "original_url",
-  "deed_type",
+  "ownership_transfer_date",
+  "page",
+  "purchase_price_amount",
+  "request_identifier",
+  "sale_date",
+  "sale_price",
+  "source_http_request",
 ]);
 
 function stripRelationshipMetadata(pointer) {
