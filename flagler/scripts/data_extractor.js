@@ -310,29 +310,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const initialFromPointer = pointerFrom(fromRefLike);
-  const initialToPointer = pointerFrom(toRefLike);
-  if (!initialFromPointer || !initialToPointer) return;
-
-  const resolvedPointers = resolveRelationshipPointers(
-    relationshipType,
-    initialFromPointer,
-    initialToPointer,
-  );
-
-  let fromPointer = stripPointerToAllowedKeys(resolvedPointers.from);
-  let toPointer = stripPointerToAllowedKeys(resolvedPointers.to);
+  const fromPointer = pointerFrom(fromRefLike);
+  const toPointer = pointerFrom(toRefLike);
   if (!fromPointer || !toPointer) return;
 
-  const storageOrder = RELATIONSHIP_OUTPUT_ORDER[relationshipType] || "forward";
-  const fromPointerOrdered = storageOrder === "swap" ? toPointer : fromPointer;
-  const toPointerOrdered = storageOrder === "swap" ? fromPointer : toPointer;
-
-  if (!fromPointerOrdered || !toPointerOrdered) return;
-
   const relationship = {
-    from: fromPointerOrdered,
-    to: toPointerOrdered,
+    from: { ...fromPointer },
+    to: { ...toPointer },
   };
 
   const suffixPortion =
@@ -378,11 +362,11 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
-const FILE_METADATA_ALLOWED_STRING_FIELDS = ["request_identifier"];
-
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
   const sanitized = {};
+  // Only keep the identifiers the schema expects. Downstream services backfill
+  // document metadata (document_type, file_format, ipfs_url, name, original_url).
   if (typeof file.request_identifier === "string") {
     const trimmed = file.request_identifier.trim();
     if (trimmed) sanitized.request_identifier = trimmed;
