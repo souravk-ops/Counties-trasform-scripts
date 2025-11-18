@@ -335,11 +335,41 @@ function normalizeRelationshipEndpoint(refLike) {
 }
 
 function pointerNormalizedPath(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
+  if (!pointer) return null;
+  if (typeof pointer === "string") {
+    const normalized = normalizePointerPath(pointer);
+    return normalized || null;
+  }
+  if (typeof pointer !== "object") return null;
   const path = pointer["/"];
   if (typeof path !== "string") return null;
   const trimmed = path.trim();
-  return trimmed || null;
+  if (!trimmed) return null;
+  const normalized = normalizePointerPath(trimmed);
+  return normalized || null;
+}
+
+function pointerToRelationshipValue(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  if (typeof pointer.cid === "string") {
+    const rawCid = pointer.cid.trim();
+    if (rawCid) {
+      return rawCid.startsWith("cid:") ? rawCid : `cid:${rawCid}`;
+    }
+  }
+
+  if (typeof pointer.uri === "string") {
+    const rawUri = pointer.uri.trim();
+    if (rawUri) return rawUri;
+  }
+
+  if (typeof pointer["/"] === "string") {
+    const normalized = normalizePointerPath(pointer["/"]);
+    if (normalized) return normalized;
+  }
+
+  return null;
 }
 
 const RELATIONSHIP_EXPECTED_PREFIXES = {
@@ -428,9 +458,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     }
   }
 
+  const fromValue = pointerToRelationshipValue(strictFrom);
+  const toValue = pointerToRelationshipValue(strictTo);
+  if (!fromValue || !toValue) return;
+
   const relationship = {
-    from: strictFrom,
-    to: strictTo,
+    from: fromValue,
+    to: toValue,
   };
 
   const suffixPortion =

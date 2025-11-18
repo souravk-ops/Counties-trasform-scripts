@@ -141,7 +141,19 @@ function makeRelationshipPointer(ref) {
 function makeRelationshipValue(ref) {
   const pointer = makeRelationshipPointer(ref);
   if (!pointer) return null;
-  return pointer;
+  if (typeof pointer.cid === "string") {
+    const rawCid = pointer.cid.trim();
+    if (rawCid) return rawCid.startsWith("cid:") ? rawCid : `cid:${rawCid}`;
+  }
+  if (typeof pointer.uri === "string") {
+    const rawUri = pointer.uri.trim();
+    if (rawUri) return rawUri;
+  }
+  if (typeof pointer["/"] === "string") {
+    const normalized = normalizePointerPath(pointer["/"]);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 function collectBuildings($) {
