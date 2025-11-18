@@ -277,31 +277,6 @@ function pointerFrom(refLike) {
   return stripPointerToAllowedKeys(rawPointer);
 }
 
-function pointerToReference(refLike) {
-  if (refLike == null) return null;
-  let pointer = null;
-  if (typeof refLike === "string") {
-    pointer = pointerFrom(refLike);
-  } else if (typeof refLike === "object") {
-    pointer = sanitizePointerObject(refLike);
-  }
-  if (!pointer || typeof pointer !== "object") return null;
-  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-    const cid = pointer.cid.trim();
-    return cid.startsWith("cid:") ? cid : `cid:${cid}`;
-  }
-  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
-    return pointer.uri.trim();
-  }
-  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-    const pathRef = pointer["/"].trim();
-    if (pathRef.startsWith("./") || pathRef.startsWith("../")) return pathRef;
-    const stripped = pathRef.replace(/^\/+/, "");
-    return stripped ? `./${stripped}` : null;
-  }
-  return null;
-}
-
 function buildStrictPathPointer(refLike) {
   if (typeof refLike !== "string") return null;
   const normalized = normalizePointerOutput(refLike);
@@ -344,8 +319,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     fromPointerCandidate,
     toPointerCandidate,
   );
-  const fromReference = pointerToReference(from);
-  const toReference = pointerToReference(to);
+  const fromReference = sanitizePointerObject(from);
+  const toReference = sanitizePointerObject(to);
   if (!fromReference || !toReference) return;
 
   const relationship = {
