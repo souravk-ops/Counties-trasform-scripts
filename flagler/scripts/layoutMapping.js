@@ -339,8 +339,8 @@ function main() {
       const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
       if (!layoutPointer) return;
       const rel = {
-        from: propertyPointer,
-        to: layoutPointer,
+        from: layoutPointer,
+        to: propertyPointer,
       };
       fs.writeFileSync(
         path.join(
