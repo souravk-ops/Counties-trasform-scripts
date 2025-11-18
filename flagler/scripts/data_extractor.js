@@ -310,13 +310,22 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const fromPointer = pointerFrom(fromRefLike);
-  const toPointer = pointerFrom(toRefLike);
+  const fromPointerCandidate = pointerFrom(fromRefLike);
+  const toPointerCandidate = pointerFrom(toRefLike);
+  if (!fromPointerCandidate || !toPointerCandidate) return;
+
+  const { from, to } = resolveRelationshipPointers(
+    relationshipType,
+    fromPointerCandidate,
+    toPointerCandidate,
+  );
+  const fromPointer = sanitizePointerObject(from);
+  const toPointer = sanitizePointerObject(to);
   if (!fromPointer || !toPointer) return;
 
   const relationship = {
-    from: { ...fromPointer },
-    to: { ...toPointer },
+    from: fromPointer,
+    to: toPointer,
   };
 
   const suffixPortion =
