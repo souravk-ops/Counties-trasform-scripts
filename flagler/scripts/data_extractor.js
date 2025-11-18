@@ -259,32 +259,6 @@ function pointerNormalizedPath(pointer) {
   return trimmed || null;
 }
 
-function relationshipEndpointToString(pointer) {
-  if (pointer == null) return null;
-  if (typeof pointer === "string") {
-    const trimmed = pointer.trim();
-    return trimmed || null;
-  }
-  if (typeof pointer !== "object") return null;
-
-  if (typeof pointer.cid === "string") {
-    const cid = pointer.cid.trim();
-    if (cid) {
-      return cid.startsWith("cid:") ? cid : `cid:${cid}`;
-    }
-  }
-
-  if (typeof pointer.uri === "string") {
-    const uri = pointer.uri.trim();
-    if (uri) return uri;
-  }
-
-  const normalizedPath = pointerNormalizedPath(pointer);
-  if (normalizedPath) return normalizedPath;
-
-  return null;
-}
-
 const RELATIONSHIP_EXPECTED_PREFIXES = {
   deed_has_file: { from: "./deed_", to: "./file_" },
   sales_history_has_deed: { from: "./sales_history_", to: "./deed_" },
@@ -346,10 +320,10 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const sanitizedTo =
     stripPointerToAllowedKeys(reoriented && reoriented.to) || null;
   if (!sanitizedFrom || !sanitizedTo) return;
-  const serializedFrom = relationshipEndpointToString(sanitizedFrom);
-  const serializedTo = relationshipEndpointToString(sanitizedTo);
-  if (!serializedFrom || !serializedTo) return;
-  const relationship = { from: serializedFrom, to: serializedTo };
+  const relationship = {
+    from: sanitizedFrom,
+    to: sanitizedTo,
+  };
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
