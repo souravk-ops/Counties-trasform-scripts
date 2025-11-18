@@ -522,9 +522,16 @@ function removeFilesMatchingPatterns(patterns) {
 }
 
 function sanitizeFileMetadata(file) {
-  if (!file || typeof file !== "object") return {};
+  if (!file || typeof file !== "object") return null;
 
   const sanitized = {};
+
+  if (typeof file.original_url === "string") {
+    const trimmed = file.original_url.trim();
+    if (trimmed && /^https?:\/\//i.test(trimmed)) {
+      sanitized.original_url = trimmed;
+    }
+  }
 
   if (typeof file.request_identifier === "string") {
     const trimmed = file.request_identifier.trim();
@@ -541,7 +548,7 @@ function sanitizeFileMetadata(file) {
     }
   }
 
-  return sanitized;
+  return Object.keys(sanitized).length ? sanitized : null;
 }
 
 function sanitizeDeedMetadata(deed) {
@@ -1007,6 +1014,27 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", deedFilename), deedNode);
     const deedPointer = pointerFromRef(deedFilename);
 
+    let filePointer = null;
+    const rawFileUrl =
+      saleRecord && typeof saleRecord.link === "string"
+        ? saleRecord.link.trim()
+        : "";
+    if (rawFileUrl) {
+      const fileCandidate = {
+        original_url: rawFileUrl,
+        request_identifier: parcelId
+          ? `${parcelId}_deed_file_${String(idx).padStart(3, "0")}`
+          : null,
+      };
+      attachSourceHttpRequest(fileCandidate, defaultSourceHttpRequest);
+      const fileNode = sanitizeFileMetadata(fileCandidate);
+      if (fileNode) {
+        const fileFilename = `file_${idx}.json`;
+        writeJSON(path.join("data", fileFilename), fileNode);
+        filePointer = pointerFromRef(fileFilename);
+      }
+    }
+
     const storedSalePointer = pointerFromRef(salePointer || saleFilename);
     processedSales.push({
       source: saleRecord,
@@ -1027,6 +1055,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         idx,
       );
+    }
+    if (deedPointer && filePointer) {
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
   });
 
