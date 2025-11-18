@@ -104,7 +104,14 @@ function sanitizePointerObject(pointer) {
   return stripPointerToAllowedKeys(sanitized);
 }
 
-const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
+const POINTER_ALLOWED_KEYS = new Set([
+  "cid",
+  "uri",
+  "/",
+  "space_type_index",
+  "ownership_transfer_date",
+  "request_identifier",
+]);
 const RELATIONSHIP_ENDPOINT_BLOCKLIST = new Set([
   "book",
   "deed_type",
@@ -118,10 +125,8 @@ const RELATIONSHIP_ENDPOINT_BLOCKLIST = new Set([
   "link",
   "name",
   "original_url",
-  "ownership_transfer_date",
   "page",
   "purchase_price_amount",
-  "request_identifier",
   "sale_date",
   "sale_price",
   "source_http_request",
@@ -146,11 +151,39 @@ function stripPointerToAllowedKeys(pointer) {
   for (const key of POINTER_ALLOWED_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
     const raw = candidate[key];
-    if (typeof raw !== "string") continue;
-    const trimmed = raw.trim();
-    if (trimmed) cleaned[key] = trimmed;
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed) cleaned[key] = trimmed;
+    } else if (typeof raw === "number") {
+      if (!Number.isNaN(raw)) cleaned[key] = raw;
+    } else if (raw instanceof Date) {
+      cleaned[key] = raw.toISOString();
+    } else {
+      cleaned[key] = raw;
+    }
   }
   return Object.keys(cleaned).length ? cleaned : null;
+}
+
+function extractRelationshipMetadata(source) {
+  if (!source || typeof source !== "object") return {};
+  const extras = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (key === "cid" || key === "uri" || key === "/") continue;
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const raw = source[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed) extras[key] = trimmed;
+    } else if (typeof raw === "number") {
+      if (!Number.isNaN(raw)) extras[key] = raw;
+    } else {
+      extras[key] = raw;
+    }
+  }
+  return extras;
 }
 
 function finalizeRelationshipEndpoint(pointer) {
@@ -158,45 +191,81 @@ function finalizeRelationshipEndpoint(pointer) {
   const sanitized = stripPointerToAllowedKeys(pointer);
   if (!sanitized || typeof sanitized !== "object") return null;
 
+  const result = {};
+
   if (typeof sanitized.cid === "string") {
     const cidValue = sanitized.cid.trim();
     if (cidValue) {
       const normalizedCid = cidValue.startsWith("cid:")
         ? cidValue
         : `cid:${cidValue}`;
-      return { cid: normalizedCid };
+      result.cid = normalizedCid;
     }
   }
 
-  if (typeof sanitized.uri === "string") {
+  if (!result.cid && typeof sanitized.uri === "string") {
     const uriValue = sanitized.uri.trim();
     if (uriValue) {
-      return { uri: uriValue };
+      result.uri = uriValue;
     }
   }
 
-  if (typeof sanitized["/"] === "string") {
+  if (!result.cid && !result.uri && typeof sanitized["/"] === "string") {
     const normalizedPath = normalizePointerPath(sanitized["/"]);
     if (normalizedPath) {
-      return { "/": normalizedPath };
-    }
-    const trimmedPath = sanitized["/"].trim();
-    if (trimmedPath) {
-      if (trimmedPath.startsWith("./") || trimmedPath.startsWith("../")) {
-        return { "/": trimmedPath };
+      result["/"] = normalizedPath;
+    } else {
+      const trimmedPath = sanitized["/"].trim();
+      if (trimmedPath) {
+        if (trimmedPath.startsWith("./") || trimmedPath.startsWith("../")) {
+          result["/"] = trimmedPath;
+        } else if (trimmedPath.startsWith("data/")) {
+          result["/"] = `./${trimmedPath.slice("data/".length)}`;
+        } else {
+          result["/"] = `./${trimmedPath.replace(/^\/+/, "")}`;
+        }
       }
-      if (trimmedPath.startsWith("data/")) {
-        return { "/": `./${trimmedPath.slice("data/".length)}` };
-      }
-      return { "/": `./${trimmedPath.replace(/^\/+/, "")}` };
     }
   }
 
-  return null;
+  if (!result.cid && !result.uri && !result["/"]) {
+    return null;
+  }
+
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (key === "cid" || key === "uri" || key === "/") continue;
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) continue;
+    const value = sanitized[key];
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) result[key] = trimmed;
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return Object.keys(result).length ? result : null;
 }
 
 function toStrictRelationshipPointer(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
+
+  const extras = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (key === "cid" || key === "uri" || key === "/") continue;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
+    const extraValue = pointer[key];
+    if (extraValue == null) continue;
+    if (typeof extraValue === "string") {
+      const trimmed = extraValue.trim();
+      if (trimmed) extras[key] = trimmed;
+    } else if (typeof extraValue === "number") {
+      if (!Number.isNaN(extraValue)) extras[key] = extraValue;
+    } else {
+      extras[key] = extraValue;
+    }
+  }
 
   const select = (keys) => {
     for (const key of keys) {
@@ -217,11 +286,15 @@ function toStrictRelationshipPointer(pointer) {
     const normalizedCid = chosen.value.startsWith("cid:")
       ? chosen.value
       : `cid:${chosen.value}`;
-    return { cid: normalizedCid };
+    const result = { cid: normalizedCid };
+    if (Object.keys(extras).length) Object.assign(result, extras);
+    return result;
   }
 
   if (chosen.key === "uri") {
-    return { uri: chosen.value };
+    const result = { uri: chosen.value };
+    if (Object.keys(extras).length) Object.assign(result, extras);
+    return result;
   }
 
   let normalizedPath = normalizePointerPath(chosen.value);
@@ -233,7 +306,9 @@ function toStrictRelationshipPointer(pointer) {
   if (normalizedPath.startsWith("./data/")) {
     normalizedPath = `./${normalizedPath.slice("./data/".length)}`;
   }
-  return { "/": normalizedPath };
+  const result = { "/": normalizedPath };
+  if (Object.keys(extras).length) Object.assign(result, extras);
+  return result;
 }
 
 function cleanRelationshipPointer(pointer) {
@@ -241,10 +316,16 @@ function cleanRelationshipPointer(pointer) {
   const cleaned = {};
   for (const key of POINTER_ALLOWED_KEYS) {
     const value = pointer[key];
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    cleaned[key] = trimmed;
+    if (value == null) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      cleaned[key] = trimmed;
+    } else if (typeof value === "number") {
+      if (!Number.isNaN(value)) cleaned[key] = value;
+    } else {
+      cleaned[key] = value;
+    }
   }
   return Object.keys(cleaned).length ? cleaned : null;
 }
@@ -329,19 +410,23 @@ function normalizeRelationshipEndpoint(refLike) {
   }
   if (typeof refLike !== "object") return null;
 
+  const extras = extractRelationshipMetadata(refLike);
+
   if (typeof refLike.cid === "string") {
     const rawCid = refLike.cid.trim();
     if (rawCid) {
-      return {
+      const pointer = {
         cid: rawCid.startsWith("cid:") ? rawCid : `cid:${rawCid}`,
       };
+      return Object.assign(pointer, extras);
     }
   }
 
   if (typeof refLike.uri === "string") {
     const rawUri = refLike.uri.trim();
     if (rawUri) {
-      return { uri: rawUri };
+      const pointer = { uri: rawUri };
+      return Object.assign(pointer, extras);
     }
   }
 
@@ -354,10 +439,17 @@ function normalizeRelationshipEndpoint(refLike) {
 
   if (typeof pathCandidate === "string") {
     const pointerFromPath = buildStrictPathPointer(pathCandidate);
+    if (pointerFromPath && Object.keys(extras).length) {
+      Object.assign(pointerFromPath, extras);
+    }
     if (pointerFromPath) return pointerFromPath;
   }
 
-  return sanitizeRelationshipReference(refLike);
+  const fallback = sanitizeRelationshipReference(refLike);
+  if (fallback && Object.keys(extras).length) {
+    Object.assign(fallback, extras);
+  }
+  return fallback;
 }
 
 function pointerNormalizedPath(pointer) {
@@ -970,6 +1062,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const propertyPointerSource = fs.existsSync(propertyFileOnDisk)
     ? (context && context.propertyFile) || "property.json"
     : null;
+  const propertyPointer = propertyPointerSource
+    ? buildStrictPathPointer(propertyPointerSource)
+    : null;
 
   removeFilesMatchingPatterns([
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
@@ -1001,6 +1096,15 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleNode);
     const salePointer = buildStrictPathPointer(saleFilename);
+    if (
+      salePointer &&
+      saleNode &&
+      typeof saleNode.ownership_transfer_date === "string" &&
+      saleNode.ownership_transfer_date.trim()
+    ) {
+      salePointer.ownership_transfer_date =
+        saleNode.ownership_transfer_date.trim();
+    }
 
     const deedCandidate = {};
     const deedType = mapInstrumentToDeedType(saleRecord.instrument);
@@ -1012,6 +1116,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
+    const deedPointer = buildStrictPathPointer(deedFilename);
 
     const parcelIdForRequest = parcelId != null ? String(parcelId).trim() : "";
     const fileRequestIdentifier = parcelIdForRequest
@@ -1022,6 +1127,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const fileNode = sanitizeFileMetadata(fileNodeInput);
     const fileFilename = `file_${idx}.json`;
     writeJSON(path.join("data", fileFilename), fileNode);
+    const filePointer = buildStrictPathPointer(fileFilename);
 
     processedSales.push({
       source: saleRecord,
@@ -1032,35 +1138,22 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleNode,
     });
 
-    writeRelationshipFromFilenames(
-      "deed_has_file",
-      deedFilename,
-      fileFilename,
-      idx,
-    );
-    if (salePointer) {
-      writeRelationshipFromFilenames(
-        "sales_history_has_deed",
-        saleFilename,
-        deedFilename,
-        idx,
-      );
+    if (deedPointer && filePointer) {
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
-    if (propertyPointerSource) {
-      writeRelationshipFromFilenames(
-        "property_has_file",
-        propertyPointerSource,
-        fileFilename,
+    if (salePointer && deedPointer) {
+      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+    }
+    if (propertyPointer && filePointer) {
+      writeRelationship("property_has_file", propertyPointer, filePointer, idx);
+    }
+    if (propertyPointer && salePointer) {
+      writeRelationship(
+        "property_has_sales_history",
+        propertyPointer,
+        salePointer,
         idx,
       );
-      if (salePointer) {
-        writeRelationshipFromFilenames(
-          "property_has_sales_history",
-          propertyPointerSource,
-          saleFilename,
-          idx,
-        );
-      }
     }
   });
 
@@ -1361,6 +1454,13 @@ function writeLayout(parcelId, context) {
         "property.json";
       const propertyPointer = buildStrictPathPointer(propertyRelationshipPath);
       const layoutPointer = buildStrictPathPointer(layoutFilename);
+      if (
+        layoutPointer &&
+        normalizedIndexValue != null &&
+        `${normalizedIndexValue}`.trim() !== ""
+      ) {
+        layoutPointer.space_type_index = `${normalizedIndexValue}`.trim();
+      }
       if (propertyPointer && layoutPointer) {
         writeRelationship(
           "property_has_layout",
