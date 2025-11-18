@@ -344,18 +344,15 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
-const FILE_METADATA_KEYS_TO_STRIP = [
-  "document_type",
-  "file_format",
-  "ipfs_url",
-  "name",
-  "original_url",
-];
-
 function sanitizeFileMetadata(file) {
   if (!file || typeof file !== "object") return {};
 
   const sanitized = {};
+
+  if (typeof file.request_identifier === "string") {
+    const trimmed = file.request_identifier.trim();
+    if (trimmed) sanitized.request_identifier = trimmed;
+  }
 
   if (file.source_http_request && typeof file.source_http_request === "object") {
     const clonedRequest = cloneDeep(file.source_http_request);
@@ -363,20 +360,6 @@ function sanitizeFileMetadata(file) {
       sanitized.source_http_request = clonedRequest;
     }
   }
-
-  if (typeof file.request_identifier === "string") {
-    const trimmed = file.request_identifier.trim();
-    if (trimmed) sanitized.request_identifier = trimmed;
-  }
-
-  FILE_METADATA_KEYS_TO_STRIP.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(file, key)) {
-      delete file[key];
-    }
-    if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
-      delete sanitized[key];
-    }
-  });
 
   return sanitized;
 }
