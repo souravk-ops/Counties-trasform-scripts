@@ -182,6 +182,47 @@ function finalizeRelationshipEndpoint(pointer) {
   return null;
 }
 
+function toStrictRelationshipPointer(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const select = (keys) => {
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
+      const raw = pointer[key];
+      if (typeof raw !== "string") continue;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      return { key, value: trimmed };
+    }
+    return null;
+  };
+
+  const chosen = select(["cid", "uri", "/"]);
+  if (!chosen) return null;
+
+  if (chosen.key === "cid") {
+    const normalizedCid = chosen.value.startsWith("cid:")
+      ? chosen.value
+      : `cid:${chosen.value}`;
+    return { cid: normalizedCid };
+  }
+
+  if (chosen.key === "uri") {
+    return { uri: chosen.value };
+  }
+
+  let normalizedPath = normalizePointerPath(chosen.value);
+  if (!normalizedPath) {
+    const stripped = chosen.value.replace(/^\/+/, "");
+    if (!stripped) return null;
+    normalizedPath = `./${stripped}`;
+  }
+  if (normalizedPath.startsWith("./data/")) {
+    normalizedPath = `./${normalizedPath.slice("./data/".length)}`;
+  }
+  return { "/": normalizedPath };
+}
+
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -361,7 +402,9 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     reoriented && reoriented.from,
   );
   const sanitizedTo = finalizeRelationshipEndpoint(reoriented && reoriented.to);
-  if (!sanitizedFrom || !sanitizedTo) return;
+  const strictFrom = toStrictRelationshipPointer(sanitizedFrom);
+  const strictTo = toStrictRelationshipPointer(sanitizedTo);
+  if (!strictFrom || !strictTo) return;
 
   const expected = RELATIONSHIP_EXPECTED_PREFIXES[relationshipType];
   if (expected) {
@@ -370,8 +413,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
       typeof prefix === "string" &&
       value.toLowerCase().startsWith(prefix.toLowerCase());
 
-    const finalFromPath = pointerNormalizedPath(sanitizedFrom);
-    const finalToPath = pointerNormalizedPath(sanitizedTo);
+    const finalFromPath = pointerNormalizedPath(strictFrom);
+    const finalToPath = pointerNormalizedPath(strictTo);
 
     const fromMismatch =
       expected.from &&
@@ -386,8 +429,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   }
 
   const relationship = {
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: strictFrom,
+    to: strictTo,
   };
 
   const suffixPortion =
