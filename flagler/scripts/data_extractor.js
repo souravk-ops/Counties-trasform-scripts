@@ -372,6 +372,34 @@ const RELATIONSHIP_EXPECTED_PREFIXES = {
   sales_history_has_company: { from: "./sales_history_", to: "./company_" },
 };
 
+function enforceRelationshipOrientation(type, fromPointer, toPointer) {
+  const expected = RELATIONSHIP_EXPECTED_PREFIXES[type];
+  if (!expected) {
+    return { from: fromPointer, to: toPointer };
+  }
+
+  const fromPath = pointerNormalizedPath(fromPointer);
+  const toPath = pointerNormalizedPath(toPointer);
+  const matchesPrefix = (value, prefix) =>
+    typeof value === "string" &&
+    typeof prefix === "string" &&
+    value.toLowerCase().startsWith(prefix.toLowerCase());
+
+  const fromMatches = matchesPrefix(fromPath, expected.from);
+  const toMatches = matchesPrefix(toPath, expected.to);
+  if (fromMatches && toMatches) {
+    return { from: fromPointer, to: toPointer };
+  }
+
+  const swappedFromMatches = matchesPrefix(toPath, expected.from);
+  const swappedToMatches = matchesPrefix(fromPath, expected.to);
+  if (swappedFromMatches && swappedToMatches) {
+    return { from: toPointer, to: fromPointer };
+  }
+
+  return { from: fromPointer, to: toPointer };
+}
+
 function maybeReorientRelationship(type, fromReference, toReference) {
   if (!fromReference || !toReference) {
     return { from: fromReference, to: toReference };
@@ -426,31 +454,16 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const strictTo = toStrictRelationshipPointer(sanitizedTo);
   if (!strictFrom || !strictTo) return;
 
-  const expected = RELATIONSHIP_EXPECTED_PREFIXES[relationshipType];
-  if (expected) {
-    const matchesPrefix = (value, prefix) =>
-      typeof value === "string" &&
-      typeof prefix === "string" &&
-      value.toLowerCase().startsWith(prefix.toLowerCase());
-
-    const finalFromPath = pointerNormalizedPath(strictFrom);
-    const finalToPath = pointerNormalizedPath(strictTo);
-
-    const fromMismatch =
-      expected.from &&
-      finalFromPath &&
-      !matchesPrefix(finalFromPath, expected.from);
-    const toMismatch =
-      expected.to && finalToPath && !matchesPrefix(finalToPath, expected.to);
-
-    if (fromMismatch || toMismatch) {
-      return;
-    }
-  }
+  const oriented = enforceRelationshipOrientation(
+    relationshipType,
+    strictFrom,
+    strictTo,
+  );
+  if (!oriented || !oriented.from || !oriented.to) return;
 
   const relationship = {
-    from: strictFrom,
-    to: strictTo,
+    from: oriented.from,
+    to: oriented.to,
   };
 
   const suffixPortion =
@@ -514,24 +527,15 @@ function sanitizeFileMetadata(file) {
     if (trimmed) sanitized.request_identifier = trimmed;
   }
 
-  if (file.source_http_request && typeof file.source_http_request === "object") {
+  if (
+    file.source_http_request &&
+    typeof file.source_http_request === "object"
+  ) {
     const clonedRequest = cloneDeep(file.source_http_request);
     if (clonedRequest && Object.keys(clonedRequest).length > 0) {
       sanitized.source_http_request = clonedRequest;
     }
   }
-
-  [
-    "document_type",
-    "file_format",
-    "ipfs_url",
-    "name",
-    "original_url",
-  ].forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
-      delete sanitized[key];
-    }
-  });
 
   return sanitized;
 }

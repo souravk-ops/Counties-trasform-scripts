@@ -11,7 +11,8 @@ function readHtml(filepath) {
 }
 
 // Updated selectors based on the provided HTML
-const PARCEL_SELECTOR = "#ctlBodyPane_ctl02_ctl01_dynamicSummary_rptrDynamicColumns_ctl00_pnlSingleValue span";
+const PARCEL_SELECTOR =
+  "#ctlBodyPane_ctl02_ctl01_dynamicSummary_rptrDynamicColumns_ctl00_pnlSingleValue span";
 const BUILDING_SECTION_TITLE = "Residential Buildings"; // Corrected title from HTML
 
 function textTrim(s) {
@@ -22,136 +23,6 @@ function getParcelId($) {
   let parcelIdText = $(PARCEL_SELECTOR).text().trim();
   if (parcelIdText) {
     return parcelIdText;
-  }
-  return null;
-}
-
-function normalizePointerPath(ref) {
-  if (typeof ref !== "string") return null;
-  let trimmed = ref.trim();
-  if (!trimmed) return null;
-  trimmed = trimmed.replace(/\\/g, "/");
-  if (trimmed.startsWith("./") || trimmed.startsWith("../")) {
-    return trimmed;
-  }
-  trimmed = trimmed.replace(/^\/+/, "");
-  if (!trimmed) return null;
-  return `./${trimmed}`;
-}
-
-function normalizePointerOutput(pointerString) {
-  if (!pointerString || typeof pointerString !== "string") return null;
-  const trimmed = pointerString.trim();
-  if (!trimmed) return null;
-  if (/^cid:/i.test(trimmed)) {
-    const cidOnly = trimmed.slice(4).trim();
-    return cidOnly ? { cid: `cid:${cidOnly}` } : null;
-  }
-  if (/^(?:baf|bag)/i.test(trimmed)) {
-    return { cid: trimmed };
-  }
-  if (/^https?:\/\//i.test(trimmed)) {
-    return { uri: trimmed };
-  }
-  const normalized = normalizePointerPath(trimmed);
-  if (!normalized) return null;
-  return { "/": normalized };
-}
-
-function sanitizePointerObject(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  const sanitized = {};
-  if (typeof pointer.cid === "string") {
-    const cid = pointer.cid.trim();
-    if (cid) sanitized.cid = cid;
-  }
-  if (typeof pointer.uri === "string") {
-    const uri = pointer.uri.trim();
-    if (uri) sanitized.uri = uri;
-  }
-  if (typeof pointer["/"] === "string") {
-    const p = pointer["/"].trim();
-    if (p) sanitized["/"] = p;
-  }
-  return Object.keys(sanitized).length ? sanitized : null;
-}
-
-const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
-
-function stripPointerToAllowedKeys(value) {
-  if (!value || typeof value !== "object") return null;
-  const cleaned = {};
-  for (const key of POINTER_ALLOWED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-    const raw = value[key];
-    if (typeof raw !== "string") continue;
-    const trimmed = raw.trim();
-    if (trimmed) cleaned[key] = trimmed;
-  }
-  return Object.keys(cleaned).length ? cleaned : null;
-}
-
-function makeRelationshipPointer(ref) {
-  if (ref == null) return null;
-
-  const toPointerObject = (value) => {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const normalized = normalizePointerOutput(trimmed);
-    if (!normalized) return null;
-    const sanitized = sanitizePointerObject(normalized);
-    return stripPointerToAllowedKeys(sanitized);
-  };
-
-  if (typeof ref === "string") {
-    return toPointerObject(ref);
-  }
-
-  if (typeof ref !== "object") return null;
-
-  if (typeof ref.cid === "string" && ref.cid.trim()) {
-    const cidValue = ref.cid.trim().startsWith("cid:")
-      ? ref.cid.trim()
-      : `cid:${ref.cid.trim()}`;
-    const pointer = toPointerObject(cidValue);
-    if (pointer) return pointer;
-  }
-
-  if (typeof ref.uri === "string" && ref.uri.trim()) {
-    const pointer = toPointerObject(ref.uri);
-    if (pointer) return pointer;
-  }
-
-  if (typeof ref["/"] === "string" && ref["/"].trim()) {
-    const pointer = toPointerObject(ref["/"]);
-    if (pointer) return pointer;
-  }
-
-  const candidateKeys = ["path", "@ref", "filename", "file"];
-  for (const key of candidateKeys) {
-    if (typeof ref[key] !== "string") continue;
-    const pointer = toPointerObject(ref[key]);
-    if (pointer) return pointer;
-  }
-
-  return null;
-}
-
-function makeRelationshipValue(ref) {
-  const pointer = makeRelationshipPointer(ref);
-  if (!pointer) return null;
-  if (typeof pointer.cid === "string") {
-    const rawCid = pointer.cid.trim();
-    if (rawCid) return rawCid.startsWith("cid:") ? rawCid : `cid:${rawCid}`;
-  }
-  if (typeof pointer.uri === "string") {
-    const rawUri = pointer.uri.trim();
-    if (rawUri) return rawUri;
-  }
-  if (typeof pointer["/"] === "string") {
-    const normalized = normalizePointerPath(pointer["/"]);
-    if (normalized) return normalized;
   }
   return null;
 }
@@ -317,59 +188,6 @@ function main() {
   outObj[`property_${parcelId}`] = { layouts: normalizedLayouts };
   fs.writeFileSync(outPath, JSON.stringify(outObj, null, 2), "utf8");
   console.log(`Wrote ${outPath}`);
-
-  const dataDir = path.resolve("data");
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  try {
-    fs.readdirSync(dataDir).forEach((fileName) => {
-      if (/^layout_\d+\.json$/i.test(fileName)) {
-        fs.unlinkSync(path.join(dataDir, fileName));
-      }
-      if (/^relationship_property_has_layout_\d+\.json$/i.test(fileName)) {
-        fs.unlinkSync(path.join(dataDir, fileName));
-      }
-      if (/^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i.test(fileName)) {
-        fs.unlinkSync(path.join(dataDir, fileName));
-      }
-      if (/^fact_sheet(?:_\d+)?\.json$/i.test(fileName)) {
-        fs.unlinkSync(path.join(dataDir, fileName));
-      }
-    });
-  } catch (err) {}
-
-  const propertyPath = path.join(dataDir, "property.json");
-  const propertyRelationshipFrom = fs.existsSync(propertyPath)
-    ? "./property.json"
-    : null;
-
-  normalizedLayouts.forEach((layout, index) => {
-    const layoutIdx = index + 1;
-    const layoutFile = `layout_${layoutIdx}.json`;
-    fs.writeFileSync(
-      path.join(dataDir, layoutFile),
-      JSON.stringify(layout, null, 2),
-      "utf8",
-    );
-
-    if (propertyRelationshipFrom) {
-      const propertyPointer = makeRelationshipValue(propertyRelationshipFrom);
-      if (!propertyPointer) return;
-      const layoutPointer = makeRelationshipValue(`./${layoutFile}`);
-      if (!layoutPointer) return;
-      const rel = {
-        from: propertyPointer,
-        to: layoutPointer,
-      };
-      fs.writeFileSync(
-        path.join(
-          dataDir,
-          `relationship_property_has_layout_${layoutIdx}.json`,
-        ),
-        JSON.stringify(rel, null, 2),
-        "utf8",
-      );
-    }
-  });
 }
 
 if (require.main === module) {
