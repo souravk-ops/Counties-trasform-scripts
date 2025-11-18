@@ -362,6 +362,29 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   );
   const sanitizedTo = finalizeRelationshipEndpoint(reoriented && reoriented.to);
   if (!sanitizedFrom || !sanitizedTo) return;
+
+  const expected = RELATIONSHIP_EXPECTED_PREFIXES[relationshipType];
+  if (expected) {
+    const matchesPrefix = (value, prefix) =>
+      typeof value === "string" &&
+      typeof prefix === "string" &&
+      value.toLowerCase().startsWith(prefix.toLowerCase());
+
+    const finalFromPath = pointerNormalizedPath(sanitizedFrom);
+    const finalToPath = pointerNormalizedPath(sanitizedTo);
+
+    const fromMismatch =
+      expected.from &&
+      finalFromPath &&
+      !matchesPrefix(finalFromPath, expected.from);
+    const toMismatch =
+      expected.to && finalToPath && !matchesPrefix(finalToPath, expected.to);
+
+    if (fromMismatch || toMismatch) {
+      return;
+    }
+  }
+
   const relationship = {
     from: sanitizedFrom,
     to: sanitizedTo,
