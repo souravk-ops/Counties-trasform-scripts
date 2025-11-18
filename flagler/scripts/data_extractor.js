@@ -236,6 +236,19 @@ function toStrictRelationshipPointer(pointer) {
   return { "/": normalizedPath };
 }
 
+function cleanRelationshipPointer(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const cleaned = {};
+  for (const key of POINTER_ALLOWED_KEYS) {
+    const value = pointer[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    cleaned[key] = trimmed;
+  }
+  return Object.keys(cleaned).length ? cleaned : null;
+}
+
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -461,9 +474,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   );
   if (!oriented || !oriented.from || !oriented.to) return;
 
+  const finalFrom = cleanRelationshipPointer(oriented.from);
+  const finalTo = cleanRelationshipPointer(oriented.to);
+  if (!finalFrom || !finalTo) return;
+
   const relationship = {
-    from: oriented.from,
-    to: oriented.to,
+    from: finalFrom,
+    to: finalTo,
   };
 
   const suffixPortion =
@@ -1264,15 +1281,15 @@ function writeUtility(parcelId, context) {
 function writeLayout(parcelId, context) {
   const { defaultSourceHttpRequest } = context || {};
   const layouts = readJSON(path.join("owners", "layout_data.json"));
-  if (!layouts) return;
-  const key = `property_${parcelId}`;
-  const record = (layouts[key] && layouts[key].layouts) ? layouts[key].layouts : [];
   removeFilesMatchingPatterns([
     /^relationship_property_has_layout(?:_\d+)?\.json$/i,
     /^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i,
     /^relationship_file_has_fact_sheet(?:_\d+)?\.json$/i,
     /^fact_sheet(?:_\d+)?\.json$/i,
   ]);
+  if (!layouts) return;
+  const key = `property_${parcelId}`;
+  const record = (layouts[key] && layouts[key].layouts) ? layouts[key].layouts : [];
   let layoutCounter = 0;
   record.forEach((l) => {
     const layoutIdx = layoutCounter + 1;
