@@ -521,36 +521,6 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
-function sanitizeFileMetadata(file) {
-  if (!file || typeof file !== "object") return null;
-
-  const sanitized = {};
-
-  if (typeof file.original_url === "string") {
-    const trimmed = file.original_url.trim();
-    if (trimmed && /^https?:\/\//i.test(trimmed)) {
-      sanitized.original_url = trimmed;
-    }
-  }
-
-  if (typeof file.request_identifier === "string") {
-    const trimmed = file.request_identifier.trim();
-    if (trimmed) sanitized.request_identifier = trimmed;
-  }
-
-  if (
-    file.source_http_request &&
-    typeof file.source_http_request === "object"
-  ) {
-    const clonedRequest = cloneDeep(file.source_http_request);
-    if (clonedRequest && Object.keys(clonedRequest).length > 0) {
-      sanitized.source_http_request = clonedRequest;
-    }
-  }
-
-  return Object.keys(sanitized).length ? sanitized : null;
-}
-
 function sanitizeDeedMetadata(deed) {
   if (!deed || typeof deed !== "object") return {};
   const sanitized = {};
@@ -1020,19 +990,13 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         ? saleRecord.link.trim()
         : "";
     if (rawFileUrl) {
-      const fileCandidate = {
-        original_url: rawFileUrl,
-        request_identifier: parcelId
-          ? `${parcelId}_deed_file_${String(idx).padStart(3, "0")}`
-          : null,
+      const pointerInput = {
+        uri: rawFileUrl,
       };
-      attachSourceHttpRequest(fileCandidate, defaultSourceHttpRequest);
-      const fileNode = sanitizeFileMetadata(fileCandidate);
-      if (fileNode) {
-        const fileFilename = `file_${idx}.json`;
-        writeJSON(path.join("data", fileFilename), fileNode);
-        filePointer = pointerFromRef(fileFilename);
+      if (parcelId) {
+        pointerInput.request_identifier = `${parcelId}_deed_file_${String(idx).padStart(3, "0")}`;
       }
+      filePointer = pointerFromRef(pointerInput);
     }
 
     const storedSalePointer = pointerFromRef(salePointer || saleFilename);
