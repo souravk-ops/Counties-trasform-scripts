@@ -181,6 +181,7 @@ function pointerEntityType(pointer) {
 }
 
 const RELATIONSHIP_ENTITY_EXPECTATIONS = {
+  deed_has_file: { from: "deed", to: "file" },
   property_has_file: { from: "property", to: "file" },
   sales_history_has_deed: { from: "sales_history", to: "deed" },
   property_has_sales_history: { from: "property", to: "sales_history" },
@@ -856,7 +857,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleNode,
     });
 
-    // Disabled deed_has_file to avoid emitting file metadata on the relationship endpoints.
+    if (deedPointer && filePointer) {
+      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
+    }
     if (salePointer && deedPointer) {
       writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
     }
