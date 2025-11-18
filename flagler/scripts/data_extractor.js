@@ -153,16 +153,26 @@ function buildStrictPathPointer(refLike) {
   const normalized = normalizePointerOutput(refLike);
   const pointer = sanitizePointerObject(normalized);
   if (!pointer || typeof pointer["/"] !== "string") return null;
-  let pathValue = pointer["/"];
+  let pathValue = pointer["/"].trim();
+  if (!pathValue) return null;
+
+  // Normalize to a relative path that matches the schema pointer constraints.
   if (pathValue.startsWith("./")) {
-    pathValue = pathValue.slice(2);
+    const withoutDots = pathValue.slice(2);
+    pathValue = `./${withoutDots.replace(/^data\//, "")}`;
+  } else if (pathValue.startsWith("../")) {
+    // Already scoped relative to parent; leave as-is but collapse repeated separators.
+    pathValue = pathValue.replace(/\/{2,}/g, "/");
+  } else if (pathValue.startsWith("data/")) {
+    pathValue = `./${pathValue.slice("data/".length)}`;
+  } else {
+    pathValue = `./${pathValue.replace(/^\/+/, "")}`;
   }
-  if (!pathValue.startsWith("data/") && !pathValue.startsWith("../")) {
-    pathValue = `data/${pathValue}`;
+
+  if (pathValue.startsWith("./data/")) {
+    pathValue = `./${pathValue.slice("./data/".length)}`;
   }
-  if (!pathValue.startsWith("./") && !pathValue.startsWith("../")) {
-    pathValue = `./${pathValue}`;
-  }
+
   return { "/": pathValue };
 }
 
