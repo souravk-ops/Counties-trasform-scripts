@@ -190,6 +190,44 @@ function sanitizeRelationshipReference(refLike) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
+function pointerNormalizedPath(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const path = pointer["/"];
+  if (typeof path !== "string") return null;
+  const trimmed = path.trim();
+  return trimmed || null;
+}
+
+function maybeReorientRelationship(type, fromReference, toReference) {
+  if (!fromReference || !toReference) {
+    return { from: fromReference, to: toReference };
+  }
+  const fromPath = pointerNormalizedPath(fromReference);
+  const toPath = pointerNormalizedPath(toReference);
+  const hasPrefix = (value, prefix) =>
+    typeof value === "string" &&
+    typeof prefix === "string" &&
+    value.toLowerCase().startsWith(prefix.toLowerCase());
+
+  if (
+    type === "deed_has_file" &&
+    hasPrefix(fromPath, "./file_") &&
+    hasPrefix(toPath, "./deed_")
+  ) {
+    return { from: toReference, to: fromReference };
+  }
+
+  if (
+    type === "sales_history_has_deed" &&
+    hasPrefix(fromPath, "./deed_") &&
+    hasPrefix(toPath, "./sales_history_")
+  ) {
+    return { from: toReference, to: fromReference };
+  }
+
+  return { from: fromReference, to: toReference };
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
@@ -199,10 +237,11 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const toReference = sanitizeRelationshipReference(toRefLike);
   if (!fromReference || !toReference) return;
 
-  const relationship = {
-    from: fromReference,
-    to: toReference,
-  };
+  const relationship = maybeReorientRelationship(
+    relationshipType,
+    fromReference,
+    toReference,
+  );
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
