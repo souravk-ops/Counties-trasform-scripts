@@ -91,6 +91,41 @@ function stripPointerToAllowedKeys(value) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
+function pointerObjectToString(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const sanitized = stripPointerToAllowedKeys(pointer);
+  if (!sanitized) return null;
+
+  if (typeof sanitized.cid === "string") {
+    const cidValue = sanitized.cid.trim();
+    if (cidValue) {
+      return cidValue.startsWith("cid:") ? cidValue : `cid:${cidValue}`;
+    }
+  }
+
+  if (typeof sanitized.uri === "string") {
+    const uriValue = sanitized.uri.trim();
+    if (uriValue) return uriValue;
+  }
+
+  if (typeof sanitized["/"] === "string") {
+    const normalizedPath = normalizePointerPath(sanitized["/"]);
+    if (normalizedPath) return normalizedPath;
+    const trimmedPath = sanitized["/"].trim();
+    if (trimmedPath) {
+      if (trimmedPath.startsWith("./") || trimmedPath.startsWith("../")) {
+        return trimmedPath;
+      }
+      if (trimmedPath.startsWith("data/")) {
+        return `./${trimmedPath.slice("data/".length)}`;
+      }
+      return `./${trimmedPath.replace(/^\/+/, "")}`;
+    }
+  }
+
+  return null;
+}
+
 function makeRelationshipPointer(ref) {
   if (ref == null) return null;
 
@@ -136,6 +171,12 @@ function makeRelationshipPointer(ref) {
   }
 
   return null;
+}
+
+function makeRelationshipValue(ref) {
+  const pointer = makeRelationshipPointer(ref);
+  if (!pointer) return null;
+  return pointerObjectToString(pointer);
 }
 
 function collectBuildings($) {
@@ -334,9 +375,9 @@ function main() {
     );
 
     if (propertyRelationshipFrom) {
-      const propertyPointer = makeRelationshipPointer(propertyRelationshipFrom);
+      const propertyPointer = makeRelationshipValue(propertyRelationshipFrom);
       if (!propertyPointer) return;
-      const layoutPointer = makeRelationshipPointer(`./${layoutFile}`);
+      const layoutPointer = makeRelationshipValue(`./${layoutFile}`);
       if (!layoutPointer) return;
       const rel = {
         from: propertyPointer,
