@@ -164,13 +164,59 @@ function pointerFromRef(refLike) {
   return Object.keys(extras).length ? { ...base, ...extras } : base;
 }
 
+function cleanPointer(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const cleaned = {};
+
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    cleaned.cid = pointer.cid.trim();
+  }
+
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    cleaned.uri = pointer.uri.trim();
+  }
+
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    const normalizedPath = normalizePointerPath(pointer["/"].trim());
+    if (normalizedPath) cleaned["/"] = normalizedPath;
+  }
+
+  if (!cleaned.cid && !cleaned.uri && !cleaned["/"]) {
+    return null;
+  }
+
+  if (typeof pointer.ownership_transfer_date === "string") {
+    const normalizedDate = formatPointerDate(pointer.ownership_transfer_date);
+    if (normalizedDate) cleaned.ownership_transfer_date = normalizedDate;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(pointer, "space_type_index")) {
+    const value = pointer.space_type_index;
+    if (value != null) {
+      const trimmed = String(value).trim();
+      if (trimmed) cleaned.space_type_index = trimmed;
+    }
+  }
+
+  if (typeof pointer.request_identifier === "string") {
+    const trimmed = pointer.request_identifier.trim();
+    if (trimmed) cleaned.request_identifier = trimmed;
+  }
+
+  return cleaned;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const fromPointer = pointerFromRef(fromRefLike);
-  const toPointer = pointerFromRef(toRefLike);
+  const fromPointerRaw = pointerFromRef(fromRefLike);
+  const toPointerRaw = pointerFromRef(toRefLike);
+
+  const fromPointer = cleanPointer(fromPointerRaw);
+  const toPointer = cleanPointer(toPointerRaw);
   if (!fromPointer || !toPointer) return;
 
   const suffixPortion =
@@ -710,20 +756,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", deedFilename), deedNode);
     const deedPointer = pointerFromRef(deedFilename);
 
-    const parcelIdForRequest = parcelId != null ? String(parcelId).trim() : "";
-    const fileRequestIdentifier = parcelIdForRequest
-      ? `${parcelIdForRequest}-deed-file-${idx}`
-      : `deed-file-${idx}`;
-    const fileNodeInput = { request_identifier: fileRequestIdentifier };
-    attachSourceHttpRequest(fileNodeInput, defaultSourceHttpRequest);
-    const fileNode = sanitizeFileMetadata(fileNodeInput);
-    const fileFilename = `file_${idx}.json`;
-    writeJSON(path.join("data", fileFilename), fileNode);
-    const filePointer = pointerFromRef({
-      "/": fileFilename,
-      request_identifier: fileRequestIdentifier,
-    });
-
     const storedSalePointer = pointerFromRef(salePointer || saleFilename);
     processedSales.push({
       source: saleRecord,
@@ -734,14 +766,8 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleNode,
     });
 
-    if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
-    }
     if (salePointer && deedPointer) {
       writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
-    }
-    if (propertyPointer && filePointer) {
-      writeRelationship("property_has_file", propertyPointer, filePointer, idx);
     }
     if (propertyPointer && salePointer) {
       writeRelationship(
