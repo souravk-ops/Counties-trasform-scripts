@@ -119,135 +119,6 @@ function stripPointerToAllowedKeys(pointer) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
-const FILE_POINTER_PATTERN = /(^|\/)file_\d+\.json$/i;
-const DEED_POINTER_PATTERN = /(^|\/)deed_\d+\.json$/i;
-const SALES_HISTORY_POINTER_PATTERN = /(^|\/)sales_history_\d+\.json$/i;
-const PROPERTY_POINTER_PATTERN = /(^|\/)property(?:_\d+)?\.json$/i;
-const PERSON_POINTER_PATTERN = /(^|\/)person_\d+\.json$/i;
-const COMPANY_POINTER_PATTERN = /(^|\/)company_\d+\.json$/i;
-
-function pointerComparableString(pointer) {
-  if (!pointer || typeof pointer !== "object") return "";
-  if (typeof pointer["/"] === "string") {
-    const raw = pointer["/"].trim().toLowerCase();
-    if (!raw) return "";
-    const normalized = raw.replace(/^\.\/+/, "");
-    return normalized || raw;
-  }
-  if (typeof pointer.cid === "string") return pointer.cid.trim().toLowerCase();
-  if (typeof pointer.uri === "string") return pointer.uri.trim().toLowerCase();
-  return "";
-}
-
-function pointerLooksLikeFile(pointer) {
-  const comparable = pointerComparableString(pointer);
-  return comparable ? FILE_POINTER_PATTERN.test(comparable) : false;
-}
-
-function pointerLooksLikeDeed(pointer) {
-  const comparable = pointerComparableString(pointer);
-  return comparable ? DEED_POINTER_PATTERN.test(comparable) : false;
-}
-
-function pointerLooksLikeSalesHistory(pointer) {
-  const comparable = pointerComparableString(pointer);
-  return comparable ? SALES_HISTORY_POINTER_PATTERN.test(comparable) : false;
-}
-
-function pointerLooksLikeProperty(pointer) {
-  const comparable = pointerComparableString(pointer);
-  return comparable ? PROPERTY_POINTER_PATTERN.test(comparable) : false;
-}
-
-function pointerLooksLikePerson(pointer) {
-  const comparable = pointerComparableString(pointer);
-  return comparable ? PERSON_POINTER_PATTERN.test(comparable) : false;
-}
-
-function pointerLooksLikeCompany(pointer) {
-  const comparable = pointerComparableString(pointer);
-  return comparable ? COMPANY_POINTER_PATTERN.test(comparable) : false;
-}
-
-function pointerEntityType(pointer) {
-  if (!pointer) return null;
-  if (pointerLooksLikeFile(pointer)) return "file";
-  if (pointerLooksLikeDeed(pointer)) return "deed";
-  if (pointerLooksLikeSalesHistory(pointer)) return "sales_history";
-  if (pointerLooksLikeProperty(pointer)) return "property";
-  if (pointerLooksLikePerson(pointer)) return "person";
-  if (pointerLooksLikeCompany(pointer)) return "company";
-  return null;
-}
-
-const RELATIONSHIP_ENTITY_EXPECTATIONS = {
-  deed_has_file: { from: "deed", to: "file" },
-  property_has_file: { from: "property", to: "file" },
-  sales_history_has_deed: { from: "sales_history", to: "deed" },
-  property_has_sales_history: { from: "property", to: "sales_history" },
-  sales_history_has_person: { from: "sales_history", to: "person" },
-  sales_history_has_company: { from: "sales_history", to: "company" },
-};
-
-const RELATIONSHIP_OUTPUT_ORDER = {};
-
-function inferPointerTypeLoose(pointer) {
-  const strictType = pointerEntityType(pointer);
-  if (strictType) return strictType;
-  const comparable = pointerComparableString(pointer);
-  if (!comparable) return null;
-  if (FILE_POINTER_PATTERN.test(comparable)) return "file";
-  if (DEED_POINTER_PATTERN.test(comparable)) return "deed";
-  if (SALES_HISTORY_POINTER_PATTERN.test(comparable)) return "sales_history";
-  if (PROPERTY_POINTER_PATTERN.test(comparable)) return "property";
-  if (PERSON_POINTER_PATTERN.test(comparable)) return "person";
-  if (COMPANY_POINTER_PATTERN.test(comparable)) return "company";
-  return null;
-}
-
-function resolveRelationshipPointers(relationshipType, fromPointer, toPointer) {
-  const expectation = RELATIONSHIP_ENTITY_EXPECTATIONS[relationshipType];
-  if (!expectation) {
-    return { from: fromPointer, to: toPointer };
-  }
-
-  const oriented = orientRelationshipEndpoints(
-    relationshipType,
-    fromPointer,
-    toPointer,
-  );
-
-  const candidates = [
-    { pointer: oriented.from, type: inferPointerTypeLoose(oriented.from) },
-    { pointer: oriented.to, type: inferPointerTypeLoose(oriented.to) },
-  ].filter((entry) => entry.pointer);
-
-  const takePointer = (targetType) => {
-    if (!targetType) return null;
-    const idx = candidates.findIndex(
-      (entry) => entry.type === targetType && entry.pointer,
-    );
-    if (idx === -1) return null;
-    const [selected] = candidates.splice(idx, 1);
-    return selected.pointer;
-  };
-
-  let resolvedFrom = takePointer(expectation.from);
-  let resolvedTo = takePointer(expectation.to);
-
-  if (!resolvedFrom && candidates.length) {
-    resolvedFrom = candidates.shift().pointer;
-  }
-  if (!resolvedTo && candidates.length) {
-    resolvedTo = candidates.shift().pointer;
-  }
-
-  if (!resolvedFrom) resolvedFrom = oriented.from || fromPointer;
-  if (!resolvedTo) resolvedTo = oriented.to || toPointer;
-
-  return { from: resolvedFrom, to: resolvedTo };
-}
-
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -285,42 +156,13 @@ function buildStrictPathPointer(refLike) {
   return { "/": pointer["/"] };
 }
 
-function orientRelationshipEndpoints(relationshipType, initialFrom, initialTo) {
-  const expectation = RELATIONSHIP_ENTITY_EXPECTATIONS[relationshipType];
-  if (!expectation) {
-    return { from: initialFrom, to: initialTo };
-  }
-
-  const fromType = pointerEntityType(initialFrom);
-  const toType = pointerEntityType(initialTo);
-
-  if (fromType === expectation.from && toType === expectation.to) {
-    return { from: initialFrom, to: initialTo };
-  }
-
-  if (fromType === expectation.to && toType === expectation.from) {
-    return { from: initialTo, to: initialFrom };
-  }
-
-  return { from: initialFrom, to: initialTo };
-}
-
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const fromPointerCandidate = pointerFrom(fromRefLike);
-  const toPointerCandidate = pointerFrom(toRefLike);
-  if (!fromPointerCandidate || !toPointerCandidate) return;
-
-  const { from, to } = resolveRelationshipPointers(
-    relationshipType,
-    fromPointerCandidate,
-    toPointerCandidate,
-  );
-  const fromReference = sanitizePointerObject(from);
-  const toReference = sanitizePointerObject(to);
+  const fromReference = pointerFrom(fromRefLike);
+  const toReference = pointerFrom(toRefLike);
   if (!fromReference || !toReference) return;
 
   const relationship = {
