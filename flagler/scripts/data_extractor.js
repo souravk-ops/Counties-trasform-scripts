@@ -277,6 +277,31 @@ function pointerFrom(refLike) {
   return stripPointerToAllowedKeys(rawPointer);
 }
 
+function pointerToReference(refLike) {
+  if (refLike == null) return null;
+  let pointer = null;
+  if (typeof refLike === "string") {
+    pointer = pointerFrom(refLike);
+  } else if (typeof refLike === "object") {
+    pointer = sanitizePointerObject(refLike);
+  }
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    const cid = pointer.cid.trim();
+    return cid.startsWith("cid:") ? cid : `cid:${cid}`;
+  }
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    return pointer.uri.trim();
+  }
+  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
+    const pathRef = pointer["/"].trim();
+    if (pathRef.startsWith("./") || pathRef.startsWith("../")) return pathRef;
+    const stripped = pathRef.replace(/^\/+/, "");
+    return stripped ? `./${stripped}` : null;
+  }
+  return null;
+}
+
 function buildStrictPathPointer(refLike) {
   if (typeof refLike !== "string") return null;
   const normalized = normalizePointerOutput(refLike);
@@ -319,13 +344,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     fromPointerCandidate,
     toPointerCandidate,
   );
-  const fromPointer = sanitizePointerObject(from);
-  const toPointer = sanitizePointerObject(to);
-  if (!fromPointer || !toPointer) return;
+  const fromReference = pointerToReference(from);
+  const toReference = pointerToReference(to);
+  if (!fromReference || !toReference) return;
 
   const relationship = {
-    from: fromPointer,
-    to: toPointer,
+    from: fromReference,
+    to: toReference,
   };
 
   const suffixPortion =
@@ -1298,19 +1323,22 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
   } else {
-    const fullRaw =
-      unnorm && typeof unnorm.full_address === "string"
-        ? unnorm.full_address
-        : null;
     const fallbackUnnormalized =
-      stringOrNull(fullRaw) ||
+      stringOrNull(unnorm && unnorm.full_address) ||
+      stringOrNull(unnorm && unnorm.address) ||
+      stringOrNull(unnorm && unnorm.address_text) ||
       stringOrNull(normalizedSource && normalizedSource.original_address);
-    if (!fallbackUnnormalized) return;
-    address.unnormalized_address = fallbackUnnormalized;
+    if (fallbackUnnormalized) {
+      address.unnormalized_address = fallbackUnnormalized;
+    }
     const normalizedCountry = stringOrNull(
       normalizedSource && normalizedSource.country_code,
     );
-    if (normalizedCountry) address.country_code = normalizedCountry;
+    if (normalizedCountry) {
+      address.country_code = normalizedCountry;
+    } else if (!address.country_code) {
+      address.country_code = "US";
+    }
     const normalizedState = stringOrNull(
       normalizedSource && normalizedSource.state_code,
     );
