@@ -2871,6 +2871,10 @@ const structureItems = (() => {
     writeJSON(path.join(dataDir, filename), data);
   });
 
+  const buildingLayoutsInfo = [];
+  const buildingInfoByIndex = new Map();
+  const buildingMetaByIndex = new Map();
+
   const utilityItems = (() => {
     const wrap = (entry, buildingIndex = null) => {
       const cleanedEntry =
@@ -3178,9 +3182,6 @@ const structureItems = (() => {
       })
     : [];
 
-  const buildingLayoutsInfo = [];
-  const buildingInfoByIndex = new Map();
-  const buildingMetaByIndex = new Map();
   normalizedBuildings.forEach((meta) => {
     buildingMetaByIndex.set(meta.index, meta);
   });
@@ -3729,7 +3730,7 @@ const structureItems = (() => {
     county_name:
       (unaddr &&
         (unaddr.county_jurisdiction || unaddr.county_name || unaddr.county)) ||
-      "Levy",
+      "Monroe",
     country_code: "US",
   };
   if (!address.unnormalized_address && addrFromHTML.addrLine1) {
