@@ -88,20 +88,36 @@ function normalizePointerOutput(pointerString) {
 
 function sanitizePointerObject(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
-  const sanitized = {};
+  const candidate = {};
   if (typeof pointer.cid === "string") {
     const cid = pointer.cid.trim();
-    if (cid) sanitized.cid = cid;
+    if (cid) candidate.cid = cid;
   }
   if (typeof pointer.uri === "string") {
     const uri = pointer.uri.trim();
-    if (uri) sanitized.uri = uri;
+    if (uri) candidate.uri = uri;
   }
   if (typeof pointer["/"] === "string") {
     const normalizedPath = normalizePointerPath(pointer["/"]);
-    if (normalizedPath) sanitized["/"] = normalizedPath;
+    if (normalizedPath) candidate["/"] = normalizedPath;
   }
-  return stripPointerToAllowedKeys(sanitized);
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (key === "cid" || key === "uri" || key === "/") continue;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
+    const raw = pointer[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed) candidate[key] = trimmed;
+    } else if (typeof raw === "number") {
+      if (!Number.isNaN(raw)) candidate[key] = raw;
+    } else if (raw instanceof Date) {
+      candidate[key] = raw.toISOString();
+    } else {
+      candidate[key] = raw;
+    }
+  }
+  return stripPointerToAllowedKeys(candidate);
 }
 
 const POINTER_ALLOWED_KEYS = new Set([
@@ -355,6 +371,22 @@ function pointerFrom(refLike) {
   if (typeof pathCandidate === "string") {
     const normalizedPath = normalizePointerPath(pathCandidate);
     if (normalizedPath) rawPointer["/"] = normalizedPath;
+  }
+  for (const key of POINTER_ALLOWED_KEYS) {
+    if (key === "cid" || key === "uri" || key === "/") continue;
+    if (!Object.prototype.hasOwnProperty.call(refLike, key)) continue;
+    const raw = refLike[key];
+    if (raw == null) continue;
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed) rawPointer[key] = trimmed;
+    } else if (typeof raw === "number") {
+      if (!Number.isNaN(raw)) rawPointer[key] = raw;
+    } else if (raw instanceof Date) {
+      rawPointer[key] = raw.toISOString();
+    } else {
+      rawPointer[key] = raw;
+    }
   }
   return stripPointerToAllowedKeys(rawPointer);
 }
