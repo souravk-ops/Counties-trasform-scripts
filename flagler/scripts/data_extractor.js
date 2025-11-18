@@ -105,13 +105,34 @@ function sanitizePointerObject(pointer) {
 }
 
 const POINTER_ALLOWED_KEYS = new Set(["cid", "uri", "/"]);
+const RELATIONSHIP_ENDPOINT_BLOCKLIST = new Set([
+  "document_type",
+  "file_format",
+  "ipfs_url",
+  "name",
+  "original_url",
+  "deed_type",
+]);
+
+function stripRelationshipMetadata(pointer) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  const cleaned = {};
+  Object.keys(pointer).forEach((key) => {
+    if (RELATIONSHIP_ENDPOINT_BLOCKLIST.has(key)) {
+      return;
+    }
+    cleaned[key] = pointer[key];
+  });
+  return cleaned;
+}
 
 function stripPointerToAllowedKeys(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
+  const candidate = stripRelationshipMetadata(pointer);
   const cleaned = {};
   for (const key of POINTER_ALLOWED_KEYS) {
-    if (!Object.prototype.hasOwnProperty.call(pointer, key)) continue;
-    const raw = pointer[key];
+    if (!Object.prototype.hasOwnProperty.call(candidate, key)) continue;
+    const raw = candidate[key];
     if (typeof raw !== "string") continue;
     const trimmed = raw.trim();
     if (trimmed) cleaned[key] = trimmed;
