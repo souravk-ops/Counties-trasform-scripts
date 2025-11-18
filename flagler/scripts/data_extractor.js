@@ -344,14 +344,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const fromPointerOrdered = storageOrder === "swap" ? toPointer : fromPointer;
   const toPointerOrdered = storageOrder === "swap" ? fromPointer : toPointer;
 
-  const fromReference = pointerToReference(fromPointerOrdered);
-  const toReference = pointerToReference(toPointerOrdered);
-  if (!fromReference || !toReference) return;
+  const fromPayload = fromPointerOrdered;
+  const toPayload = toPointerOrdered;
+  if (!fromPayload || !toPayload) return;
 
   const relationship = {
-    type: relationshipType,
-    from: fromReference,
-    to: toReference,
+    from: fromPayload,
+    to: toPayload,
   };
 
   const suffixPortion =
