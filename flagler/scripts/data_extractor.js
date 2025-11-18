@@ -207,17 +207,268 @@ function cleanPointer(pointer) {
   return cleaned;
 }
 
+const POINTER_JSON_CACHE = new Map();
+
+const RELATIONSHIP_HINTS = {
+  deed_has_file: {
+    from: { pathPrefixes: ["deed_"] },
+    to: { pathPrefixes: ["file_"] },
+  },
+  file_has_fact_sheet: {
+    from: { pathPrefixes: ["file_"] },
+    to: { pathPrefixes: ["fact_sheet"] },
+  },
+  layout_has_fact_sheet: {
+    from: { pathPrefixes: ["layout_"], requiredExtras: ["space_type_index"] },
+    to: { pathPrefixes: ["fact_sheet"] },
+  },
+  property_has_layout: {
+    from: { pathPrefixes: ["property"] },
+    to: { pathPrefixes: ["layout_"], requiredExtras: ["space_type_index"] },
+  },
+  property_has_sales_history: {
+    from: { pathPrefixes: ["property"] },
+    to: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+  },
+  sales_history_has_company: {
+    from: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+    to: { pathPrefixes: ["company_"], disallowExtras: ["ownership_transfer_date"] },
+  },
+  sales_history_has_deed: {
+    from: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+    to: { pathPrefixes: ["deed_"], disallowExtras: ["ownership_transfer_date", "purchase_price_amount"] },
+  },
+  sales_history_has_person: {
+    from: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+    to: { pathPrefixes: ["person_"], disallowExtras: ["ownership_transfer_date"] },
+  },
+};
+
+function readJsonFromData(relativePath) {
+  if (!relativePath) return null;
+  const trimmed = relativePath.replace(/^[./\\]+/, "").trim();
+  if (!trimmed) return null;
+  const fullPath = path.join("data", trimmed);
+  if (POINTER_JSON_CACHE.has(fullPath)) {
+    return POINTER_JSON_CACHE.get(fullPath);
+  }
+  try {
+    const raw = fs.readFileSync(fullPath, "utf8");
+    const parsed = JSON.parse(raw);
+    POINTER_JSON_CACHE.set(fullPath, parsed);
+    return parsed;
+  } catch (err) {
+    POINTER_JSON_CACHE.set(fullPath, null);
+    return null;
+  }
+}
+
+function getRefPath(refLike, pointerRaw) {
+  let candidate = null;
+  if (pointerRaw && typeof pointerRaw === "object" && typeof pointerRaw["/"] === "string") {
+    candidate = pointerRaw["/"];
+  }
+  if (!candidate && refLike && typeof refLike === "object") {
+    candidate =
+      (typeof refLike["/"] === "string" && refLike["/"]) ||
+      (typeof refLike.path === "string" && refLike.path) ||
+      (typeof refLike.filename === "string" && refLike.filename) ||
+      (typeof refLike.file === "string" && refLike.file);
+  }
+  if (!candidate && typeof refLike === "string") {
+    candidate = refLike;
+  }
+  if (typeof candidate !== "string") return null;
+  const normalized = normalizePointerPath(candidate);
+  if (!normalized) return null;
+  return normalized.replace(/^\.\//, "");
+}
+
+function matchesPathPrefix(pathValue, prefixes) {
+  if (!Array.isArray(prefixes) || prefixes.length === 0) return false;
+  if (!pathValue) return false;
+  return prefixes.some((prefix) => pathValue.startsWith(prefix));
+}
+
+function fetchValueFromRefLike(refLike, key) {
+  if (!refLike || typeof refLike !== "object") return null;
+  if (Object.prototype.hasOwnProperty.call(refLike, key)) {
+    const value = refLike[key];
+    if (value == null) return null;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
+    return value;
+  }
+  return null;
+}
+
+function pointerHasRequiredExtras(meta, hintSide) {
+  if (!hintSide || !Array.isArray(hintSide.requiredExtras) || hintSide.requiredExtras.length === 0) {
+    return true;
+  }
+  return hintSide.requiredExtras.every((key) => {
+    const fromPointer =
+      meta.pointerRaw &&
+      Object.prototype.hasOwnProperty.call(meta.pointerRaw, key) &&
+      meta.pointerRaw[key] != null &&
+      String(meta.pointerRaw[key]).trim() !== "";
+    if (fromPointer) return true;
+    const fromRef = fetchValueFromRefLike(meta.refLike, key);
+    if (fromRef != null && String(fromRef).trim() !== "") return true;
+    if (meta.path) {
+      const node = readJsonFromData(meta.path);
+      if (node && Object.prototype.hasOwnProperty.call(node, key)) {
+        const value = node[key];
+        if (value != null && String(value).trim() !== "") return true;
+      }
+    }
+    return false;
+  });
+}
+
+function ensurePointerExtra(pointer, meta, key) {
+  if (!pointer || !meta) return;
+  const current = pointer[key];
+  if (current != null && (typeof current !== "string" || current.trim() !== "")) {
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(current);
+      if (normalized) pointer[key] = normalized;
+      else delete pointer[key];
+    } else if (key === "space_type_index" || key === "request_identifier") {
+      pointer[key] = String(current).trim();
+    }
+    return;
+  }
+  const candidates = [
+    meta.pointerRaw && meta.pointerRaw[key],
+    fetchValueFromRefLike(meta.refLike, key),
+  ];
+  let value = null;
+  for (const cand of candidates) {
+    if (cand == null) continue;
+    if (typeof cand === "string") {
+      const trimmed = cand.trim();
+      if (trimmed) {
+        value = trimmed;
+        break;
+      }
+    } else {
+      value = cand;
+      break;
+    }
+  }
+  if (value == null && meta.path) {
+    const node = readJsonFromData(meta.path);
+    if (node && Object.prototype.hasOwnProperty.call(node, key)) {
+      const nodeValue = node[key];
+      if (nodeValue != null && String(nodeValue).trim() !== "") {
+        value = nodeValue;
+      }
+    }
+  }
+  if (value == null) return;
+  if (key === "ownership_transfer_date") {
+    const normalized = formatPointerDate(value);
+    if (normalized) pointer[key] = normalized;
+  } else if (key === "space_type_index" || key === "request_identifier") {
+    const trimmed = String(value).trim();
+    if (trimmed) pointer[key] = trimmed;
+  }
+}
+
+function ensurePointerHints(pointer, meta, hintSide) {
+  if (!pointer || !hintSide) return;
+  if (Array.isArray(hintSide.disallowExtras)) {
+    hintSide.disallowExtras.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(pointer, key)) {
+        delete pointer[key];
+      }
+    });
+  }
+  if (Array.isArray(hintSide.requiredExtras)) {
+    hintSide.requiredExtras.forEach((key) => {
+      ensurePointerExtra(pointer, meta, key);
+    });
+  }
+}
+
+function hasRequiredExtras(pointer, hintSide) {
+  if (!hintSide || !Array.isArray(hintSide.requiredExtras) || hintSide.requiredExtras.length === 0) {
+    return true;
+  }
+  return hintSide.requiredExtras.every((key) => {
+    if (!pointer || !Object.prototype.hasOwnProperty.call(pointer, key)) return false;
+    const value = pointer[key];
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim() !== "";
+    return true;
+  });
+}
+
+function buildPointerMeta(refLike) {
+  const pointerRaw = pointerFromRef(refLike);
+  if (!pointerRaw) {
+    return {
+      refLike,
+      pointerRaw: null,
+      path: getRefPath(refLike, null),
+    };
+  }
+  return {
+    refLike,
+    pointerRaw,
+    path: getRefPath(refLike, pointerRaw),
+  };
+}
+
+function shouldSwapPointers(hint, fromMeta, toMeta) {
+  if (!hint) return false;
+  const fromMatchesExpected = matchesPathPrefix(fromMeta.path, hint.from && hint.from.pathPrefixes);
+  const toMatchesExpected = matchesPathPrefix(toMeta.path, hint.to && hint.to.pathPrefixes);
+  const fromMatchesTo = matchesPathPrefix(fromMeta.path, hint.to && hint.to.pathPrefixes);
+  const toMatchesFrom = matchesPathPrefix(toMeta.path, hint.from && hint.from.pathPrefixes);
+
+  if (!fromMatchesExpected && toMatchesExpected && toMatchesFrom) return true;
+  if (fromMatchesTo && !toMatchesExpected) return true;
+
+  if (hint.from && Array.isArray(hint.from.requiredExtras) && hint.from.requiredExtras.length > 0) {
+    const fromHasExtras = pointerHasRequiredExtras(fromMeta, hint.from);
+    const toHasExtras = pointerHasRequiredExtras(toMeta, hint.from);
+    if (!fromHasExtras && toHasExtras) return true;
+  }
+
+  return false;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  const fromPointerRaw = pointerFromRef(fromRefLike);
-  const toPointerRaw = pointerFromRef(toRefLike);
+  let fromMeta = buildPointerMeta(fromRefLike);
+  let toMeta = buildPointerMeta(toRefLike);
+  if (!fromMeta.pointerRaw || !toMeta.pointerRaw) return;
 
-  const fromPointer = cleanPointer(fromPointerRaw);
-  const toPointer = cleanPointer(toPointerRaw);
+  const hint = RELATIONSHIP_HINTS[relationshipType];
+  if (hint && shouldSwapPointers(hint, fromMeta, toMeta)) {
+    const tmp = fromMeta;
+    fromMeta = toMeta;
+    toMeta = tmp;
+  }
+
+  const fromPointer = cleanPointer(fromMeta.pointerRaw);
+  const toPointer = cleanPointer(toMeta.pointerRaw);
   if (!fromPointer || !toPointer) return;
+
+  if (hint) {
+    ensurePointerHints(fromPointer, fromMeta, hint.from);
+    ensurePointerHints(toPointer, toMeta, hint.to);
+
+    if (!hasRequiredExtras(fromPointer, hint.from)) return;
+    if (!hasRequiredExtras(toPointer, hint.to)) return;
+  }
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
