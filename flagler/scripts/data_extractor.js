@@ -140,6 +140,39 @@ function stripPointerToAllowedKeys(pointer) {
   return Object.keys(cleaned).length ? cleaned : null;
 }
 
+function finalizeRelationshipEndpoint(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const sanitized = stripPointerToAllowedKeys(pointer);
+  if (!sanitized || typeof sanitized !== "object") return null;
+
+  if (typeof sanitized.cid === "string") {
+    const cidValue = sanitized.cid.trim();
+    if (cidValue) {
+      return { cid: cidValue.startsWith("cid:") ? cidValue : `cid:${cidValue}` };
+    }
+  }
+
+  if (typeof sanitized.uri === "string") {
+    const uriValue = sanitized.uri.trim();
+    if (uriValue) {
+      return { uri: uriValue };
+    }
+  }
+
+  if (typeof sanitized["/"] === "string") {
+    const normalizedPath = normalizePointerPath(sanitized["/"]);
+    if (normalizedPath) {
+      return { "/": normalizedPath };
+    }
+    const trimmedPath = sanitized["/"].trim();
+    if (trimmedPath) {
+      return { "/": trimmedPath };
+    }
+  }
+
+  return null;
+}
+
 function pointerFrom(refLike) {
   if (refLike == null) return null;
   if (typeof refLike === "string") {
@@ -315,10 +348,10 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     fromReference,
     toReference,
   );
-  const sanitizedFrom =
-    stripPointerToAllowedKeys(reoriented && reoriented.from) || null;
-  const sanitizedTo =
-    stripPointerToAllowedKeys(reoriented && reoriented.to) || null;
+  const sanitizedFrom = finalizeRelationshipEndpoint(
+    reoriented && reoriented.from,
+  );
+  const sanitizedTo = finalizeRelationshipEndpoint(reoriented && reoriented.to);
   if (!sanitizedFrom || !sanitizedTo) return;
   const relationship = {
     from: sanitizedFrom,
