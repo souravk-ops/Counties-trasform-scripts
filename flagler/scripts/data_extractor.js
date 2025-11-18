@@ -148,31 +148,34 @@ function finalizeRelationshipEndpoint(pointer) {
   if (typeof sanitized.cid === "string") {
     const cidValue = sanitized.cid.trim();
     if (cidValue) {
-      return cidValue.startsWith("cid:") ? cidValue : `cid:${cidValue}`;
+      const normalizedCid = cidValue.startsWith("cid:")
+        ? cidValue
+        : `cid:${cidValue}`;
+      return { cid: normalizedCid };
     }
   }
 
   if (typeof sanitized.uri === "string") {
     const uriValue = sanitized.uri.trim();
     if (uriValue) {
-      return uriValue;
+      return { uri: uriValue };
     }
   }
 
   if (typeof sanitized["/"] === "string") {
     const normalizedPath = normalizePointerPath(sanitized["/"]);
     if (normalizedPath) {
-      return normalizedPath;
+      return { "/": normalizedPath };
     }
     const trimmedPath = sanitized["/"].trim();
     if (trimmedPath) {
       if (trimmedPath.startsWith("./") || trimmedPath.startsWith("../")) {
-        return trimmedPath;
+        return { "/": trimmedPath };
       }
       if (trimmedPath.startsWith("data/")) {
-        return `./${trimmedPath.slice("data/".length)}`;
+        return { "/": `./${trimmedPath.slice("data/".length)}` };
       }
-      return `./${trimmedPath.replace(/^\/+/, "")}`;
+      return { "/": `./${trimmedPath.replace(/^\/+/, "")}` };
     }
   }
 
