@@ -180,68 +180,106 @@ function pointerFromRef(refLike) {
 
   if (!base) return null;
 
-  const extras = normalizePointerExtras(refLike);
+const extras = normalizePointerExtras(refLike);
   return Object.keys(extras).length ? { ...base, ...extras } : base;
 }
 
-function cleanPointer(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
+const ALLOWED_POINTER_EXTRAS = ["ownership_transfer_date", "space_type_index", "request_identifier"];
 
-  const cleaned = {};
-  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
-    cleaned.cid = pointer.cid.trim();
+function resolvePointerExtra(meta, key) {
+  if (!meta) return null;
+  const sources = [];
+
+  if (
+    meta.pointerRaw &&
+    typeof meta.pointerRaw === "object" &&
+    Object.prototype.hasOwnProperty.call(meta.pointerRaw, key)
+  ) {
+    sources.push(meta.pointerRaw[key]);
   }
 
-  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
-    cleaned.uri = pointer.uri.trim();
+  if (
+    meta.refLike &&
+    typeof meta.refLike === "object" &&
+    Object.prototype.hasOwnProperty.call(meta.refLike, key)
+  ) {
+    sources.push(meta.refLike[key]);
   }
 
-  if (typeof pointer["/"] === "string" && pointer["/"].trim()) {
-    const normalizedPath = normalizePointerPath(pointer["/"].trim());
-    if (normalizedPath) cleaned["/"] = normalizedPath;
+  if (meta.path) {
+    const node = readJsonFromData(meta.path);
+    if (node && Object.prototype.hasOwnProperty.call(node, key)) {
+      sources.push(node[key]);
+    }
   }
 
-  if (!cleaned.cid && !cleaned.uri && !cleaned["/"]) {
+  for (const candidate of sources) {
+    if (candidate == null) continue;
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(candidate);
+      if (normalized) return normalized;
+    } else {
+      const trimmed = String(candidate).trim();
+      if (trimmed) return trimmed;
+    }
+  }
+
+  return null;
+}
+
+function buildCleanPointer(meta, hintSide) {
+  if (!meta || !meta.pointerRaw) return null;
+
+  const pointer = {};
+  const raw = meta.pointerRaw;
+
+  if (typeof raw.cid === "string" && raw.cid.trim()) {
+    pointer.cid = raw.cid.trim();
+  }
+  if (typeof raw.uri === "string" && raw.uri.trim()) {
+    pointer.uri = raw.uri.trim();
+  }
+  if (typeof raw["/"] === "string" && raw["/"].trim()) {
+    const normalizedPath = normalizePointerPath(raw["/"].trim());
+    if (normalizedPath) pointer["/"] = normalizedPath;
+  }
+
+  if (!pointer.cid && !pointer.uri && !pointer["/"]) {
     return null;
   }
 
-  if (typeof pointer.ownership_transfer_date === "string") {
-    const normalizedDate = formatPointerDate(pointer.ownership_transfer_date);
-    if (normalizedDate) cleaned.ownership_transfer_date = normalizedDate;
+  const extrasToConsider = new Set(ALLOWED_POINTER_EXTRAS);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    hintSide.disallowExtras.forEach((key) => extrasToConsider.delete(key));
   }
 
-  if (Object.prototype.hasOwnProperty.call(pointer, "space_type_index")) {
-    const value = pointer.space_type_index;
-    if (value != null) {
-      const trimmed = String(value).trim();
-      if (trimmed) cleaned.space_type_index = trimmed;
+  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
+    for (const key of hintSide.requiredExtras) {
+      const resolved = resolvePointerExtra(meta, key);
+      if (!resolved) return null;
+      if (key === "ownership_transfer_date") {
+        pointer[key] = resolved;
+      } else {
+        const trimmed = String(resolved).trim();
+        if (!trimmed) return null;
+        pointer[key] = trimmed;
+      }
+      extrasToConsider.delete(key);
     }
   }
 
-  if (typeof pointer.request_identifier === "string") {
-    const trimmed = pointer.request_identifier.trim();
-    if (trimmed) cleaned.request_identifier = trimmed;
-  }
-
-  return cleaned;
-}
-
-const ALLOWED_POINTER_KEYS = new Set([
-  "cid",
-  "uri",
-  "/",
-  "ownership_transfer_date",
-  "space_type_index",
-  "request_identifier",
-]);
-
-function stripPointerKeys(pointer) {
-  if (!pointer || typeof pointer !== "object") return pointer;
-  Object.keys(pointer).forEach((key) => {
-    if (!ALLOWED_POINTER_KEYS.has(key)) {
-      delete pointer[key];
+  extrasToConsider.forEach((key) => {
+    if (pointer[key]) return;
+    const resolved = resolvePointerExtra(meta, key);
+    if (!resolved) return;
+    if (key === "ownership_transfer_date") {
+      pointer[key] = resolved;
+    } else {
+      const trimmed = String(resolved).trim();
+      if (trimmed) pointer[key] = trimmed;
     }
   });
+
   return pointer;
 }
 
@@ -416,85 +454,6 @@ function pointerHasRequiredExtras(meta, hintSide) {
   });
 }
 
-function ensurePointerExtra(pointer, meta, key) {
-  if (!pointer || !meta) return;
-  const current = pointer[key];
-  if (current != null && (typeof current !== "string" || current.trim() !== "")) {
-    if (key === "ownership_transfer_date") {
-      const normalized = formatPointerDate(current);
-      if (normalized) pointer[key] = normalized;
-      else delete pointer[key];
-    } else if (key === "space_type_index" || key === "request_identifier") {
-      pointer[key] = String(current).trim();
-    }
-    return;
-  }
-  const candidates = [
-    meta.pointerRaw && meta.pointerRaw[key],
-    fetchValueFromRefLike(meta.refLike, key),
-  ];
-  let value = null;
-  for (const cand of candidates) {
-    if (cand == null) continue;
-    if (typeof cand === "string") {
-      const trimmed = cand.trim();
-      if (trimmed) {
-        value = trimmed;
-        break;
-      }
-    } else {
-      value = cand;
-      break;
-    }
-  }
-  if (value == null && meta.path) {
-    const node = readJsonFromData(meta.path);
-    if (node && Object.prototype.hasOwnProperty.call(node, key)) {
-      const nodeValue = node[key];
-      if (nodeValue != null && String(nodeValue).trim() !== "") {
-        value = nodeValue;
-      }
-    }
-  }
-  if (value == null) return;
-  if (key === "ownership_transfer_date") {
-    const normalized = formatPointerDate(value);
-    if (normalized) pointer[key] = normalized;
-  } else if (key === "space_type_index" || key === "request_identifier") {
-    const trimmed = String(value).trim();
-    if (trimmed) pointer[key] = trimmed;
-  }
-}
-
-function ensurePointerHints(pointer, meta, hintSide) {
-  if (!pointer || !hintSide) return;
-  if (Array.isArray(hintSide.disallowExtras)) {
-    hintSide.disallowExtras.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(pointer, key)) {
-        delete pointer[key];
-      }
-    });
-  }
-  if (Array.isArray(hintSide.requiredExtras)) {
-    hintSide.requiredExtras.forEach((key) => {
-      ensurePointerExtra(pointer, meta, key);
-    });
-  }
-}
-
-function hasRequiredExtras(pointer, hintSide) {
-  if (!hintSide || !Array.isArray(hintSide.requiredExtras) || hintSide.requiredExtras.length === 0) {
-    return true;
-  }
-  return hintSide.requiredExtras.every((key) => {
-    if (!pointer || !Object.prototype.hasOwnProperty.call(pointer, key)) return false;
-    const value = pointer[key];
-    if (value == null) return false;
-    if (typeof value === "string") return value.trim() !== "";
-    return true;
-  });
-}
-
 function buildPointerMeta(refLike) {
   const pointerRaw = pointerFromRef(refLike);
   if (!pointerRaw) {
@@ -546,22 +505,9 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     toMeta = tmp;
   }
 
-  const fromPointer = cleanPointer(fromMeta.pointerRaw);
-  const toPointer = cleanPointer(toMeta.pointerRaw);
+  const fromPointer = buildCleanPointer(fromMeta, hint && hint.from);
+  const toPointer = buildCleanPointer(toMeta, hint && hint.to);
   if (!fromPointer || !toPointer) return;
-
-  if (hint) {
-    ensurePointerHints(fromPointer, fromMeta, hint.from);
-    ensurePointerHints(toPointer, toMeta, hint.to);
-  }
-
-  stripPointerKeys(fromPointer);
-  stripPointerKeys(toPointer);
-
-  if (hint) {
-    if (!hasRequiredExtras(fromPointer, hint.from)) return;
-    if (!hasRequiredExtras(toPointer, hint.to)) return;
-  }
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
