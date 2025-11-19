@@ -44,26 +44,6 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
 }
 
-function cleanRecord(record) {
-  if (!record || typeof record !== "object") return {};
-  Object.keys(record).forEach((key) => {
-    const value = record[key];
-    if (value == null) {
-      delete record[key];
-      return;
-    }
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        delete record[key];
-        return;
-      }
-      record[key] = trimmed;
-    }
-  });
-  return record;
-}
-
 function cloneDeep(obj) {
   return obj == null ? null : JSON.parse(JSON.stringify(obj));
 }
@@ -1513,35 +1493,6 @@ function sanitizeSalesHistoryRecord(record) {
   return sanitized;
 }
 
-function buildFileRecord(options) {
-  const opts = options || {};
-  const rawUrl = typeof opts.url === "string" ? opts.url.trim() : "";
-  if (!rawUrl) return null;
-  const record = {};
-  const requestIdentifier =
-    typeof opts.request_identifier === "string" && opts.request_identifier.trim()
-      ? opts.request_identifier.trim()
-      : null;
-  if (requestIdentifier) record.request_identifier = requestIdentifier;
-  record.source_http_request = {
-    method: "GET",
-    url: rawUrl,
-  };
-  [
-    "document_type",
-    "file_format",
-    "ipfs_url",
-    "name",
-    "original_url",
-    "deed_type",
-  ].forEach((prop) => {
-    if (Object.prototype.hasOwnProperty.call(record, prop)) {
-      delete record[prop];
-    }
-  });
-  return cleanRecord(record);
-}
-
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const s = String(txt).trim();
@@ -1884,6 +1835,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const processedSales = [];
   let saleCounter = 0;
 
+  // File records (URs) are generated downstream, so skip producing file nodes or deed_has_file relationships here.
   sales.forEach((saleRecord) => {
     const transferDate = normalizeSaleDate(saleRecord.saleDate);
     if (!transferDate) return;
@@ -1926,30 +1878,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     writeJSON(path.join("data", deedFilename), deedNode);
     const deedPointer = pointerFromRef(deedFilename);
 
-    let filePointer = null;
-    const rawFileUrl =
-      saleRecord && typeof saleRecord.link === "string"
-        ? saleRecord.link.trim()
-        : "";
-    if (rawFileUrl) {
-      const fileRequestIdentifier = parcelId
-        ? `${parcelId}_deed_file_${String(idx).padStart(3, "0")}`
-        : null;
-      const fileRecord = buildFileRecord({
-        url: rawFileUrl,
-        request_identifier: fileRequestIdentifier,
-      });
-      if (fileRecord) {
-        const fileFilename = `file_${idx}.json`;
-        writeJSON(path.join("data", fileFilename), fileRecord);
-        const pointerSource = { "/": fileFilename };
-        if (fileRequestIdentifier) {
-          pointerSource.request_identifier = fileRequestIdentifier;
-        }
-        filePointer = pointerFromRef(pointerSource);
-      }
-    }
-
     const storedSalePointer = pointerFromRef(salePointer || saleFilename);
     processedSales.push({
       source: saleRecord,
@@ -1970,9 +1898,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         idx,
       );
-    }
-    if (deedPointer && filePointer) {
-      writeRelationship("deed_has_file", deedPointer, filePointer, idx);
     }
   });
 
