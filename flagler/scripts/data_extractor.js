@@ -1479,6 +1479,18 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const finalTo = finalizePointerForWrite(sanitizedTo, hint && hint.to);
   if (!finalFrom || !finalTo) return;
 
+  stripForbiddenPointerKeys(finalFrom);
+  stripForbiddenPointerKeys(finalTo);
+  if (hint && hint.from && Array.isArray(hint.from.disallowExtras)) {
+    stripDisallowedExtras(finalFrom, hint.from.disallowExtras);
+  }
+  if (hint && hint.to && Array.isArray(hint.to.disallowExtras)) {
+    stripDisallowedExtras(finalTo, hint.to.disallowExtras);
+  }
+  if (!pointerHasBase(finalFrom) || !pointerHasBase(finalTo)) {
+    return;
+  }
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
@@ -2408,10 +2420,6 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   if (secTwpRng && secTwpRng.township) address.township = secTwpRng.township;
   if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
 
-  if (fallbackUnnormalized) {
-    address.unnormalized_address = fallbackUnnormalized;
-  }
-
   if (hasCompleteNormalizedAddress) {
     const [
       streetNumber,
@@ -2449,7 +2457,13 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
       normalizedSource && normalizedSource.plus_four_postal_code,
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
-  } else if (normalizedCountry) {
+  } else if (fallbackUnnormalized) {
+    address.unnormalized_address = fallbackUnnormalized;
+  }
+
+  if (normalizedCountry && hasCompleteNormalizedAddress) {
+    address.country_code = normalizedCountry;
+  } else if (!address.country_code && normalizedCountry) {
     address.country_code = normalizedCountry;
   }
 
