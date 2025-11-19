@@ -392,6 +392,20 @@ function stripForbiddenPointerKeys(pointer) {
   return pointer;
 }
 
+function scrubPointerRefLike(refLike) {
+  if (!refLike || typeof refLike !== "object") {
+    return refLike;
+  }
+  const sanitized = {};
+  Object.keys(refLike).forEach((key) => {
+    if (FORBIDDEN_POINTER_KEYS.includes(String(key))) {
+      return;
+    }
+    sanitized[key] = refLike[key];
+  });
+  return sanitized;
+}
+
 function normalizePointerOutput(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -1208,7 +1222,11 @@ const RELATIONSHIP_HINTS = {
   },
 };
 
-const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set(["deed_has_file"]);
+const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
+  "deed_has_file",
+  "file_has_fact_sheet",
+  "layout_has_fact_sheet",
+]);
 const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set();
 
 function readJsonFromData(relativePath) {
@@ -1430,13 +1448,15 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   }
 
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
-  const fromMeta = buildPointerMeta(fromRefLike);
-  const toMeta = buildPointerMeta(toRefLike);
+  const preparedFrom = scrubPointerRefLike(fromRefLike);
+  const preparedTo = scrubPointerRefLike(toRefLike);
+  const fromMeta = buildPointerMeta(preparedFrom);
+  const toMeta = buildPointerMeta(preparedTo);
   const canSwap =
     RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType) ||
     !hint.preventSwap;
-  let resolvedFromRef = fromRefLike;
-  let resolvedToRef = toRefLike;
+  let resolvedFromRef = preparedFrom;
+  let resolvedToRef = preparedTo;
   if (
     canSwap &&
     fromMeta &&
@@ -2297,16 +2317,22 @@ function writeLayout(parcelId, context) {
     const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
     if (context && fs.existsSync(path.join("data", "property.json"))) {
-      const propertyRelationshipPath =
+      const propertyPointer = buildPointerForWrite(
         (typeof context.propertyFile === "string" &&
           context.propertyFile.trim()) ||
-        "property.json";
-      const propertyPointer = pointerFromRef(propertyRelationshipPath);
-      const layoutPointer = pointerFromRef({
-        "/": layoutFilename,
-        space_type_index: `${normalizedIndexValue}`.trim(),
-      });
-      if (propertyPointer && layoutPointer) {
+          "property.json",
+      );
+      const layoutPointer = buildPointerForWrite(
+        layoutFilename,
+        { space_type_index: String(normalizedIndexValue).trim() },
+        ["space_type_index"],
+      );
+      if (
+        propertyPointer &&
+        layoutPointer &&
+        typeof layoutPointer.space_type_index === "string" &&
+        layoutPointer.space_type_index.trim()
+      ) {
         writeRelationship(
           "property_has_layout",
           propertyPointer,
