@@ -118,18 +118,8 @@ function buildPointerForWrite(relativePath, extras = null, allowedExtras = []) {
 }
 
 function writeDirectRelationshipFile(type, suffix, fromPointer, toPointer) {
-  if (!type || !fromPointer || !toPointer) return;
-  const trimmedType = String(type).trim();
-  if (!trimmedType) return;
-  const suffixPortion =
-    suffix === undefined || suffix === null || suffix === ""
-      ? ""
-      : `_${suffix}`;
-  const filename = `relationship_${trimmedType}${suffixPortion}.json`;
-  writeJSON(path.join("data", filename), {
-    from: fromPointer,
-    to: toPointer,
-  });
+  if (!fromPointer || !toPointer) return;
+  writeRelationship(type, fromPointer, toPointer, suffix);
 }
 
 function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
