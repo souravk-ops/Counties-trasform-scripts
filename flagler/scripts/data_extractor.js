@@ -627,6 +627,18 @@ function buildRelationshipPointer(meta, hintSide) {
     }
   });
 
+  stripForbiddenPointerKeys(pointer);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(pointer, hintSide.disallowExtras);
+  }
+
+  Object.keys(pointer).forEach((key) => {
+    if (POINTER_BASE_KEYS.includes(key)) return;
+    if (!allowedExtras.has(String(key))) {
+      delete pointer[key];
+    }
+  });
+
   for (const key of requiredExtras) {
     if (
       !Object.prototype.hasOwnProperty.call(pointer, key) ||
