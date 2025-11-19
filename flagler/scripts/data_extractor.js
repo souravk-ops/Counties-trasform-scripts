@@ -358,6 +358,77 @@ function filterPointerToAllowedKeys(pointer, allowedExtras) {
   return pointer;
 }
 
+function sanitizePointerForHint(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const allowedExtras = new Set(resolveAllowedExtrasList(hintSide));
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
+  );
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+
+  requiredExtras.forEach((key) => {
+    allowedExtras.add(String(key));
+  });
+
+  const cleaned = {};
+
+  POINTER_BASE_KEYS.forEach((key) => {
+    if (typeof pointer[key] !== "string") return;
+    const trimmed = pointer[key].trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) cleaned["/"] = normalizedPath;
+    } else {
+      cleaned[key] = trimmed;
+    }
+  });
+
+  if (!pointerHasBase(cleaned)) return null;
+
+  allowedExtras.forEach((key) => {
+    const strKey = String(key);
+    if (disallowedExtras.has(strKey)) return;
+    if (!Object.prototype.hasOwnProperty.call(pointer, strKey)) return;
+    const raw = pointer[strKey];
+    if (raw == null) return;
+    let value = null;
+    if (strKey === "ownership_transfer_date") {
+      value = formatPointerDate(raw);
+    } else {
+      const trimmed = String(raw).trim();
+      if (trimmed) value = trimmed;
+    }
+    if (value != null) cleaned[strKey] = value;
+  });
+
+  stripForbiddenPointerKeys(cleaned);
+  disallowedExtras.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      delete cleaned[key];
+    }
+  });
+  filterPointerToAllowedKeys(cleaned, Array.from(allowedExtras));
+
+  for (const key of requiredExtras) {
+    const strKey = String(key);
+    if (
+      !Object.prototype.hasOwnProperty.call(cleaned, strKey) ||
+      cleaned[strKey] == null ||
+      String(cleaned[strKey]).trim() === ""
+    ) {
+      return null;
+    }
+  }
+
+  return pointerHasBase(cleaned) ? cleaned : null;
+}
+
 function pointerHasBase(pointer) {
   if (!pointer || typeof pointer !== "object") return false;
   return POINTER_BASE_KEYS.some((key) => {
@@ -721,13 +792,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const finalTo = finalizePointerForSide(toMeta, hint && hint.to);
   if (!finalFrom || !finalTo) return;
 
+  const sanitizedFrom = sanitizePointerForHint(finalFrom, hint && hint.from);
+  const sanitizedTo = sanitizePointerForHint(finalTo, hint && hint.to);
+  if (!sanitizedFrom || !sanitizedTo) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: finalFrom,
-    to: finalTo,
+    from: sanitizedFrom,
+    to: sanitizedTo,
   });
 }
 
@@ -1245,6 +1320,14 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       "/": saleFilename,
       ownership_transfer_date: saleNode.ownership_transfer_date,
     });
+    if (
+      salePointer &&
+      typeof salePointer === "object" &&
+      !salePointer.ownership_transfer_date &&
+      saleNode.ownership_transfer_date
+    ) {
+      salePointer.ownership_transfer_date = saleNode.ownership_transfer_date;
+    }
 
     const deedCandidate = {};
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
