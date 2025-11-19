@@ -923,13 +923,23 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const outputTo = sanitizePointerForHint(preparedTo, hint && hint.to);
   if (!outputFrom || !outputTo) return;
 
+  const enforcedFrom = enforcePointerForSide(outputFrom, hint && hint.from);
+  const enforcedTo = enforcePointerForSide(outputTo, hint && hint.to);
+  if (!enforcedFrom || !enforcedTo) return;
+
+  const finalOutputFrom =
+    sanitizePointerForHint(enforcedFrom, hint && hint.from) || enforcedFrom;
+  const finalOutputTo =
+    sanitizePointerForHint(enforcedTo, hint && hint.to) || enforcedTo;
+  if (!finalOutputFrom || !finalOutputTo) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: outputFrom,
-    to: outputTo,
+    from: finalOutputFrom,
+    to: finalOutputTo,
   });
 }
 
