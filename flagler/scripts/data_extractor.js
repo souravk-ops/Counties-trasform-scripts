@@ -231,6 +231,7 @@ const POINTER_JSON_CACHE = new Map();
 
 const RELATIONSHIP_HINTS = {
   deed_has_file: {
+    preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
       disallowExtras: ["document_type", "file_format", "ipfs_url", "name", "original_url"],
@@ -282,6 +283,7 @@ const RELATIONSHIP_HINTS = {
     to: { pathPrefixes: ["company_"], disallowExtras: ["ownership_transfer_date"] },
   },
   sales_history_has_deed: {
+    preventSwap: true,
     from: {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
@@ -603,7 +605,7 @@ function sanitizeDeedMetadata(deed) {
     }
     sanitized[key] = normalized;
   };
-  ["book", "deed_type", "instrument_number", "page", "request_identifier", "volume"].forEach(
+  ["book", "instrument_number", "page", "request_identifier", "volume"].forEach(
     assignString,
   );
   if (deed.source_http_request && typeof deed.source_http_request === "object") {
@@ -661,10 +663,6 @@ function buildFileRecord(options) {
   const rawUrl = typeof opts.url === "string" ? opts.url.trim() : "";
   if (!rawUrl) return null;
   const record = {
-    document_type:
-      typeof opts.document_type === "string" && opts.document_type.trim()
-        ? opts.document_type.trim()
-        : null,
     request_identifier:
       typeof opts.request_identifier === "string" &&
       opts.request_identifier.trim()
@@ -930,24 +928,6 @@ function extractSales($) {
   return out;
 }
 
-function mapInstrumentToDeedType(instr) {
-  if (!instr) return null;
-  const u = instr.trim().toUpperCase();
-  if (u === "WD") return "Warranty Deed";
-  if (u == "TD") return "Tax Deed";
-  if (u == "QC") return "Quitclaim Deed";
-  if (u == "SW") return "Special Warranty Deed";
-  if (u == "WM") return "Warranty Deed"; // Added for the provided HTML example
-  if (u == "QM") return "Quitclaim Deed"; // Added for the provided HTML example
-  if (u == "QD") return "Quitclaim Deed"; // Added for the provided HTML example
-  return null;
-  // throw {
-  //   type: "error",
-  //   message: `Unknown enum value ${instr}.`,
-  //   path: "deed.deed_type",
-  // };
-}
-
 function extractValuation($) {
   const table = $(VALUATION_TABLE_SELECTOR);
   if (table.length === 0) return [];
@@ -1063,9 +1043,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     });
 
     const deedCandidate = {};
-    const deedType = mapInstrumentToDeedType(saleRecord.instrument);
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
-    if (deedType) deedCandidate.deed_type = deedType;
     if (book) deedCandidate.book = book;
     if (page) deedCandidate.page = page;
     attachSourceHttpRequest(deedCandidate, defaultSourceHttpRequest);
@@ -1086,9 +1064,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       const fileRecord = buildFileRecord({
         url: rawFileUrl,
         request_identifier: fileRequestIdentifier,
-        document_type: deedNode && typeof deedNode.deed_type === "string"
-          ? deedNode.deed_type
-          : null,
       });
       if (fileRecord) {
         const fileFilename = `file_${idx}.json`;
