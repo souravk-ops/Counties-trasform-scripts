@@ -95,14 +95,8 @@ function pointerWithAllowedExtras(relativePath, extras, allowedExtras = []) {
 function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
   if (!type || !fromPointer || !toPointer) return;
   const suffix =
-    index === undefined || index === null || index === ""
-      ? ""
-      : `_${index}`;
-  const filename = `relationship_${type}${suffix}.json`;
-  writeJSON(path.join("data", filename), {
-    from: cloneDeep(fromPointer),
-    to: cloneDeep(toPointer),
-  });
+    index === undefined || index === null || index === "" ? undefined : index;
+  writeRelationship(type, fromPointer, toPointer, suffix);
 }
 
 function attachSourceHttpRequest(target, request) {
