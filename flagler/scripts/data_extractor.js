@@ -649,7 +649,14 @@ const RELATIONSHIP_HINTS = {
     from: {
       pathPrefixes: ["deed_"],
       allowedExtras: [],
-      disallowExtras: ["document_type", "file_format", "ipfs_url", "name", "original_url"],
+      disallowExtras: [
+        "deed_type",
+        "document_type",
+        "file_format",
+        "ipfs_url",
+        "name",
+        "original_url",
+      ],
     },
     to: {
       pathPrefixes: ["file_"],
@@ -912,13 +919,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const preparedTo = prepareRelationshipPointer(toMeta, sanitizedTo, hint && hint.to);
   if (!preparedFrom || !preparedTo) return;
 
+  const outputFrom = sanitizePointerForHint(preparedFrom, hint && hint.from);
+  const outputTo = sanitizePointerForHint(preparedTo, hint && hint.to);
+  if (!outputFrom || !outputTo) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: preparedFrom,
-    to: preparedTo,
+    from: outputFrom,
+    to: outputTo,
   });
 }
 
