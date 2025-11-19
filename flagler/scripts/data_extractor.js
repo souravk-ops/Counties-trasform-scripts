@@ -180,11 +180,49 @@ function pointerFromRef(refLike) {
 
   if (!base) return null;
 
-const extras = normalizePointerExtras(refLike);
+  const extras = normalizePointerExtras(refLike);
   return Object.keys(extras).length ? { ...base, ...extras } : base;
 }
 
 const ALLOWED_POINTER_EXTRAS = ["ownership_transfer_date", "space_type_index", "request_identifier"];
+const POINTER_BASE_KEYS = ["cid", "uri", "/"];
+
+function sanitizePointerForSchema(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const sanitized = {};
+
+  POINTER_BASE_KEYS.forEach((key) => {
+    const value = pointer[key];
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) sanitized["/"] = normalizedPath;
+    } else {
+      sanitized[key] = trimmed;
+    }
+  });
+
+  ALLOWED_POINTER_EXTRAS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
+    if (raw == null) return;
+    if (key === "ownership_transfer_date") {
+      const normalizedDate = formatPointerDate(raw);
+      if (normalizedDate) sanitized[key] = normalizedDate;
+      return;
+    }
+    const trimmed = String(raw).trim();
+    if (trimmed) sanitized[key] = trimmed;
+  });
+
+  if (!sanitized.cid && !sanitized.uri && !sanitized["/"]) {
+    return null;
+  }
+
+  return sanitized;
+}
 
 function resolvePointerExtra(meta, key) {
   if (!meta) return null;
@@ -280,7 +318,7 @@ function buildCleanPointer(meta, hintSide) {
     }
   });
 
-  return pointer;
+  return sanitizePointerForSchema(pointer);
 }
 
 const POINTER_JSON_CACHE = new Map();
