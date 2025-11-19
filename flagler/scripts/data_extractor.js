@@ -333,34 +333,6 @@ function resolvePointerExtra(meta, key) {
   return null;
 }
 
-function collectAllowedExtrasForSide(hintSide) {
-  const extras = new Set(resolveAllowedExtrasList(hintSide));
-
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    hintSide.disallowExtras.forEach((key) => extras.delete(String(key)));
-  }
-
-  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
-    hintSide.requiredExtras.forEach((key) => extras.add(String(key)));
-  }
-
-  return extras;
-}
-
-function stripUnknownPointerKeys(pointer, hintSide) {
-  if (!pointer || typeof pointer !== "object") return pointer;
-  const allowedKeys = new Set(POINTER_BASE_KEYS);
-  collectAllowedExtrasForSide(hintSide).forEach((key) =>
-    allowedKeys.add(String(key)),
-  );
-  Object.keys(pointer).forEach((key) => {
-    if (!allowedKeys.has(String(key))) {
-      delete pointer[key];
-    }
-  });
-  return pointer;
-}
-
 function stripForbiddenPointerKeys(pointer) {
   if (!pointer || typeof pointer !== "object") return pointer;
   FORBIDDEN_POINTER_KEYS.forEach((key) => {
@@ -383,80 +355,91 @@ function pointerHasBase(pointer) {
 function finalizePointerForSide(meta, hintSide) {
   if (!meta || !meta.pointerRaw) return null;
 
-  const enforcementHint =
-    hintSide && typeof hintSide === "object"
-      ? { ...hintSide, requiredExtras: [] }
-      : hintSide;
-  const basePointer = enforcePointerForSide(meta.pointerRaw, enforcementHint);
-  if (!basePointer) return null;
+  const allowedExtras = new Set(resolveAllowedExtrasList(hintSide));
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
+  );
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
 
-  const extrasToInclude = collectAllowedExtrasForSide(hintSide);
-  extrasToInclude.forEach((key) => {
-    if (
-      Object.prototype.hasOwnProperty.call(basePointer, key) &&
-      basePointer[key] != null &&
-      String(basePointer[key]).trim() !== ""
-    ) {
-      if (key === "ownership_transfer_date") {
-        const normalized = formatPointerDate(basePointer[key]);
-        if (normalized) {
-          basePointer[key] = normalized;
-        } else {
-          delete basePointer[key];
-        }
-      }
-      return;
-    }
-
-    const resolved = resolvePointerExtra(meta, key);
-    if (resolved == null) return;
-
-    if (key === "ownership_transfer_date") {
-      const normalized = formatPointerDate(resolved);
-      if (normalized) basePointer[key] = normalized;
-    } else {
-      const trimmed = String(resolved).trim();
-      if (trimmed) basePointer[key] = trimmed;
+  requiredExtras.forEach((key) => {
+    if (!allowedExtras.has(String(key))) {
+      allowedExtras.add(String(key));
     }
   });
 
-  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
-    for (const key of hintSide.requiredExtras) {
-      if (
-        !Object.prototype.hasOwnProperty.call(basePointer, key) ||
-        basePointer[key] == null ||
-        String(basePointer[key]).trim() === ""
-      ) {
-        const resolved = resolvePointerExtra(meta, key);
-        let normalized = null;
-        if (resolved != null) {
-          if (key === "ownership_transfer_date") {
-            normalized = formatPointerDate(resolved);
-          } else {
-            const trimmed = String(resolved).trim();
-            if (trimmed) normalized = trimmed;
-          }
-        }
-        if (normalized != null) {
-          basePointer[key] = normalized;
+  const sanitized = {};
+
+  POINTER_BASE_KEYS.forEach((key) => {
+    const raw =
+      (meta.pointerRaw && meta.pointerRaw[key]) ||
+      (meta.refLike && meta.refLike[key]);
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) sanitized["/"] = normalizedPath;
+    } else {
+      sanitized[key] = trimmed;
+    }
+  });
+
+  if (!pointerHasBase(sanitized)) {
+    return null;
+  }
+
+  allowedExtras.forEach((key) => {
+    if (!key || disallowedExtras.has(String(key))) return;
+    const resolved = resolvePointerExtra(meta, key);
+    if (resolved == null) return;
+    let value = null;
+    if (key === "ownership_transfer_date") {
+      value = formatPointerDate(resolved);
+    } else {
+      const trimmed = String(resolved).trim();
+      if (trimmed) value = trimmed;
+    }
+    if (value != null) {
+      sanitized[key] = value;
+    }
+  });
+
+  for (const key of requiredExtras) {
+    if (
+      !Object.prototype.hasOwnProperty.call(sanitized, key) ||
+      sanitized[key] == null ||
+      String(sanitized[key]).trim() === ""
+    ) {
+      const resolved = resolvePointerExtra(meta, key);
+      let normalized = null;
+      if (resolved != null) {
+        if (key === "ownership_transfer_date") {
+          normalized = formatPointerDate(resolved);
         } else {
-          return null;
+          const trimmed = String(resolved).trim();
+          if (trimmed) normalized = trimmed;
         }
+      }
+      if (normalized != null) {
+        sanitized[key] = normalized;
+      } else {
+        return null;
       }
     }
   }
 
-  stripForbiddenPointerKeys(basePointer);
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    stripDisallowedExtras(basePointer, hintSide.disallowExtras);
-  }
-  stripUnknownPointerKeys(basePointer, hintSide);
+  stripForbiddenPointerKeys(sanitized);
+  disallowedExtras.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+      delete sanitized[key];
+    }
+  });
 
-  if (!pointerHasBase(basePointer)) {
-    return null;
-  }
-
-  return basePointer;
+  return pointerHasBase(sanitized) ? sanitized : null;
 }
 
 const POINTER_JSON_CACHE = new Map();
