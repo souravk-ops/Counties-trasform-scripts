@@ -44,6 +44,26 @@ function writeJSON(p, obj) {
   fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8");
 }
 
+function cleanRecord(record) {
+  if (!record || typeof record !== "object") return {};
+  Object.keys(record).forEach((key) => {
+    const value = record[key];
+    if (value == null) {
+      delete record[key];
+      return;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        delete record[key];
+        return;
+      }
+      record[key] = trimmed;
+    }
+  });
+  return record;
+}
+
 function cloneDeep(obj) {
   return obj == null ? null : JSON.parse(JSON.stringify(obj));
 }
@@ -633,6 +653,28 @@ function sanitizeSalesHistoryRecord(record) {
   return sanitized;
 }
 
+function buildFileRecord(options) {
+  const opts = options || {};
+  const rawUrl = typeof opts.url === "string" ? opts.url.trim() : "";
+  if (!rawUrl) return null;
+  const record = {
+    document_type:
+      typeof opts.document_type === "string" && opts.document_type.trim()
+        ? opts.document_type.trim()
+        : null,
+    request_identifier:
+      typeof opts.request_identifier === "string" &&
+      opts.request_identifier.trim()
+        ? opts.request_identifier.trim()
+        : null,
+    source_http_request: {
+      method: "GET",
+      url: rawUrl,
+    },
+  };
+  return cleanRecord(record);
+}
+
 function parseCurrencyToNumber(txt) {
   if (txt == null) return null;
   const s = String(txt).trim();
@@ -868,7 +910,7 @@ function extractSales($) {
     if (link) {
       const match = link.match(/window\.open\('([^']+)'\)/);
       if (match && match[1]) {
-        cleanedLink = match[1];
+        cleanedLink = match[1].replace(/&amp;/g, "&").trim();
       }
     }
 
@@ -1035,13 +1077,25 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         ? saleRecord.link.trim()
         : "";
     if (rawFileUrl) {
-      const pointerInput = {
-        uri: rawFileUrl,
-      };
-      if (parcelId) {
-        pointerInput.request_identifier = `${parcelId}_deed_file_${String(idx).padStart(3, "0")}`;
+      const fileRequestIdentifier = parcelId
+        ? `${parcelId}_deed_file_${String(idx).padStart(3, "0")}`
+        : null;
+      const fileRecord = buildFileRecord({
+        url: rawFileUrl,
+        request_identifier: fileRequestIdentifier,
+        document_type: deedNode && typeof deedNode.deed_type === "string"
+          ? deedNode.deed_type
+          : null,
+      });
+      if (fileRecord) {
+        const fileFilename = `file_${idx}.json`;
+        writeJSON(path.join("data", fileFilename), fileRecord);
+        const pointerSource = { "/": fileFilename };
+        if (fileRequestIdentifier) {
+          pointerSource.request_identifier = fileRequestIdentifier;
+        }
+        filePointer = pointerFromRef(pointerSource);
       }
-      filePointer = pointerFromRef(pointerInput);
     }
 
     const storedSalePointer = pointerFromRef(salePointer || saleFilename);
