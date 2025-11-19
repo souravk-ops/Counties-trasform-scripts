@@ -200,6 +200,16 @@ const FORBIDDEN_POINTER_KEYS = [
   "volume",
 ];
 
+function resolveAllowedExtrasList(hintSide) {
+  if (hintSide && Object.prototype.hasOwnProperty.call(hintSide, "allowedExtras")) {
+    if (!Array.isArray(hintSide.allowedExtras)) {
+      return [];
+    }
+    return hintSide.allowedExtras.map((key) => String(key));
+  }
+  return ALLOWED_POINTER_EXTRAS.map((key) => String(key));
+}
+
 function sanitizePointerForSchema(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
   const sanitized = {};
@@ -234,16 +244,14 @@ function sanitizePointerForSchema(pointer) {
     return null;
   }
 
+  stripForbiddenPointerKeys(sanitized);
   return sanitized;
 }
 
 function enforcePointerForSide(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
-  let allowedExtras =
-    Array.isArray(hintSide && hintSide.allowedExtras) && hintSide.allowedExtras.length > 0
-      ? hintSide.allowedExtras.map((key) => String(key))
-      : ALLOWED_POINTER_EXTRAS.map((key) => String(key));
+  let allowedExtras = resolveAllowedExtrasList(hintSide);
 
   if (hintSide && Array.isArray(hintSide.disallowExtras) && hintSide.disallowExtras.length > 0) {
     const disallowed = new Set(hintSide.disallowExtras.map((key) => String(key)));
@@ -364,11 +372,7 @@ function resolvePointerExtra(meta, key) {
 }
 
 function collectAllowedExtrasForSide(hintSide) {
-  const extras = new Set(
-    Array.isArray(hintSide && hintSide.allowedExtras) && hintSide.allowedExtras.length > 0
-      ? hintSide.allowedExtras.map((key) => String(key))
-      : ALLOWED_POINTER_EXTRAS.map((key) => String(key)),
-  );
+  const extras = new Set(resolveAllowedExtrasList(hintSide));
 
   if (hintSide && Array.isArray(hintSide.disallowExtras)) {
     hintSide.disallowExtras.forEach((key) => extras.delete(String(key)));
@@ -512,7 +516,7 @@ function buildCleanPointer(meta, hintSide) {
     return null;
   }
 
-  const extrasToConsider = new Set(ALLOWED_POINTER_EXTRAS);
+  const extrasToConsider = new Set(resolveAllowedExtrasList(hintSide));
   if (hintSide && Array.isArray(hintSide.disallowExtras)) {
     hintSide.disallowExtras.forEach((key) => extrasToConsider.delete(key));
   }
