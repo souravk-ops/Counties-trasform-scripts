@@ -562,60 +562,65 @@ function pointerHasBase(pointer) {
 function buildRelationshipPointer(meta, hintSide) {
   if (!meta) return null;
 
-  const pointer = {};
-  let hasBase = false;
-
-  POINTER_BASE_KEYS.forEach((key) => {
-    let raw = null;
-    if (
-      meta.pointerRaw &&
-      typeof meta.pointerRaw === "object" &&
-      typeof meta.pointerRaw[key] === "string"
-    ) {
-      raw = meta.pointerRaw[key];
-    } else if (
-      meta.refLike &&
-      typeof meta.refLike === "object" &&
-      typeof meta.refLike[key] === "string"
-    ) {
-      raw = meta.refLike[key];
-    }
-    if (typeof raw !== "string") return;
-    const trimmed = raw.trim();
-    if (!trimmed) return;
-    if (key === "/") {
-      const normalizedPath = normalizePointerPath(trimmed);
-      if (!normalizedPath) return;
-      pointer["/"] = normalizedPath;
-      hasBase = true;
-      return;
-    }
-    pointer[key] = trimmed;
-    hasBase = true;
-  });
-
-  if (!hasBase) return null;
-
-  const disallowed = new Set(
-    [
-      ...(Array.isArray(hintSide && hintSide.disallowExtras)
-        ? hintSide.disallowExtras
-        : []),
-      ...FORBIDDEN_POINTER_KEYS,
-    ].map((key) => String(key)),
-  );
-
   const allowedExtras = new Set(
     resolveAllowedExtrasList(hintSide).map((key) => String(key)),
   );
   const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
     ? hintSide.requiredExtras.map((key) => String(key))
     : [];
-
   requiredExtras.forEach((key) => allowedExtras.add(String(key)));
 
+  const pointer = {};
+  let hasBase = false;
+
+  const candidateSources = [];
+  if (meta.pointerRaw && typeof meta.pointerRaw === "object") {
+    candidateSources.push(meta.pointerRaw);
+  }
+  if (meta.refLike && typeof meta.refLike === "object") {
+    candidateSources.push(meta.refLike);
+  }
+  if (meta.path) {
+    candidateSources.push({ "/": meta.path });
+  }
+
+  for (const source of candidateSources) {
+    if (!source || typeof source !== "object") continue;
+    POINTER_BASE_KEYS.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(pointer, key)) return;
+      const raw = source[key];
+      if (typeof raw !== "string") return;
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      if (key === "/") {
+        const normalizedPath = normalizePointerPath(trimmed);
+        if (!normalizedPath) return;
+        pointer["/"] = normalizedPath;
+        hasBase = true;
+      } else {
+        pointer[key] = trimmed;
+        hasBase = true;
+      }
+    });
+    if (hasBase) break;
+  }
+
+  if (!hasBase) return null;
+
+  stripForbiddenPointerKeys(pointer);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(pointer, hintSide.disallowExtras);
+  }
+
   allowedExtras.forEach((key) => {
-    if (!key || disallowed.has(String(key))) return;
+    if (!key) return;
+    if (
+      hintSide &&
+      Array.isArray(hintSide.disallowExtras) &&
+      hintSide.disallowExtras.includes(key)
+    ) {
+      return;
+    }
     const resolved = resolvePointerExtra(meta, key);
     if (resolved == null) return;
     if (key === "ownership_transfer_date") {
