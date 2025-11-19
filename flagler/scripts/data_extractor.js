@@ -61,6 +61,50 @@ function normalizePointerPath(value) {
   return `./${trimmed}`;
 }
 
+function pointerFromRelativePath(relativePath) {
+  if (typeof relativePath !== "string" || !relativePath.trim()) return null;
+  const normalized = normalizePointerPath(relativePath);
+  return normalized ? { "/": normalized } : null;
+}
+
+function pointerWithAllowedExtras(relativePath, extras, allowedExtras = []) {
+  const pointer = pointerFromRelativePath(relativePath);
+  if (!pointer) return null;
+  if (!extras || !Array.isArray(allowedExtras) || allowedExtras.length === 0) {
+    return pointer;
+  }
+  allowedExtras.forEach((key) => {
+    if (!key || !Object.prototype.hasOwnProperty.call(extras, key)) return;
+    const raw = extras[key];
+    if (raw == null) return;
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(raw);
+      if (normalized) {
+        pointer[key] = normalized;
+      }
+      return;
+    }
+    const trimmed = typeof raw === "string" ? raw.trim() : String(raw).trim();
+    if (trimmed) {
+      pointer[key] = trimmed;
+    }
+  });
+  return pointer;
+}
+
+function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
+  if (!type || !fromPointer || !toPointer) return;
+  const suffix =
+    index === undefined || index === null || index === ""
+      ? ""
+      : `_${index}`;
+  const filename = `relationship_${type}${suffix}.json`;
+  writeJSON(path.join("data", filename), {
+    from: cloneDeep(fromPointer),
+    to: cloneDeep(toPointer),
+  });
+}
+
 function attachSourceHttpRequest(target, request) {
   if (!target || !request) return;
   target.source_http_request = cloneDeep(request);
@@ -1827,7 +1871,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     ? (context && context.propertyFile) || "property.json"
     : null;
   const propertyPointer = propertyPointerSource
-    ? pointerFromRef(propertyPointerSource)
+    ? pointerFromRelativePath(propertyPointerSource)
     : null;
 
   removeFilesMatchingPatterns([
@@ -1860,18 +1904,11 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleNode);
-    const salePointer = pointerFromRef({
-      "/": saleFilename,
-      ownership_transfer_date: saleNode.ownership_transfer_date,
-    });
-    if (
-      salePointer &&
-      typeof salePointer === "object" &&
-      !salePointer.ownership_transfer_date &&
-      saleNode.ownership_transfer_date
-    ) {
-      salePointer.ownership_transfer_date = saleNode.ownership_transfer_date;
-    }
+    const salePointer = pointerWithAllowedExtras(
+      saleFilename,
+      { ownership_transfer_date: saleNode.ownership_transfer_date },
+      ["ownership_transfer_date"],
+    );
 
     const deedCandidate = {};
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
@@ -1881,27 +1918,38 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
-    const deedPointer = pointerFromRef(deedFilename);
+    const deedPointer = pointerFromRelativePath(deedFilename);
 
-    const storedSalePointer = pointerFromRef(salePointer || saleFilename);
     processedSales.push({
       source: saleRecord,
       idx,
       saleFilename,
-      salePointer: storedSalePointer,
       transferDate: saleNode.ownership_transfer_date,
       saleNode,
     });
 
-    if (salePointer && deedPointer) {
-      writeRelationship("sales_history_has_deed", salePointer, deedPointer, idx);
+    if (
+      salePointer &&
+      salePointer.ownership_transfer_date &&
+      deedPointer
+    ) {
+      writeSimpleRelationshipFile(
+        "sales_history_has_deed",
+        idx,
+        salePointer,
+        deedPointer,
+      );
     }
-    if (propertyPointer && salePointer) {
-      writeRelationship(
+    if (
+      propertyPointer &&
+      salePointer &&
+      salePointer.ownership_transfer_date
+    ) {
+      writeSimpleRelationshipFile(
         "property_has_sales_history",
+        idx,
         propertyPointer,
         salePointer,
-        idx,
       );
     }
   });
@@ -2002,22 +2050,27 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRef = pointerFromRef(
-      (rec && rec.salePointer) || rec.saleFilename,
+    const saleRef = pointerWithAllowedExtras(
+      rec.saleFilename,
+      { ownership_transfer_date: rec.transferDate },
+      ["ownership_transfer_date"],
     );
+    if (!saleRef || !saleRef.ownership_transfer_date) {
+      return;
+    }
     ownersOnDate
       .filter((o) => o.type === "person")
       .forEach((o) => {
         const pIdx = findPersonIndexByName(o.first_name, o.last_name);
         if (pIdx) {
-          const personRef = pointerFromRef(`person_${pIdx}.json`);
-          if (!saleRef || !personRef) return;
+          const personRef = pointerFromRelativePath(`person_${pIdx}.json`);
+          if (!personRef) return;
           relPersonCounter++;
-          writeRelationship(
+          writeSimpleRelationshipFile(
             "sales_history_has_person",
+            relPersonCounter,
             saleRef,
             personRef,
-            relPersonCounter,
           );
         }
       });
@@ -2026,14 +2079,14 @@ function writePersonCompaniesSalesRelationships(
       .forEach((o) => {
         const cIdx = findCompanyIndexByName(o.name);
         if (cIdx) {
-          const companyRef = pointerFromRef(`company_${cIdx}.json`);
-          if (!saleRef || !companyRef) return;
+          const companyRef = pointerFromRelativePath(`company_${cIdx}.json`);
+          if (!companyRef) return;
           relCompanyCounter++;
-          writeRelationship(
+          writeSimpleRelationshipFile(
             "sales_history_has_company",
+            relCompanyCounter,
             saleRef,
             companyRef,
-            relCompanyCounter,
           );
         }
       });
