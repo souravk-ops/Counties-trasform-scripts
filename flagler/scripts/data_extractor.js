@@ -559,6 +559,87 @@ function pointerHasBase(pointer) {
   });
 }
 
+function buildRelationshipPointer(meta, hintSide) {
+  if (!meta) return null;
+
+  const pointer = {};
+  let hasBase = false;
+
+  POINTER_BASE_KEYS.forEach((key) => {
+    let raw = null;
+    if (
+      meta.pointerRaw &&
+      typeof meta.pointerRaw === "object" &&
+      typeof meta.pointerRaw[key] === "string"
+    ) {
+      raw = meta.pointerRaw[key];
+    } else if (
+      meta.refLike &&
+      typeof meta.refLike === "object" &&
+      typeof meta.refLike[key] === "string"
+    ) {
+      raw = meta.refLike[key];
+    }
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (!normalizedPath) return;
+      pointer["/"] = normalizedPath;
+      hasBase = true;
+      return;
+    }
+    pointer[key] = trimmed;
+    hasBase = true;
+  });
+
+  if (!hasBase) return null;
+
+  const disallowed = new Set(
+    [
+      ...(Array.isArray(hintSide && hintSide.disallowExtras)
+        ? hintSide.disallowExtras
+        : []),
+      ...FORBIDDEN_POINTER_KEYS,
+    ].map((key) => String(key)),
+  );
+
+  const allowedExtras = new Set(
+    resolveAllowedExtrasList(hintSide).map((key) => String(key)),
+  );
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+
+  requiredExtras.forEach((key) => allowedExtras.add(String(key)));
+
+  allowedExtras.forEach((key) => {
+    if (!key || disallowed.has(String(key))) return;
+    const resolved = resolvePointerExtra(meta, key);
+    if (resolved == null) return;
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(resolved);
+      if (normalized) pointer[key] = normalized;
+    } else {
+      const trimmed = String(resolved).trim();
+      if (trimmed) pointer[key] = trimmed;
+    }
+  });
+
+  for (const key of requiredExtras) {
+    if (
+      !Object.prototype.hasOwnProperty.call(pointer, key) ||
+      pointer[key] == null ||
+      String(pointer[key]).trim() === ""
+    ) {
+      return null;
+    }
+  }
+
+  return pointer;
+}
+
 function finalizePointerForSide(meta, hintSide) {
   if (!meta || !meta.pointerRaw) return null;
 
@@ -907,30 +988,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     toMeta = tmp;
   }
 
-  const finalFrom = finalizePointerForSide(fromMeta, hint && hint.from);
-  const finalTo = finalizePointerForSide(toMeta, hint && hint.to);
-  if (!finalFrom || !finalTo) return;
-
-  const sanitizedFrom = sanitizePointerForHint(finalFrom, hint && hint.from);
-  const sanitizedTo = sanitizePointerForHint(finalTo, hint && hint.to);
-  if (!sanitizedFrom || !sanitizedTo) return;
-
-  const preparedFrom = prepareRelationshipPointer(fromMeta, sanitizedFrom, hint && hint.from);
-  const preparedTo = prepareRelationshipPointer(toMeta, sanitizedTo, hint && hint.to);
-  if (!preparedFrom || !preparedTo) return;
-
-  const outputFrom = sanitizePointerForHint(preparedFrom, hint && hint.from);
-  const outputTo = sanitizePointerForHint(preparedTo, hint && hint.to);
-  if (!outputFrom || !outputTo) return;
-
-  const enforcedFrom = enforcePointerForSide(outputFrom, hint && hint.from);
-  const enforcedTo = enforcePointerForSide(outputTo, hint && hint.to);
-  if (!enforcedFrom || !enforcedTo) return;
-
-  const finalOutputFrom =
-    sanitizePointerForHint(enforcedFrom, hint && hint.from) || enforcedFrom;
-  const finalOutputTo =
-    sanitizePointerForHint(enforcedTo, hint && hint.to) || enforcedTo;
+  const finalOutputFrom = buildRelationshipPointer(fromMeta, hint && hint.from);
+  const finalOutputTo = buildRelationshipPointer(toMeta, hint && hint.to);
   if (!finalOutputFrom || !finalOutputTo) return;
 
   const suffixPortion =
