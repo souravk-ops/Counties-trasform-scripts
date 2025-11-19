@@ -275,6 +275,110 @@ function resolvePointerExtra(meta, key) {
   return null;
 }
 
+function collectAllowedExtrasForSide(hintSide) {
+  const extras = new Set(
+    Array.isArray(hintSide && hintSide.allowedExtras) && hintSide.allowedExtras.length > 0
+      ? hintSide.allowedExtras.map((key) => String(key))
+      : ALLOWED_POINTER_EXTRAS.map((key) => String(key)),
+  );
+
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    hintSide.disallowExtras.forEach((key) => extras.delete(String(key)));
+  }
+
+  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
+    hintSide.requiredExtras.forEach((key) => extras.add(String(key)));
+  }
+
+  return extras;
+}
+
+function filterPointerByAllowedExtras(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const filtered = {};
+  POINTER_BASE_KEYS.forEach((key) => {
+    const value = pointer[key];
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) filtered["/"] = normalizedPath;
+    } else {
+      filtered[key] = trimmed;
+    }
+  });
+  if (!filtered.cid && !filtered.uri && !filtered["/"]) {
+    return null;
+  }
+
+  const extrasToKeep = collectAllowedExtrasForSide(hintSide);
+  extrasToKeep.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
+    if (raw == null) return;
+    if (key === "ownership_transfer_date") {
+      const normalizedDate = formatPointerDate(raw);
+      if (normalizedDate) filtered[key] = normalizedDate;
+      return;
+    }
+    const trimmed = String(raw).trim();
+    if (trimmed) filtered[key] = trimmed;
+  });
+
+  return filtered;
+}
+
+function ensurePointerHasRequiredExtras(pointer, hintSide, meta) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (!hintSide || !Array.isArray(hintSide.requiredExtras) || hintSide.requiredExtras.length === 0) {
+    return pointer;
+  }
+
+  const updated = { ...pointer };
+  for (const key of hintSide.requiredExtras) {
+    let value = updated[key];
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(value);
+      if (normalized) {
+        updated[key] = normalized;
+        continue;
+      }
+    } else if (value != null) {
+      const trimmedExisting = String(value).trim();
+      if (trimmedExisting) {
+        updated[key] = trimmedExisting;
+        continue;
+      }
+    }
+
+    const resolved = resolvePointerExtra(meta, key);
+    if (!resolved) return null;
+    if (key === "ownership_transfer_date") {
+      const normalizedResolved = formatPointerDate(resolved);
+      if (!normalizedResolved) return null;
+      updated[key] = normalizedResolved;
+    } else {
+      const trimmedResolved = String(resolved).trim();
+      if (!trimmedResolved) return null;
+      updated[key] = trimmedResolved;
+    }
+  }
+
+  return updated;
+}
+
+function applyRelationshipSideRules(type, pointer, meta, sideName) {
+  if (!pointer) return null;
+  const hint = RELATIONSHIP_HINTS[type];
+  const sideHint = hint && hint[sideName];
+  const filtered = filterPointerByAllowedExtras(pointer, sideHint);
+  if (!filtered) return null;
+  const ensured = ensurePointerHasRequiredExtras(filtered, sideHint, meta);
+  if (!ensured) return null;
+  return sanitizePointerForSchema(ensured);
+}
+
 function buildCleanPointer(meta, hintSide) {
   if (!meta || !meta.pointerRaw) return null;
 
@@ -361,10 +465,12 @@ const RELATIONSHIP_HINTS = {
     preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
+      allowedExtras: [],
       disallowExtras: ["document_type", "file_format", "ipfs_url", "name", "original_url"],
     },
     to: {
       pathPrefixes: ["file_"],
+      allowedExtras: ["request_identifier"],
       disallowExtras: [
         "book",
         "deed_type",
@@ -385,6 +491,7 @@ const RELATIONSHIP_HINTS = {
     preventSwap: true,
     from: {
       pathPrefixes: ["file_"],
+      allowedExtras: ["request_identifier"],
       disallowExtras: [
         "deed_type",
         "document_type",
@@ -396,31 +503,45 @@ const RELATIONSHIP_HINTS = {
         "purchase_price_amount",
       ],
     },
-    to: { pathPrefixes: ["fact_sheet"] },
+    to: { pathPrefixes: ["fact_sheet"], allowedExtras: [] },
   },
   layout_has_fact_sheet: {
     preventSwap: true,
-    from: { pathPrefixes: ["layout_"], requiredExtras: ["space_type_index"] },
-    to: { pathPrefixes: ["fact_sheet"] },
+    from: {
+      pathPrefixes: ["layout_"],
+      requiredExtras: ["space_type_index"],
+      allowedExtras: ["space_type_index"],
+    },
+    to: { pathPrefixes: ["fact_sheet"], allowedExtras: [] },
   },
   property_has_layout: {
     preventSwap: true,
-    from: { pathPrefixes: ["property"] },
-    to: { pathPrefixes: ["layout_"], requiredExtras: ["space_type_index"] },
+    from: { pathPrefixes: ["property"], allowedExtras: [] },
+    to: {
+      pathPrefixes: ["layout_"],
+      requiredExtras: ["space_type_index"],
+      allowedExtras: ["space_type_index"],
+    },
   },
   property_has_sales_history: {
-    from: { pathPrefixes: ["property"] },
+    from: { pathPrefixes: ["property"], allowedExtras: [] },
     to: {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
     },
   },
   sales_history_has_company: {
     from: {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
     },
-    to: { pathPrefixes: ["company_"], disallowExtras: ["ownership_transfer_date"] },
+    to: {
+      pathPrefixes: ["company_"],
+      allowedExtras: [],
+      disallowExtras: ["ownership_transfer_date"],
+    },
   },
   sales_history_has_deed: {
     preventSwap: true,
@@ -428,9 +549,11 @@ const RELATIONSHIP_HINTS = {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
       disallowExtras: ["purchase_price_amount"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
     },
     to: {
       pathPrefixes: ["deed_"],
+      allowedExtras: [],
       disallowExtras: [
         "book",
         "deed_type",
@@ -449,8 +572,13 @@ const RELATIONSHIP_HINTS = {
     from: {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
     },
-    to: { pathPrefixes: ["person_"], disallowExtras: ["ownership_transfer_date"] },
+    to: {
+      pathPrefixes: ["person_"],
+      allowedExtras: [],
+      disallowExtras: ["ownership_transfer_date"],
+    },
   },
 };
 
@@ -593,13 +721,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const toPointer = buildCleanPointer(toMeta, hint && hint.to);
   if (!fromPointer || !toPointer) return;
 
+  const finalizedFrom = applyRelationshipSideRules(relationshipType, fromPointer, fromMeta, "from");
+  const finalizedTo = applyRelationshipSideRules(relationshipType, toPointer, toMeta, "to");
+  if (!finalizedFrom || !finalizedTo) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: fromPointer,
-    to: toPointer,
+    from: finalizedFrom,
+    to: finalizedTo,
   });
 }
 
