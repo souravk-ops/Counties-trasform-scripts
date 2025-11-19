@@ -1331,6 +1331,11 @@ function finalizePointerForWrite(pointer, hintSide) {
     cleaned[strKey] = value;
   });
 
+  stripForbiddenPointerKeys(cleaned);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(cleaned, hintSide.disallowExtras);
+  }
+
   for (const key of requiredExtras) {
     const strKey = String(key);
     if (
