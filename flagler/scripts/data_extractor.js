@@ -1208,6 +1208,12 @@ const RELATIONSHIP_HINTS = {
   },
 };
 
+const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set(["deed_has_file"]);
+const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set([
+  "sales_history_has_deed",
+  "deed_has_file",
+]);
+
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
   const trimmed = relativePath.replace(/^[./\\]+/, "").trim();
@@ -1422,14 +1428,34 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
   if (!relationshipType) return;
+  if (RELATIONSHIPS_MANAGED_EXTERNALLY.has(relationshipType)) {
+    return;
+  }
 
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
+  const fromMeta = buildPointerMeta(fromRefLike);
+  const toMeta = buildPointerMeta(toRefLike);
+  const canSwap =
+    RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType) ||
+    !hint.preventSwap;
+  let resolvedFromRef = fromRefLike;
+  let resolvedToRef = toRefLike;
+  if (
+    canSwap &&
+    fromMeta &&
+    toMeta &&
+    shouldSwapPointers(hint, fromMeta, toMeta)
+  ) {
+    resolvedFromRef = toRefLike;
+    resolvedToRef = fromRefLike;
+  }
+
   const sanitizedFrom = sanitizeRelationshipPointer(
-    fromRefLike,
+    resolvedFromRef,
     hint && hint.from,
   );
   const sanitizedTo = sanitizeRelationshipPointer(
-    toRefLike,
+    resolvedToRef,
     hint && hint.to,
   );
   const finalFrom = finalizePointerForWrite(sanitizedFrom, hint && hint.from);
@@ -2316,16 +2342,23 @@ function extractSecTwpRng($) {
 
 function attemptWriteAddress(unnorm, secTwpRng, context) {
   const { defaultSourceHttpRequest } = context || {};
-  const normalizedSource =
-    unnorm && typeof unnorm.normalized_address === "object"
-      ? unnorm.normalized_address
-      : null;
-
   const stringOrNull = (value) => {
     if (value == null) return null;
     const trimmed = String(value).trim();
     return trimmed ? trimmed : null;
   };
+  const normalizedSource =
+    unnorm && typeof unnorm.normalized_address === "object"
+      ? unnorm.normalized_address
+      : null;
+  const fallbackUnnormalized =
+    stringOrNull(unnorm && unnorm.full_address) ||
+    stringOrNull(unnorm && unnorm.address) ||
+    stringOrNull(unnorm && unnorm.address_text) ||
+    stringOrNull(normalizedSource && normalizedSource.original_address);
+  const normalizedCountry = stringOrNull(
+    normalizedSource && normalizedSource.country_code,
+  );
 
   const normalizedRequiredKeys = [
     "street_number",
@@ -2352,6 +2385,10 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   if (secTwpRng && secTwpRng.township) address.township = secTwpRng.township;
   if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
 
+  if (fallbackUnnormalized) {
+    address.unnormalized_address = fallbackUnnormalized;
+  }
+
   if (hasCompleteNormalizedAddress) {
     const [
       streetNumber,
@@ -2365,10 +2402,6 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     address.city_name = cityName ? cityName.toUpperCase() : null;
     address.state_code = stateCode;
     address.postal_code = postalCode;
-    const normalizedCountry = stringOrNull(
-      normalizedSource && normalizedSource.country_code,
-    );
-    address.country_code = normalizedCountry || "US";
     const suffix = stringOrNull(
       normalizedSource && normalizedSource.street_suffix_type,
     );
@@ -2393,23 +2426,12 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
       normalizedSource && normalizedSource.plus_four_postal_code,
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
-  } else {
-    const fallbackUnnormalized =
-      stringOrNull(unnorm && unnorm.full_address) ||
-      stringOrNull(unnorm && unnorm.address) ||
-      stringOrNull(unnorm && unnorm.address_text) ||
-      stringOrNull(normalizedSource && normalizedSource.original_address);
-    if (fallbackUnnormalized) {
-      address.unnormalized_address = fallbackUnnormalized;
-    }
-    const normalizedCountry = stringOrNull(
-      normalizedSource && normalizedSource.country_code,
-    );
-    if (normalizedCountry) {
-      address.country_code = normalizedCountry;
-    } else if (!address.country_code) {
-      address.country_code = "US";
-    }
+  } else if (normalizedCountry) {
+    address.country_code = normalizedCountry;
+  }
+
+  if (!address.country_code) {
+    address.country_code = normalizedCountry || "US";
   }
 
   const requestIdentifier = stringOrNull(
