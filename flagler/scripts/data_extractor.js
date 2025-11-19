@@ -383,60 +383,80 @@ function pointerHasBase(pointer) {
 function finalizePointerForSide(meta, hintSide) {
   if (!meta || !meta.pointerRaw) return null;
 
-  const pointer = {};
-  const raw = meta.pointerRaw;
-
-  if (typeof raw.cid === "string" && raw.cid.trim()) {
-    pointer.cid = raw.cid.trim();
-  }
-  if (typeof raw.uri === "string" && raw.uri.trim()) {
-    pointer.uri = raw.uri.trim();
-  }
-  if (typeof raw["/"] === "string" && raw["/"].trim()) {
-    const normalizedPath = normalizePointerPath(raw["/"].trim());
-    if (normalizedPath) pointer["/"] = normalizedPath;
-  }
-
-  if (!pointerHasBase(pointer)) {
-    return null;
-  }
+  const enforcementHint =
+    hintSide && typeof hintSide === "object"
+      ? { ...hintSide, requiredExtras: [] }
+      : hintSide;
+  const basePointer = enforcePointerForSide(meta.pointerRaw, enforcementHint);
+  if (!basePointer) return null;
 
   const extrasToInclude = collectAllowedExtrasForSide(hintSide);
   extrasToInclude.forEach((key) => {
-    const resolved = resolvePointerExtra(meta, key);
-    if (!resolved) return;
-    if (key === "ownership_transfer_date") {
-      const normalized = formatPointerDate(resolved);
-      if (normalized) pointer[key] = normalized;
+    if (
+      Object.prototype.hasOwnProperty.call(basePointer, key) &&
+      basePointer[key] != null &&
+      String(basePointer[key]).trim() !== ""
+    ) {
+      if (key === "ownership_transfer_date") {
+        const normalized = formatPointerDate(basePointer[key]);
+        if (normalized) {
+          basePointer[key] = normalized;
+        } else {
+          delete basePointer[key];
+        }
+      }
       return;
     }
-    const trimmed = String(resolved).trim();
-    if (trimmed) pointer[key] = trimmed;
+
+    const resolved = resolvePointerExtra(meta, key);
+    if (resolved == null) return;
+
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(resolved);
+      if (normalized) basePointer[key] = normalized;
+    } else {
+      const trimmed = String(resolved).trim();
+      if (trimmed) basePointer[key] = trimmed;
+    }
   });
 
   if (hintSide && Array.isArray(hintSide.requiredExtras)) {
     for (const key of hintSide.requiredExtras) {
       if (
-        !Object.prototype.hasOwnProperty.call(pointer, key) ||
-        pointer[key] == null ||
-        String(pointer[key]).trim() === ""
+        !Object.prototype.hasOwnProperty.call(basePointer, key) ||
+        basePointer[key] == null ||
+        String(basePointer[key]).trim() === ""
       ) {
-        return null;
+        const resolved = resolvePointerExtra(meta, key);
+        let normalized = null;
+        if (resolved != null) {
+          if (key === "ownership_transfer_date") {
+            normalized = formatPointerDate(resolved);
+          } else {
+            const trimmed = String(resolved).trim();
+            if (trimmed) normalized = trimmed;
+          }
+        }
+        if (normalized != null) {
+          basePointer[key] = normalized;
+        } else {
+          return null;
+        }
       }
     }
   }
 
-  stripForbiddenPointerKeys(pointer);
+  stripForbiddenPointerKeys(basePointer);
   if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    stripDisallowedExtras(pointer, hintSide.disallowExtras);
+    stripDisallowedExtras(basePointer, hintSide.disallowExtras);
   }
-  stripUnknownPointerKeys(pointer, hintSide);
+  stripUnknownPointerKeys(basePointer, hintSide);
 
-  if (!pointerHasBase(pointer)) {
+  if (!pointerHasBase(basePointer)) {
     return null;
   }
 
-  return pointer;
+  return basePointer;
 }
 
 const POINTER_JSON_CACHE = new Map();
