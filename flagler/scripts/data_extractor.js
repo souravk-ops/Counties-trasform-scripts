@@ -1281,9 +1281,14 @@ function shouldSwapPointers(hint, fromMeta, toMeta) {
 
 function sanitizeRelationshipPointer(refLike, hintSide) {
   if (refLike == null) return null;
-  const pointer = pointerFromRef(refLike);
-  if (!pointer) return null;
-  return pruneRelationshipPointer(pointer, hintSide || {});
+  const meta = buildPointerMeta(refLike);
+  if (!meta || !meta.pointerRaw) return null;
+  const sideHint = hintSide || {};
+  const normalizedPointer =
+    cleanRelationshipPointer(meta, meta.pointerRaw, sideHint) ||
+    enforcePointerForSide(meta.pointerRaw, sideHint);
+  if (!normalizedPointer) return null;
+  return pruneRelationshipPointer(normalizedPointer, sideHint);
 }
 
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
