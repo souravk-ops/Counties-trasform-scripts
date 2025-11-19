@@ -437,6 +437,119 @@ function sanitizePointerForHint(pointer, hintSide) {
   return normalizePointerOutput(pointer, hintSide);
 }
 
+function prepareRelationshipPointer(meta, pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const cleaned = {};
+  let hasBase = false;
+  POINTER_BASE_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (!normalizedPath) return;
+      cleaned["/"] = normalizedPath;
+    } else {
+      cleaned[key] = trimmed;
+    }
+    hasBase = true;
+  });
+  if (!hasBase) return null;
+
+  const allowedExtrasList = resolveAllowedExtrasList(hintSide);
+  const disallowExtrasSet =
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? new Set(hintSide.disallowExtras.map((key) => String(key)))
+      : new Set();
+  const requiredExtras =
+    hintSide && Array.isArray(hintSide.requiredExtras)
+      ? hintSide.requiredExtras.map((key) => String(key))
+      : [];
+
+  requiredExtras.forEach((key) => {
+    if (!allowedExtrasList.includes(key)) {
+      allowedExtrasList.push(key);
+    }
+  });
+
+  allowedExtrasList.forEach((extraKey) => {
+    const key = String(extraKey);
+    if (FORBIDDEN_POINTER_KEYS.includes(key) || disallowExtrasSet.has(key)) {
+      return;
+    }
+    let value =
+      Object.prototype.hasOwnProperty.call(pointer, key) && pointer[key] != null
+        ? pointer[key]
+        : null;
+    if (value == null && meta) {
+      value = resolvePointerExtra(meta, key);
+    }
+    if (value == null) return;
+    let normalized = null;
+    if (key === "ownership_transfer_date") {
+      normalized = formatPointerDate(value);
+    } else if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) normalized = trimmed;
+    } else {
+      const str = String(value).trim();
+      if (str) normalized = str;
+    }
+    if (normalized != null) {
+      cleaned[key] = normalized;
+    }
+  });
+
+  let missingRequired = false;
+  requiredExtras.forEach((extraKey) => {
+    const key = String(extraKey);
+    if (
+      Object.prototype.hasOwnProperty.call(cleaned, key) &&
+      cleaned[key] != null &&
+      String(cleaned[key]).trim() !== ""
+    ) {
+      return;
+    }
+    let resolved = null;
+    if (meta) {
+      resolved = resolvePointerExtra(meta, key);
+    }
+    if (resolved == null) {
+      missingRequired = true;
+      return;
+    }
+    if (key === "ownership_transfer_date") {
+      const normalized = formatPointerDate(resolved);
+      if (normalized) {
+        cleaned[key] = normalized;
+      } else {
+        missingRequired = true;
+      }
+    } else {
+      const trimmed = String(resolved).trim();
+      if (trimmed) {
+        cleaned[key] = trimmed;
+      } else {
+        missingRequired = true;
+      }
+    }
+  });
+
+  if (missingRequired) return null;
+
+  stripForbiddenPointerKeys(cleaned);
+  disallowExtrasSet.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      delete cleaned[key];
+    }
+  });
+
+  return cleaned;
+}
+
 function pointerHasBase(pointer) {
   if (!pointer || typeof pointer !== "object") return false;
   return POINTER_BASE_KEYS.some((key) => {
@@ -795,13 +908,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const sanitizedTo = sanitizePointerForHint(finalTo, hint && hint.to);
   if (!sanitizedFrom || !sanitizedTo) return;
 
+  const preparedFrom = prepareRelationshipPointer(fromMeta, sanitizedFrom, hint && hint.from);
+  const preparedTo = prepareRelationshipPointer(toMeta, sanitizedTo, hint && hint.to);
+  if (!preparedFrom || !preparedTo) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: preparedFrom,
+    to: preparedTo,
   });
 }
 
