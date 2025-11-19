@@ -210,44 +210,6 @@ function resolveAllowedExtrasList(hintSide) {
   return ALLOWED_POINTER_EXTRAS.map((key) => String(key));
 }
 
-function sanitizePointerForSchema(pointer) {
-  if (!pointer || typeof pointer !== "object") return null;
-  const sanitized = {};
-
-  POINTER_BASE_KEYS.forEach((key) => {
-    const value = pointer[key];
-    if (typeof value !== "string") return;
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (key === "/") {
-      const normalizedPath = normalizePointerPath(trimmed);
-      if (normalizedPath) sanitized["/"] = normalizedPath;
-    } else {
-      sanitized[key] = trimmed;
-    }
-  });
-
-  ALLOWED_POINTER_EXTRAS.forEach((key) => {
-    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
-    const raw = pointer[key];
-    if (raw == null) return;
-    if (key === "ownership_transfer_date") {
-      const normalizedDate = formatPointerDate(raw);
-      if (normalizedDate) sanitized[key] = normalizedDate;
-      return;
-    }
-    const trimmed = String(raw).trim();
-    if (trimmed) sanitized[key] = trimmed;
-  });
-
-  if (!sanitized.cid && !sanitized.uri && !sanitized["/"]) {
-    return null;
-  }
-
-  stripForbiddenPointerKeys(sanitized);
-  return sanitized;
-}
-
 function enforcePointerForSide(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -418,93 +380,7 @@ function pointerHasBase(pointer) {
   });
 }
 
-function filterPointerByAllowedExtras(pointer, hintSide) {
-  if (!pointer || typeof pointer !== "object") return null;
-  const filtered = {};
-  POINTER_BASE_KEYS.forEach((key) => {
-    const value = pointer[key];
-    if (typeof value !== "string") return;
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (key === "/") {
-      const normalizedPath = normalizePointerPath(trimmed);
-      if (normalizedPath) filtered["/"] = normalizedPath;
-    } else {
-      filtered[key] = trimmed;
-    }
-  });
-  if (!filtered.cid && !filtered.uri && !filtered["/"]) {
-    return null;
-  }
-
-  const extrasToKeep = collectAllowedExtrasForSide(hintSide);
-  extrasToKeep.forEach((key) => {
-    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
-    const raw = pointer[key];
-    if (raw == null) return;
-    if (key === "ownership_transfer_date") {
-      const normalizedDate = formatPointerDate(raw);
-      if (normalizedDate) filtered[key] = normalizedDate;
-      return;
-    }
-    const trimmed = String(raw).trim();
-    if (trimmed) filtered[key] = trimmed;
-  });
-
-  return filtered;
-}
-
-function ensurePointerHasRequiredExtras(pointer, hintSide, meta) {
-  if (!pointer || typeof pointer !== "object") return null;
-  if (!hintSide || !Array.isArray(hintSide.requiredExtras) || hintSide.requiredExtras.length === 0) {
-    return pointer;
-  }
-
-  const updated = { ...pointer };
-  for (const key of hintSide.requiredExtras) {
-    let value = updated[key];
-    if (key === "ownership_transfer_date") {
-      const normalized = formatPointerDate(value);
-      if (normalized) {
-        updated[key] = normalized;
-        continue;
-      }
-    } else if (value != null) {
-      const trimmedExisting = String(value).trim();
-      if (trimmedExisting) {
-        updated[key] = trimmedExisting;
-        continue;
-      }
-    }
-
-    const resolved = resolvePointerExtra(meta, key);
-    if (!resolved) return null;
-    if (key === "ownership_transfer_date") {
-      const normalizedResolved = formatPointerDate(resolved);
-      if (!normalizedResolved) return null;
-      updated[key] = normalizedResolved;
-    } else {
-      const trimmedResolved = String(resolved).trim();
-      if (!trimmedResolved) return null;
-      updated[key] = trimmedResolved;
-    }
-  }
-
-  return updated;
-}
-
-function applyRelationshipSideRules(type, pointer, meta, sideName) {
-  if (!pointer) return null;
-  const hint = RELATIONSHIP_HINTS[type];
-  const sideHint = hint && hint[sideName];
-  const filtered = filterPointerByAllowedExtras(pointer, sideHint);
-  if (!filtered) return null;
-  const ensured = ensurePointerHasRequiredExtras(filtered, sideHint, meta);
-  if (!ensured) return null;
-  return sanitizePointerForSchema(ensured);
-}
-
-function buildCleanPointer(meta, hintSide) {
+function finalizePointerForSide(meta, hintSide) {
   if (!meta || !meta.pointerRaw) return null;
 
   const pointer = {};
@@ -521,77 +397,46 @@ function buildCleanPointer(meta, hintSide) {
     if (normalizedPath) pointer["/"] = normalizedPath;
   }
 
-  if (!pointer.cid && !pointer.uri && !pointer["/"]) {
+  if (!pointerHasBase(pointer)) {
     return null;
   }
 
-  const extrasToConsider = new Set(resolveAllowedExtrasList(hintSide));
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    hintSide.disallowExtras.forEach((key) => extrasToConsider.delete(key));
-  }
-
-  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
-    for (const key of hintSide.requiredExtras) {
-      const resolved = resolvePointerExtra(meta, key);
-      if (!resolved) return null;
-      if (key === "ownership_transfer_date") {
-        pointer[key] = resolved;
-      } else {
-        const trimmed = String(resolved).trim();
-        if (!trimmed) return null;
-        pointer[key] = trimmed;
-      }
-      extrasToConsider.delete(key);
-    }
-  }
-
-  extrasToConsider.forEach((key) => {
-    if (pointer[key]) return;
+  const extrasToInclude = collectAllowedExtrasForSide(hintSide);
+  extrasToInclude.forEach((key) => {
     const resolved = resolvePointerExtra(meta, key);
     if (!resolved) return;
     if (key === "ownership_transfer_date") {
-      pointer[key] = resolved;
-    } else {
-      const trimmed = String(resolved).trim();
-      if (trimmed) pointer[key] = trimmed;
+      const normalized = formatPointerDate(resolved);
+      if (normalized) pointer[key] = normalized;
+      return;
     }
+    const trimmed = String(resolved).trim();
+    if (trimmed) pointer[key] = trimmed;
   });
-
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    stripDisallowedExtras(pointer, hintSide.disallowExtras);
-  }
-
-  const sanitizedPointer = sanitizePointerForSchema(pointer);
-  if (!sanitizedPointer) return null;
-
-  stripForbiddenPointerKeys(sanitizedPointer);
-  stripUnknownPointerKeys(sanitizedPointer, hintSide);
-
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    stripDisallowedExtras(sanitizedPointer, hintSide.disallowExtras);
-  }
 
   if (hintSide && Array.isArray(hintSide.requiredExtras)) {
     for (const key of hintSide.requiredExtras) {
       if (
-        !Object.prototype.hasOwnProperty.call(sanitizedPointer, key) ||
-        sanitizedPointer[key] == null ||
-        String(sanitizedPointer[key]).trim() === ""
+        !Object.prototype.hasOwnProperty.call(pointer, key) ||
+        pointer[key] == null ||
+        String(pointer[key]).trim() === ""
       ) {
         return null;
       }
     }
   }
 
-  if (
-    !sanitizedPointer.cid &&
-    !sanitizedPointer.uri &&
-    !sanitizedPointer["/"]
-  ) {
+  stripForbiddenPointerKeys(pointer);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(pointer, hintSide.disallowExtras);
+  }
+  stripUnknownPointerKeys(pointer, hintSide);
+
+  if (!pointerHasBase(pointer)) {
     return null;
   }
 
-  return sanitizedPointer;
+  return pointer;
 }
 
 const POINTER_JSON_CACHE = new Map();
@@ -853,29 +698,9 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     toMeta = tmp;
   }
 
-  const fromPointer = buildCleanPointer(fromMeta, hint && hint.from);
-  const toPointer = buildCleanPointer(toMeta, hint && hint.to);
-  if (!fromPointer || !toPointer) return;
-
-  const finalizedFrom = applyRelationshipSideRules(relationshipType, fromPointer, fromMeta, "from");
-  const finalizedTo = applyRelationshipSideRules(relationshipType, toPointer, toMeta, "to");
-  if (!finalizedFrom || !finalizedTo) return;
-
-  const enforcedFrom = enforcePointerForSide(finalizedFrom, hint && hint.from);
-  const enforcedTo = enforcePointerForSide(finalizedTo, hint && hint.to);
-  if (!enforcedFrom || !enforcedTo) return;
-  stripUnknownPointerKeys(enforcedFrom, hint && hint.from);
-  stripUnknownPointerKeys(enforcedTo, hint && hint.to);
-  stripForbiddenPointerKeys(enforcedFrom);
-  stripForbiddenPointerKeys(enforcedTo);
-
-  const finalFrom = filterPointerByAllowedExtras(enforcedFrom, hint && hint.from);
-  const finalTo = filterPointerByAllowedExtras(enforcedTo, hint && hint.to);
+  const finalFrom = finalizePointerForSide(fromMeta, hint && hint.from);
+  const finalTo = finalizePointerForSide(toMeta, hint && hint.to);
   if (!finalFrom || !finalTo) return;
-
-  stripForbiddenPointerKeys(finalFrom);
-  stripForbiddenPointerKeys(finalTo);
-  if (!pointerHasBase(finalFrom) || !pointerHasBase(finalTo)) return;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
