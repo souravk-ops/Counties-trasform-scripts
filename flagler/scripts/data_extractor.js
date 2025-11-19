@@ -1291,6 +1291,80 @@ function sanitizeRelationshipPointer(refLike, hintSide) {
   return pruneRelationshipPointer(normalizedPointer, sideHint);
 }
 
+function finalizePointerForWrite(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const allowedExtrasList = resolveAllowedExtrasList(hintSide).map((key) =>
+    String(key),
+  );
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  requiredExtras.forEach((key) => {
+    if (!allowedExtrasList.includes(key)) {
+      allowedExtrasList.push(key);
+    }
+  });
+  const allowedExtras = new Set(allowedExtrasList);
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
+  );
+
+  const cleaned = {};
+  POINTER_BASE_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) {
+        cleaned["/"] = normalizedPath;
+      }
+    } else {
+      cleaned[key] = trimmed;
+    }
+  });
+
+  if (!pointerHasBase(cleaned)) {
+    return null;
+  }
+
+  Object.keys(pointer).forEach((key) => {
+    if (POINTER_BASE_KEYS.includes(key)) return;
+    const strKey = String(key);
+    if (disallowedExtras.has(strKey)) return;
+    if (!allowedExtras.has(strKey)) return;
+    if (FORBIDDEN_POINTER_KEYS.includes(strKey)) return;
+    let value = pointer[key];
+    if (value == null) return;
+    if (strKey === "ownership_transfer_date") {
+      value = formatPointerDate(value);
+      if (!value) return;
+    } else {
+      value = String(value).trim();
+      if (!value) return;
+    }
+    cleaned[strKey] = value;
+  });
+
+  for (const key of requiredExtras) {
+    const strKey = String(key);
+    if (
+      !Object.prototype.hasOwnProperty.call(cleaned, strKey) ||
+      cleaned[strKey] == null ||
+      String(cleaned[strKey]).trim() === ""
+    ) {
+      return null;
+    }
+  }
+
+  return cleaned;
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
@@ -1305,15 +1379,17 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     toRefLike,
     hint && hint.to,
   );
-  if (!sanitizedFrom || !sanitizedTo) return;
+  const finalFrom = finalizePointerForWrite(sanitizedFrom, hint && hint.from);
+  const finalTo = finalizePointerForWrite(sanitizedTo, hint && hint.to);
+  if (!finalFrom || !finalTo) return;
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: finalFrom,
+    to: finalTo,
   });
 }
 
