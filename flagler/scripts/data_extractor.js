@@ -343,6 +343,21 @@ function stripForbiddenPointerKeys(pointer) {
   return pointer;
 }
 
+function filterPointerToAllowedKeys(pointer, allowedExtras) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  const allowed = new Set(
+    POINTER_BASE_KEYS.concat(
+      Array.isArray(allowedExtras) ? allowedExtras.map((key) => String(key)) : [],
+    ),
+  );
+  Object.keys(pointer).forEach((key) => {
+    if (!allowed.has(String(key))) {
+      delete pointer[key];
+    }
+  });
+  return pointer;
+}
+
 function pointerHasBase(pointer) {
   if (!pointer || typeof pointer !== "object") return false;
   return POINTER_BASE_KEYS.some((key) => {
@@ -438,6 +453,7 @@ function finalizePointerForSide(meta, hintSide) {
       delete sanitized[key];
     }
   });
+  filterPointerToAllowedKeys(sanitized, Array.from(allowedExtras));
 
   return pointerHasBase(sanitized) ? sanitized : null;
 }
