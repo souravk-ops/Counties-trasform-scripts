@@ -249,6 +249,7 @@ const POINTER_JSON_CACHE = new Map();
 
 const RELATIONSHIP_HINTS = {
   deed_has_file: {
+    preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
       disallowExtras: ["document_type", "file_format", "ipfs_url", "name", "original_url"],
@@ -300,6 +301,7 @@ const RELATIONSHIP_HINTS = {
     to: { pathPrefixes: ["company_"], disallowExtras: ["ownership_transfer_date"] },
   },
   sales_history_has_deed: {
+    preventSwap: true,
     from: {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
