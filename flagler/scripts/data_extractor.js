@@ -1279,46 +1279,25 @@ function shouldSwapPointers(hint, fromMeta, toMeta) {
   return false;
 }
 
+function sanitizeRelationshipPointer(refLike, hintSide) {
+  if (refLike == null) return null;
+  const pointer = pointerFromRef(refLike);
+  if (!pointer) return null;
+  return pruneRelationshipPointer(pointer, hintSide || {});
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
   if (!relationshipType) return;
 
-  let fromMeta = buildPointerMeta(fromRefLike);
-  let toMeta = buildPointerMeta(toRefLike);
-  if (!fromMeta.pointerRaw || !toMeta.pointerRaw) return;
-
-  const hint = RELATIONSHIP_HINTS[relationshipType];
-  if (hint && !hint.preventSwap && shouldSwapPointers(hint, fromMeta, toMeta)) {
-    const tmp = fromMeta;
-    fromMeta = toMeta;
-    toMeta = tmp;
-  }
-
-  const pointerCandidateFrom =
-    finalizePointerForSide(fromMeta, hint && hint.from) ||
-    enforcePointerForSide(fromMeta.pointerRaw, hint && hint.from);
-  const finalOutputFrom = cleanRelationshipPointer(
-    fromMeta,
-    pointerCandidateFrom,
+  const hint = RELATIONSHIP_HINTS[relationshipType] || {};
+  const sanitizedFrom = sanitizeRelationshipPointer(
+    fromRefLike,
     hint && hint.from,
   );
-  const pointerCandidateTo =
-    finalizePointerForSide(toMeta, hint && hint.to) ||
-    enforcePointerForSide(toMeta.pointerRaw, hint && hint.to);
-  const finalOutputTo = cleanRelationshipPointer(
-    toMeta,
-    pointerCandidateTo,
-    hint && hint.to,
-  );
-  if (!finalOutputFrom || !finalOutputTo) return;
-
-  const sanitizedFrom = pruneRelationshipPointer(
-    finalOutputFrom,
-    hint && hint.from,
-  );
-  const sanitizedTo = pruneRelationshipPointer(
-    finalOutputTo,
+  const sanitizedTo = sanitizeRelationshipPointer(
+    toRefLike,
     hint && hint.to,
   );
   if (!sanitizedFrom || !sanitizedTo) return;
