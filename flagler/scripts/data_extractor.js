@@ -559,65 +559,100 @@ function pointerHasBase(pointer) {
   });
 }
 
-function buildRelationshipPointer(meta, hintSide) {
-  if (!meta) return null;
+function sanitizePointerMetaForRelationship(meta, hintSide) {
+  if (!meta || !meta.pointerRaw || typeof meta.pointerRaw !== "object") {
+    return null;
+  }
 
   const allowedExtras = new Set(
     resolveAllowedExtrasList(hintSide).map((key) => String(key)),
+  );
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
   );
   const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
     ? hintSide.requiredExtras.map((key) => String(key))
     : [];
   requiredExtras.forEach((key) => allowedExtras.add(String(key)));
 
-  const pointer = {};
-  let hasBase = false;
+  const sanitized = {};
 
-  const candidateSources = [];
-  if (meta.pointerRaw && typeof meta.pointerRaw === "object") {
-    candidateSources.push(meta.pointerRaw);
-  }
-  if (meta.refLike && typeof meta.refLike === "object") {
-    candidateSources.push(meta.refLike);
-  }
-  if (meta.path) {
-    candidateSources.push({ "/": meta.path });
-  }
+  POINTER_BASE_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(meta.pointerRaw, key)) return;
+    const raw = meta.pointerRaw[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) sanitized["/"] = normalizedPath;
+    } else {
+      sanitized[key] = trimmed;
+    }
+  });
 
-  for (const source of candidateSources) {
-    if (!source || typeof source !== "object") continue;
-    POINTER_BASE_KEYS.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(pointer, key)) return;
-      const raw = source[key];
-      if (typeof raw !== "string") return;
+  if (!pointerHasBase(sanitized)) return null;
+
+  const tryAssignExtra = (source, key) => {
+    if (!source || typeof source !== "object") return;
+    const strKey = String(key);
+    if (disallowedExtras.has(strKey)) return;
+    if (!allowedExtras.has(strKey)) return;
+    if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+    const raw = source[key];
+    if (raw == null) return;
+    let value = null;
+    if (key === "ownership_transfer_date") {
+      value = formatPointerDate(raw);
+    } else if (typeof raw === "string") {
       const trimmed = raw.trim();
       if (!trimmed) return;
-      if (key === "/") {
-        const normalizedPath = normalizePointerPath(trimmed);
-        if (!normalizedPath) return;
-        pointer["/"] = normalizedPath;
-        hasBase = true;
-      } else {
-        pointer[key] = trimmed;
-        hasBase = true;
+      value = trimmed;
+    } else {
+      const trimmed = String(raw).trim();
+      if (!trimmed) return;
+      value = trimmed;
+    }
+    if (value != null) {
+      sanitized[key] = value;
+    }
+  };
+
+  allowedExtras.forEach((key) => {
+    if (
+      Object.prototype.hasOwnProperty.call(sanitized, key) &&
+      sanitized[key] != null &&
+      String(sanitized[key]).trim() !== ""
+    ) {
+      return;
+    }
+    tryAssignExtra(meta.pointerRaw, key);
+  });
+
+  if (
+    meta.refLike &&
+    typeof meta.refLike === "object" &&
+    meta.refLike !== meta.pointerRaw
+  ) {
+    allowedExtras.forEach((key) => {
+      if (
+        Object.prototype.hasOwnProperty.call(sanitized, key) &&
+        sanitized[key] != null &&
+        String(sanitized[key]).trim() !== ""
+      ) {
+        return;
       }
+      tryAssignExtra(meta.refLike, key);
     });
-    if (hasBase) break;
-  }
-
-  if (!hasBase) return null;
-
-  stripForbiddenPointerKeys(pointer);
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    stripDisallowedExtras(pointer, hintSide.disallowExtras);
   }
 
   allowedExtras.forEach((key) => {
-    if (!key) return;
     if (
-      hintSide &&
-      Array.isArray(hintSide.disallowExtras) &&
-      hintSide.disallowExtras.includes(key)
+      Object.prototype.hasOwnProperty.call(sanitized, key) &&
+      sanitized[key] != null &&
+      String(sanitized[key]).trim() !== ""
     ) {
       return;
     }
@@ -625,36 +660,42 @@ function buildRelationshipPointer(meta, hintSide) {
     if (resolved == null) return;
     if (key === "ownership_transfer_date") {
       const normalized = formatPointerDate(resolved);
-      if (normalized) pointer[key] = normalized;
+      if (normalized) sanitized[key] = normalized;
     } else {
       const trimmed = String(resolved).trim();
-      if (trimmed) pointer[key] = trimmed;
+      if (trimmed) sanitized[key] = trimmed;
     }
   });
 
-  stripForbiddenPointerKeys(pointer);
-  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
-    stripDisallowedExtras(pointer, hintSide.disallowExtras);
-  }
+  stripForbiddenPointerKeys(sanitized);
+  disallowedExtras.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
+      delete sanitized[key];
+    }
+  });
 
-  Object.keys(pointer).forEach((key) => {
+  Object.keys(sanitized).forEach((key) => {
     if (POINTER_BASE_KEYS.includes(key)) return;
     if (!allowedExtras.has(String(key))) {
-      delete pointer[key];
+      delete sanitized[key];
     }
   });
 
   for (const key of requiredExtras) {
     if (
-      !Object.prototype.hasOwnProperty.call(pointer, key) ||
-      pointer[key] == null ||
-      String(pointer[key]).trim() === ""
+      !Object.prototype.hasOwnProperty.call(sanitized, key) ||
+      sanitized[key] == null ||
+      String(sanitized[key]).trim() === ""
     ) {
       return null;
     }
   }
 
-  return pointer;
+  return sanitized;
+}
+
+function buildRelationshipPointer(meta, hintSide) {
+  return sanitizePointerMetaForRelationship(meta, hintSide);
 }
 
 function finalizePointerForSide(meta, hintSide) {
