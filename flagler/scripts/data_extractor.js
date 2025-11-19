@@ -368,6 +368,20 @@ function collectAllowedExtrasForSide(hintSide) {
   return extras;
 }
 
+function stripUnknownPointerKeys(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  const allowedKeys = new Set(POINTER_BASE_KEYS);
+  collectAllowedExtrasForSide(hintSide).forEach((key) =>
+    allowedKeys.add(String(key)),
+  );
+  Object.keys(pointer).forEach((key) => {
+    if (!allowedKeys.has(String(key))) {
+      delete pointer[key];
+    }
+  });
+  return pointer;
+}
+
 function filterPointerByAllowedExtras(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
   const filtered = {};
@@ -803,6 +817,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const enforcedFrom = enforcePointerForSide(finalizedFrom, hint && hint.from);
   const enforcedTo = enforcePointerForSide(finalizedTo, hint && hint.to);
   if (!enforcedFrom || !enforcedTo) return;
+  stripUnknownPointerKeys(enforcedFrom, hint && hint.from);
+  stripUnknownPointerKeys(enforcedTo, hint && hint.to);
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
@@ -872,6 +888,18 @@ function sanitizeDeedMetadata(deed) {
   ["book", "instrument_number", "page", "request_identifier", "volume"].forEach(
     assignString,
   );
+  [
+    "deed_type",
+    "document_type",
+    "file_format",
+    "ipfs_url",
+    "name",
+    "original_url",
+  ].forEach((prop) => {
+    if (Object.prototype.hasOwnProperty.call(sanitized, prop)) {
+      delete sanitized[prop];
+    }
+  });
   if (deed.source_http_request && typeof deed.source_http_request === "object") {
     const cloned = cloneDeep(deed.source_http_request);
     if (cloned && Object.keys(cloned).length > 0) {
@@ -926,17 +954,28 @@ function buildFileRecord(options) {
   const opts = options || {};
   const rawUrl = typeof opts.url === "string" ? opts.url.trim() : "";
   if (!rawUrl) return null;
-  const record = {
-    request_identifier:
-      typeof opts.request_identifier === "string" &&
-      opts.request_identifier.trim()
-        ? opts.request_identifier.trim()
-        : null,
-    source_http_request: {
-      method: "GET",
-      url: rawUrl,
-    },
+  const record = {};
+  const requestIdentifier =
+    typeof opts.request_identifier === "string" && opts.request_identifier.trim()
+      ? opts.request_identifier.trim()
+      : null;
+  if (requestIdentifier) record.request_identifier = requestIdentifier;
+  record.source_http_request = {
+    method: "GET",
+    url: rawUrl,
   };
+  [
+    "document_type",
+    "file_format",
+    "ipfs_url",
+    "name",
+    "original_url",
+    "deed_type",
+  ].forEach((prop) => {
+    if (Object.prototype.hasOwnProperty.call(record, prop)) {
+      delete record[prop];
+    }
+  });
   return cleanRecord(record);
 }
 
