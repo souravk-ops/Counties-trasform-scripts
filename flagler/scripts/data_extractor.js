@@ -211,35 +211,80 @@ const POINTER_JSON_CACHE = new Map();
 
 const RELATIONSHIP_HINTS = {
   deed_has_file: {
-    from: { pathPrefixes: ["deed_"] },
-    to: { pathPrefixes: ["file_"] },
+    preventSwap: true,
+    from: {
+      pathPrefixes: ["deed_"],
+      disallowExtras: ["document_type", "file_format", "ipfs_url", "name", "original_url"],
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      disallowExtras: [
+        "book",
+        "deed_type",
+        "instrument_number",
+        "ownership_transfer_date",
+        "page",
+        "purchase_price_amount",
+        "volume",
+      ],
+    },
   },
   file_has_fact_sheet: {
     from: { pathPrefixes: ["file_"] },
     to: { pathPrefixes: ["fact_sheet"] },
   },
   layout_has_fact_sheet: {
+    preventSwap: true,
     from: { pathPrefixes: ["layout_"], requiredExtras: ["space_type_index"] },
     to: { pathPrefixes: ["fact_sheet"] },
   },
   property_has_layout: {
+    preventSwap: true,
     from: { pathPrefixes: ["property"] },
     to: { pathPrefixes: ["layout_"], requiredExtras: ["space_type_index"] },
   },
   property_has_sales_history: {
     from: { pathPrefixes: ["property"] },
-    to: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+    to: {
+      pathPrefixes: ["sales_history_"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
   },
   sales_history_has_company: {
-    from: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+    from: {
+      pathPrefixes: ["sales_history_"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
     to: { pathPrefixes: ["company_"], disallowExtras: ["ownership_transfer_date"] },
   },
   sales_history_has_deed: {
-    from: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
-    to: { pathPrefixes: ["deed_"], disallowExtras: ["ownership_transfer_date", "purchase_price_amount"] },
+    preventSwap: true,
+    from: {
+      pathPrefixes: ["sales_history_"],
+      requiredExtras: ["ownership_transfer_date"],
+      disallowExtras: ["purchase_price_amount"],
+    },
+    to: {
+      pathPrefixes: ["deed_"],
+      disallowExtras: [
+        "book",
+        "deed_type",
+        "instrument_number",
+        "ipfs_url",
+        "name",
+        "original_url",
+        "ownership_transfer_date",
+        "page",
+        "purchase_price_amount",
+        "volume",
+      ],
+    },
   },
   sales_history_has_person: {
-    from: { pathPrefixes: ["sales_history_"], requiredExtras: ["ownership_transfer_date"] },
+    from: {
+      pathPrefixes: ["sales_history_"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
     to: { pathPrefixes: ["person_"], disallowExtras: ["ownership_transfer_date"] },
   },
 };
@@ -452,7 +497,7 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (!fromMeta.pointerRaw || !toMeta.pointerRaw) return;
 
   const hint = RELATIONSHIP_HINTS[relationshipType];
-  if (hint && shouldSwapPointers(hint, fromMeta, toMeta)) {
+  if (hint && !hint.preventSwap && shouldSwapPointers(hint, fromMeta, toMeta)) {
     const tmp = fromMeta;
     fromMeta = toMeta;
     toMeta = tmp;
