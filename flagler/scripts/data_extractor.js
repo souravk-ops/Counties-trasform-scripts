@@ -188,7 +188,6 @@ function cleanPointer(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
 
   const cleaned = {};
-
   if (typeof pointer.cid === "string" && pointer.cid.trim()) {
     cleaned.cid = pointer.cid.trim();
   }
@@ -227,11 +226,29 @@ function cleanPointer(pointer) {
   return cleaned;
 }
 
+const ALLOWED_POINTER_KEYS = new Set([
+  "cid",
+  "uri",
+  "/",
+  "ownership_transfer_date",
+  "space_type_index",
+  "request_identifier",
+]);
+
+function stripPointerKeys(pointer) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  Object.keys(pointer).forEach((key) => {
+    if (!ALLOWED_POINTER_KEYS.has(key)) {
+      delete pointer[key];
+    }
+  });
+  return pointer;
+}
+
 const POINTER_JSON_CACHE = new Map();
 
 const RELATIONSHIP_HINTS = {
   deed_has_file: {
-    preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
       disallowExtras: ["document_type", "file_format", "ipfs_url", "name", "original_url"],
@@ -283,7 +300,6 @@ const RELATIONSHIP_HINTS = {
     to: { pathPrefixes: ["company_"], disallowExtras: ["ownership_transfer_date"] },
   },
   sales_history_has_deed: {
-    preventSwap: true,
     from: {
       pathPrefixes: ["sales_history_"],
       requiredExtras: ["ownership_transfer_date"],
@@ -535,7 +551,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (hint) {
     ensurePointerHints(fromPointer, fromMeta, hint.from);
     ensurePointerHints(toPointer, toMeta, hint.to);
+  }
 
+  stripPointerKeys(fromPointer);
+  stripPointerKeys(toPointer);
+
+  if (hint) {
     if (!hasRequiredExtras(fromPointer, hint.from)) return;
     if (!hasRequiredExtras(toPointer, hint.to)) return;
   }
