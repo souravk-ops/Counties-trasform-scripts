@@ -92,6 +92,46 @@ function pointerWithAllowedExtras(relativePath, extras, allowedExtras = []) {
   return pointer;
 }
 
+function buildPointerForWrite(relativePath, extras = null, allowedExtras = []) {
+  const normalizedPath = normalizePointerPath(relativePath);
+  if (!normalizedPath) return null;
+  const pointer = { "/": normalizedPath };
+  if (extras && Array.isArray(allowedExtras) && allowedExtras.length > 0) {
+    allowedExtras.forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(extras, key)) return;
+      const raw = extras[key];
+      if (raw == null) return;
+      if (key === "ownership_transfer_date") {
+        const iso = formatPointerDate(raw);
+        if (iso) {
+          pointer[key] = iso;
+        }
+        return;
+      }
+      const trimmed = String(raw).trim();
+      if (trimmed) {
+        pointer[key] = trimmed;
+      }
+    });
+  }
+  return pointer;
+}
+
+function writeDirectRelationshipFile(type, suffix, fromPointer, toPointer) {
+  if (!type || !fromPointer || !toPointer) return;
+  const trimmedType = String(type).trim();
+  if (!trimmedType) return;
+  const suffixPortion =
+    suffix === undefined || suffix === null || suffix === ""
+      ? ""
+      : `_${suffix}`;
+  const filename = `relationship_${trimmedType}${suffixPortion}.json`;
+  writeJSON(path.join("data", filename), {
+    from: fromPointer,
+    to: toPointer,
+  });
+}
+
 function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
   if (!type || !fromPointer || !toPointer) return;
   const suffix =
@@ -1865,7 +1905,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     ? (context && context.propertyFile) || "property.json"
     : null;
   const propertyPointer = propertyPointerSource
-    ? pointerFromRelativePath(propertyPointerSource)
+    ? buildPointerForWrite(propertyPointerSource)
     : null;
 
   removeFilesMatchingPatterns([
@@ -1898,7 +1938,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleNode);
-    const salePointer = pointerWithAllowedExtras(
+    const salePointer = buildPointerForWrite(
       saleFilename,
       { ownership_transfer_date: saleNode.ownership_transfer_date },
       ["ownership_transfer_date"],
@@ -1912,7 +1952,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
-    const deedPointer = pointerFromRelativePath(deedFilename);
+    const deedPointer = buildPointerForWrite(deedFilename);
 
     processedSales.push({
       source: saleRecord,
@@ -1927,7 +1967,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       salePointer.ownership_transfer_date &&
       deedPointer
     ) {
-      writeSimpleRelationshipFile(
+      writeDirectRelationshipFile(
         "sales_history_has_deed",
         idx,
         salePointer,
@@ -1939,7 +1979,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       salePointer &&
       salePointer.ownership_transfer_date
     ) {
-      writeSimpleRelationshipFile(
+      writeDirectRelationshipFile(
         "property_has_sales_history",
         idx,
         propertyPointer,
@@ -2380,18 +2420,6 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     } else if (!address.country_code) {
       address.country_code = "US";
     }
-    const normalizedState = stringOrNull(
-      normalizedSource && normalizedSource.state_code,
-    );
-    if (normalizedState) address.state_code = normalizedState;
-    const normalizedPostalCode = stringOrNull(
-      normalizedSource && normalizedSource.postal_code,
-    );
-    if (normalizedPostalCode) address.postal_code = normalizedPostalCode;
-    const normalizedCity = stringOrNull(
-      normalizedSource && normalizedSource.city_name,
-    );
-    if (normalizedCity) address.city_name = normalizedCity.toUpperCase();
   }
 
   const requestIdentifier = stringOrNull(
