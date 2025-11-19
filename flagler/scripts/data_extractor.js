@@ -186,6 +186,19 @@ function pointerFromRef(refLike) {
 
 const ALLOWED_POINTER_EXTRAS = ["ownership_transfer_date", "space_type_index", "request_identifier"];
 const POINTER_BASE_KEYS = ["cid", "uri", "/"];
+const FORBIDDEN_POINTER_KEYS = [
+  "book",
+  "deed_type",
+  "document_type",
+  "file_format",
+  "instrument_number",
+  "ipfs_url",
+  "name",
+  "original_url",
+  "page",
+  "purchase_price_amount",
+  "volume",
+];
 
 function sanitizePointerForSchema(pointer) {
   if (!pointer || typeof pointer !== "object") return null;
@@ -376,6 +389,16 @@ function stripUnknownPointerKeys(pointer, hintSide) {
   );
   Object.keys(pointer).forEach((key) => {
     if (!allowedKeys.has(String(key))) {
+      delete pointer[key];
+    }
+  });
+  return pointer;
+}
+
+function stripForbiddenPointerKeys(pointer) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  FORBIDDEN_POINTER_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(pointer, key)) {
       delete pointer[key];
     }
   });
@@ -819,6 +842,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (!enforcedFrom || !enforcedTo) return;
   stripUnknownPointerKeys(enforcedFrom, hint && hint.from);
   stripUnknownPointerKeys(enforcedTo, hint && hint.to);
+  stripForbiddenPointerKeys(enforcedFrom);
+  stripForbiddenPointerKeys(enforcedTo);
 
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
