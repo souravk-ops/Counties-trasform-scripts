@@ -224,6 +224,16 @@ function sanitizePointerForSchema(pointer) {
   return sanitized;
 }
 
+function stripDisallowedExtras(pointer, disallowList) {
+  if (!pointer || typeof pointer !== "object") return;
+  if (!Array.isArray(disallowList) || disallowList.length === 0) return;
+  disallowList.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(pointer, key)) {
+      delete pointer[key];
+    }
+  });
+}
+
 function resolvePointerExtra(meta, key) {
   if (!meta) return null;
   const sources = [];
@@ -318,7 +328,30 @@ function buildCleanPointer(meta, hintSide) {
     }
   });
 
-  return sanitizePointerForSchema(pointer);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(pointer, hintSide.disallowExtras);
+  }
+
+  const sanitizedPointer = sanitizePointerForSchema(pointer);
+  if (!sanitizedPointer) return null;
+
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(sanitizedPointer, hintSide.disallowExtras);
+  }
+
+  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
+    for (const key of hintSide.requiredExtras) {
+      if (
+        !Object.prototype.hasOwnProperty.call(sanitizedPointer, key) ||
+        sanitizedPointer[key] == null ||
+        String(sanitizedPointer[key]).trim() === ""
+      ) {
+        return null;
+      }
+    }
+  }
+
+  return sanitizedPointer;
 }
 
 const POINTER_JSON_CACHE = new Map();
@@ -349,7 +382,20 @@ const RELATIONSHIP_HINTS = {
     },
   },
   file_has_fact_sheet: {
-    from: { pathPrefixes: ["file_"] },
+    preventSwap: true,
+    from: {
+      pathPrefixes: ["file_"],
+      disallowExtras: [
+        "deed_type",
+        "document_type",
+        "file_format",
+        "ipfs_url",
+        "name",
+        "original_url",
+        "ownership_transfer_date",
+        "purchase_price_amount",
+      ],
+    },
     to: { pathPrefixes: ["fact_sheet"] },
   },
   layout_has_fact_sheet: {
