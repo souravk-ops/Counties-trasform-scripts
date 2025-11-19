@@ -1209,10 +1209,7 @@ const RELATIONSHIP_HINTS = {
 };
 
 const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set(["deed_has_file"]);
-const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set([
-  "sales_history_has_deed",
-  "deed_has_file",
-]);
+const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set();
 
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
