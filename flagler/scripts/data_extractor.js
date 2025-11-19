@@ -343,25 +343,9 @@ function stripForbiddenPointerKeys(pointer) {
   return pointer;
 }
 
-function filterPointerToAllowedKeys(pointer, allowedExtras) {
-  if (!pointer || typeof pointer !== "object") return pointer;
-  const allowed = new Set(
-    POINTER_BASE_KEYS.concat(
-      Array.isArray(allowedExtras) ? allowedExtras.map((key) => String(key)) : [],
-    ),
-  );
-  Object.keys(pointer).forEach((key) => {
-    if (!allowed.has(String(key))) {
-      delete pointer[key];
-    }
-  });
-  return pointer;
-}
-
-function sanitizePointerForHint(pointer, hintSide) {
+function normalizePointerOutput(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
-  const allowedExtras = new Set(resolveAllowedExtrasList(hintSide));
   const disallowedExtras = new Set(
     hintSide && Array.isArray(hintSide.disallowExtras)
       ? hintSide.disallowExtras.map((key) => String(key))
@@ -370,16 +354,20 @@ function sanitizePointerForHint(pointer, hintSide) {
   const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
     ? hintSide.requiredExtras.map((key) => String(key))
     : [];
-
+  const allowedExtrasList = resolveAllowedExtrasList(hintSide);
   requiredExtras.forEach((key) => {
-    allowedExtras.add(String(key));
+    const strKey = String(key);
+    if (!allowedExtrasList.includes(strKey)) {
+      allowedExtrasList.push(strKey);
+    }
   });
+  const allowedExtras = new Set(allowedExtrasList.map((key) => String(key)));
 
   const cleaned = {};
-
   POINTER_BASE_KEYS.forEach((key) => {
-    if (typeof pointer[key] !== "string") return;
-    const trimmed = pointer[key].trim();
+    const raw = pointer[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
     if (!trimmed) return;
     if (key === "/") {
       const normalizedPath = normalizePointerPath(trimmed);
@@ -392,28 +380,31 @@ function sanitizePointerForHint(pointer, hintSide) {
   if (!pointerHasBase(cleaned)) return null;
 
   allowedExtras.forEach((key) => {
-    const strKey = String(key);
-    if (disallowedExtras.has(strKey)) return;
-    if (!Object.prototype.hasOwnProperty.call(pointer, strKey)) return;
-    const raw = pointer[strKey];
+    if (disallowedExtras.has(key)) return;
+    if (FORBIDDEN_POINTER_KEYS.includes(key)) return;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
     if (raw == null) return;
     let value = null;
-    if (strKey === "ownership_transfer_date") {
+    if (key === "ownership_transfer_date") {
       value = formatPointerDate(raw);
     } else {
       const trimmed = String(raw).trim();
       if (trimmed) value = trimmed;
     }
-    if (value != null) cleaned[strKey] = value;
+    if (value != null) {
+      cleaned[key] = value;
+    }
   });
 
   stripForbiddenPointerKeys(cleaned);
-  disallowedExtras.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+
+  Object.keys(cleaned).forEach((key) => {
+    if (POINTER_BASE_KEYS.includes(key)) return;
+    if (!allowedExtras.has(String(key))) {
       delete cleaned[key];
     }
   });
-  filterPointerToAllowedKeys(cleaned, Array.from(allowedExtras));
 
   for (const key of requiredExtras) {
     const strKey = String(key);
@@ -427,6 +418,10 @@ function sanitizePointerForHint(pointer, hintSide) {
   }
 
   return pointerHasBase(cleaned) ? cleaned : null;
+}
+
+function sanitizePointerForHint(pointer, hintSide) {
+  return normalizePointerOutput(pointer, hintSide);
 }
 
 function pointerHasBase(pointer) {
@@ -517,16 +512,7 @@ function finalizePointerForSide(meta, hintSide) {
       }
     }
   }
-
-  stripForbiddenPointerKeys(sanitized);
-  disallowedExtras.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(sanitized, key)) {
-      delete sanitized[key];
-    }
-  });
-  filterPointerToAllowedKeys(sanitized, Array.from(allowedExtras));
-
-  return pointerHasBase(sanitized) ? sanitized : null;
+  return normalizePointerOutput(sanitized, hintSide);
 }
 
 const POINTER_JSON_CACHE = new Map();
