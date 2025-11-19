@@ -923,6 +923,84 @@ function cleanRelationshipPointer(meta, pointerCandidate, hintSide) {
   return cleaned;
 }
 
+function pruneRelationshipPointer(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const sanitized = {};
+  POINTER_BASE_KEYS.forEach((key) => {
+    const raw = pointer[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) {
+        sanitized["/"] = normalizedPath;
+      }
+    } else {
+      sanitized[key] = trimmed;
+    }
+  });
+
+  if (!pointerHasBase(sanitized)) {
+    return null;
+  }
+
+  const allowedExtras = new Set(resolveAllowedExtrasList(hintSide).map((key) =>
+    String(key),
+  ));
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  requiredExtras.forEach((key) => allowedExtras.add(String(key)));
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
+  );
+
+  Object.keys(pointer).forEach((key) => {
+    if (POINTER_BASE_KEYS.includes(key)) return;
+    const strKey = String(key);
+    if (FORBIDDEN_POINTER_KEYS.includes(strKey)) return;
+    if (!allowedExtras.has(strKey)) return;
+    if (disallowedExtras.has(strKey)) return;
+    const raw = pointer[key];
+    if (raw == null) return;
+    let value = null;
+    if (strKey === "ownership_transfer_date") {
+      value = formatPointerDate(raw);
+    } else if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (trimmed) value = trimmed;
+    } else {
+      const asString = String(raw).trim();
+      if (asString) value = asString;
+    }
+    if (value != null) {
+      sanitized[strKey] = value;
+    }
+  });
+
+  stripForbiddenPointerKeys(sanitized);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(sanitized, hintSide.disallowExtras);
+  }
+
+  for (const key of requiredExtras) {
+    const strKey = String(key);
+    if (
+      !Object.prototype.hasOwnProperty.call(sanitized, strKey) ||
+      sanitized[strKey] == null ||
+      String(sanitized[strKey]).trim() === ""
+    ) {
+      return null;
+    }
+  }
+
+  return pointerHasBase(sanitized) ? sanitized : null;
+}
+
 const POINTER_JSON_CACHE = new Map();
 
 const RELATIONSHIP_HINTS = {
@@ -1235,13 +1313,23 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   );
   if (!finalOutputFrom || !finalOutputTo) return;
 
+  const sanitizedFrom = pruneRelationshipPointer(
+    finalOutputFrom,
+    hint && hint.from,
+  );
+  const sanitizedTo = pruneRelationshipPointer(
+    finalOutputTo,
+    hint && hint.to,
+  );
+  if (!sanitizedFrom || !sanitizedTo) return;
+
   const suffixPortion =
     suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: finalOutputFrom,
-    to: finalOutputTo,
+    from: sanitizedFrom,
+    to: sanitizedTo,
   });
 }
 
