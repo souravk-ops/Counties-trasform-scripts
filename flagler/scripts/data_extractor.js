@@ -1634,6 +1634,40 @@ function finalizePointerForWrite(pointer, hintSide) {
   return cleaned;
 }
 
+function nextRelationshipIndex(dirPath) {
+  let maxIndex = -1;
+  try {
+    const entries = fs.readdirSync(dirPath);
+    entries.forEach((name) => {
+      const match = name.match(/^(\d+)\.json$/);
+      if (match) {
+        const value = Number(match[1]);
+        if (Number.isInteger(value) && value > maxIndex) {
+          maxIndex = value;
+        }
+      }
+    });
+  } catch (err) {
+    if (err && err.code !== "ENOENT") {
+      throw err;
+    }
+  }
+  return String(maxIndex + 1);
+}
+
+function resolveRelationshipFilePath(type, suffix) {
+  const baseDir = path.join("relationships", type);
+  ensureDir(baseDir);
+  const supplied =
+    suffix === undefined || suffix === null
+      ? ""
+      : String(suffix).trim();
+  const filename = supplied
+    ? `${supplied}.json`
+    : `${nextRelationshipIndex(baseDir)}.json`;
+  return path.join(baseDir, filename);
+}
+
 function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (typeof type !== "string") return;
   const relationshipType = type.trim();
@@ -1681,11 +1715,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     return;
   }
 
-  const suffixPortion =
-    suffix === undefined || suffix === null || suffix === "" ? "" : `_${suffix}`;
-
-  const filename = `relationship_${relationshipType}${suffixPortion}.json`;
-  writeJSON(path.join("data", filename), {
+  const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
+  writeJSON(targetPath, {
     from: normalizedFrom,
     to: normalizedTo,
   });
