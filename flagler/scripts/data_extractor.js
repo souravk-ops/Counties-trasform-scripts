@@ -1924,6 +1924,18 @@ function enforceStrictRelationshipPointers(type, fromPointer, toPointer) {
   return { from: strictFrom, to: strictTo };
 }
 
+function buildStrictPointerForSchema(pointer, schemaSide = {}) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const strictPointer = sanitizePointerAgainstStrictSchema(
+    pointer,
+    schemaSide || {},
+  );
+  if (!strictPointer) return null;
+  stripForbiddenPointerKeys(strictPointer);
+  pruneToAllowedPointerKeys(strictPointer, schemaSide);
+  return strictPointer;
+}
+
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
   const trimmed = relativePath.replace(/^[./\\]+/, "").trim();
@@ -3161,7 +3173,7 @@ function writeSalesRelationshipPayloads(
     };
   const propertyPointer =
     propertyPointerTemplate && propertySalesSchema.from
-      ? canonicalizeRelationshipPointer(
+      ? buildStrictPointerForSchema(
           propertyPointerTemplate,
           propertySalesSchema.from,
         )
@@ -3177,29 +3189,29 @@ function writeSalesRelationshipPayloads(
 
     const salePointerForDeed =
       salePointerBase &&
-      canonicalizeRelationshipPointer(
+      buildStrictPointerForSchema(
         salePointerBase,
         salesDeedSchema.from || {},
       );
-    const deedPointer =
+    const deedPointerForSales =
       deedPointerBase &&
-      canonicalizeRelationshipPointer(
+      buildStrictPointerForSchema(
         deedPointerBase,
         salesDeedSchema.to || {},
       );
 
-    if (salePointerForDeed && deedPointer) {
+    if (salePointerForDeed && deedPointerForSales) {
       writeCanonicalRelationshipRecord(
         "sales_history_has_deed",
         rec.idx,
         salePointerForDeed,
-        deedPointer,
+        deedPointerForSales,
       );
     }
 
     const deedPointerForFile =
       deedPointerBase &&
-      canonicalizeRelationshipPointer(
+      buildStrictPointerForSchema(
         deedPointerBase,
         deedFileSchema.from || {},
       );
@@ -3214,7 +3226,7 @@ function writeSalesRelationshipPayloads(
       );
       filePointer =
         filePointerBase &&
-        canonicalizeRelationshipPointer(
+        buildStrictPointerForSchema(
           filePointerBase,
           deedFileSchema.to || {},
         );
@@ -3232,7 +3244,7 @@ function writeSalesRelationshipPayloads(
     if (propertyPointer) {
       const salePointerForProperty =
         salePointerBase &&
-        canonicalizeRelationshipPointer(
+        buildStrictPointerForSchema(
           salePointerBase,
           propertySalesSchema.to || {},
         );
@@ -3482,6 +3494,11 @@ function writeLayout(parcelId, context) {
   if (!layouts) return;
   const key = `property_${parcelId}`;
   const record = (layouts[key] && layouts[key].layouts) ? layouts[key].layouts : [];
+  const propertyLayoutSchema =
+    STRICT_RELATIONSHIP_SCHEMAS.property_has_layout || {
+      from: {},
+      to: {},
+    };
   let layoutCounter = 0;
   record.forEach((l) => {
     const layoutIdx = layoutCounter + 1;
@@ -3556,14 +3573,26 @@ function writeLayout(parcelId, context) {
         layoutFilename,
         String(normalizedIndexValue).trim(),
       );
-      if (propertyPointer && layoutPointer) {
+      const strictPropertyPointer =
+        propertyPointer &&
+        buildStrictPointerForSchema(
+          propertyPointer,
+          propertyLayoutSchema.from || {},
+        );
+      const strictLayoutPointer =
+        layoutPointer &&
+        buildStrictPointerForSchema(
+          layoutPointer,
+          propertyLayoutSchema.to || {},
+        );
+      if (strictPropertyPointer && strictLayoutPointer) {
         writeRelationship(
           "property_has_layout",
-          propertyPointer,
-          layoutPointer,
+          strictPropertyPointer,
+          strictLayoutPointer,
           layoutCounter,
         );
-      } else if (propertyPointer) {
+      } else if (strictPropertyPointer) {
         const recoveredIndex =
           out.space_type_index != null &&
           String(out.space_type_index).trim() !== ""
@@ -3575,11 +3604,17 @@ function writeLayout(parcelId, context) {
             { space_type_index: recoveredIndex },
             ["space_type_index"],
           );
-          if (fallbackLayoutPointer) {
+          const strictFallbackPointer =
+            fallbackLayoutPointer &&
+            buildStrictPointerForSchema(
+              fallbackLayoutPointer,
+              propertyLayoutSchema.to || {},
+            );
+          if (strictFallbackPointer) {
             writeRelationship(
               "property_has_layout",
-              propertyPointer,
-              fallbackLayoutPointer,
+              strictPropertyPointer,
+              strictFallbackPointer,
               layoutCounter,
             );
           }
