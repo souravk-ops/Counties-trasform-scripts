@@ -200,6 +200,105 @@ function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
   writeRelationship(type, preparedFrom, preparedTo, suffix);
 }
 
+function canonicalizeRelationshipPointer(pointerInput, hintSide = {}) {
+  if (!pointerInput) return null;
+  let pointer = pointerInput;
+  if (typeof pointerInput === "string") {
+    pointer = pointerFromRelativePath(pointerInput);
+  }
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const sanitizedSource = {};
+  Object.keys(pointer).forEach((key) => {
+    if (FORBIDDEN_POINTER_KEYS.includes(String(key))) {
+      return;
+    }
+    sanitizedSource[key] = pointer[key];
+  });
+
+  const base = {};
+  if (typeof sanitizedSource.cid === "string" && sanitizedSource.cid.trim()) {
+    base.cid = sanitizedSource.cid.trim();
+  } else if (
+    typeof sanitizedSource.uri === "string" &&
+    sanitizedSource.uri.trim()
+  ) {
+    base.uri = sanitizedSource.uri.trim();
+  } else if (
+    typeof sanitizedSource["/"] === "string" &&
+    sanitizedSource["/"].trim()
+  ) {
+    const normalized = normalizePointerPath(sanitizedSource["/"]);
+    if (!normalized) return null;
+    base["/"] = normalized;
+  } else {
+    return null;
+  }
+
+  const allowedExtras = Array.isArray(hintSide.allowedExtras)
+    ? hintSide.allowedExtras.map((key) => String(key))
+    : [];
+  const requiredExtras = Array.isArray(hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  requiredExtras.forEach((key) => {
+    if (!allowedExtras.includes(key)) {
+      allowedExtras.push(key);
+    }
+  });
+
+  allowedExtras.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(sanitizedSource, key)) return;
+    let value = sanitizedSource[key];
+    if (value == null) return;
+    if (key === "ownership_transfer_date") {
+      value = formatPointerDate(value);
+    } else {
+      value = String(value).trim();
+    }
+    if (value) {
+      base[key] = value;
+    }
+  });
+
+  const missingRequired = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(base, key) ||
+      base[key] == null ||
+      String(base[key]).trim() === "",
+  );
+  if (missingRequired) {
+    return null;
+  }
+  return base;
+}
+
+function writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer) {
+  if (!type) return;
+  const schema = STRICT_RELATIONSHIP_SCHEMAS[type] || { from: {}, to: {} };
+  const normalizedFrom = canonicalizeRelationshipPointer(
+    fromPointer,
+    schema.from || {},
+  );
+  const normalizedTo = canonicalizeRelationshipPointer(
+    toPointer,
+    schema.to || {},
+  );
+  if (!normalizedFrom || !normalizedTo) return;
+  const dirPath = path.join("relationships", type);
+  ensureDir(dirPath);
+  const suffix =
+    index === undefined || index === null || index === ""
+      ? nextRelationshipIndex(dirPath)
+      : String(index).trim();
+  if (!suffix) return;
+  const filename = `${suffix}.json`;
+  writeJSON(path.join(dirPath, filename), {
+    from: normalizedFrom,
+    to: normalizedTo,
+  });
+}
+
 function attachSourceHttpRequest(target, request) {
   if (!target || !request) return;
   target.source_http_request = cloneDeep(request);
@@ -3005,18 +3104,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
 
-    processedSales.push({
-      source: saleRecord,
-      idx,
-      saleFilename,
-      transferDate: saleNode.ownership_transfer_date,
-      saleNode,
-    });
-
-    const salePointer = buildSalesHistoryPointer(saleFilename, saleNode);
-    const deedPointer = buildPointerForWrite(deedFilename);
-
-    let filePointer = null;
     const fileArtifacts = buildFileArtifactsForSale(
       saleRecord,
       idx,
@@ -3027,42 +3114,85 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         path.join("data", fileArtifacts.filename),
         fileArtifacts.fileNode,
       );
-      filePointer = buildPointerForWrite(
-        fileArtifacts.filename,
-        fileArtifacts.pointerExtras,
-        ["request_identifier"],
-      );
     }
 
+    processedSales.push({
+      source: saleRecord,
+      idx,
+      saleFilename,
+      transferDate: saleNode.ownership_transfer_date,
+      saleNode,
+      deedFilename,
+      fileArtifact: fileArtifacts
+        ? {
+            filename: fileArtifacts.filename,
+            request_identifier:
+              fileArtifacts.pointerExtras &&
+              fileArtifacts.pointerExtras.request_identifier,
+          }
+        : null,
+    });
+  });
+
+  writeSalesRelationshipPayloads(
+    processedSales,
+    propertyPointerTemplate,
+  );
+
+  return processedSales;
+}
+function writeSalesRelationshipPayloads(
+  processedSales,
+  propertyPointerTemplate,
+) {
+  if (!Array.isArray(processedSales) || processedSales.length === 0) {
+    return;
+  }
+  processedSales.forEach((rec) => {
+    const salePointer = buildPointerForWrite(
+      rec.saleFilename,
+      rec.saleNode,
+      ["ownership_transfer_date", "request_identifier"],
+    );
+    const deedPointer = buildPointerForWrite(rec.deedFilename);
     if (salePointer && deedPointer) {
-      writeRelationship(
+      writeCanonicalRelationshipRecord(
         "sales_history_has_deed",
-        cloneDeep(salePointer),
-        cloneDeep(deedPointer),
-        idx,
+        rec.idx,
+        salePointer,
+        deedPointer,
       );
     }
-
-    if (filePointer && deedPointer) {
-      writeRelationship(
-        "deed_has_file",
-        cloneDeep(deedPointer),
-        cloneDeep(filePointer),
-        idx,
+    if (
+      rec.fileArtifact &&
+      rec.fileArtifact.filename &&
+      deedPointer
+    ) {
+      const filePointer = buildPointerForWrite(
+        rec.fileArtifact.filename,
+        rec.fileArtifact.request_identifier
+          ? { request_identifier: rec.fileArtifact.request_identifier }
+          : null,
+        rec.fileArtifact.request_identifier ? ["request_identifier"] : [],
       );
+      if (filePointer) {
+        writeCanonicalRelationshipRecord(
+          "deed_has_file",
+          rec.idx,
+          deedPointer,
+          filePointer,
+        );
+      }
     }
-
     if (propertyPointerTemplate && salePointer) {
-      writeRelationship(
+      writeCanonicalRelationshipRecord(
         "property_has_sales_history",
-        cloneDeep(propertyPointerTemplate),
-        cloneDeep(salePointer),
-        idx,
+        rec.idx,
+        propertyPointerTemplate,
+        salePointer,
       );
     }
   });
-
-  return processedSales;
 }
 let people = [];
 let companies = [];
