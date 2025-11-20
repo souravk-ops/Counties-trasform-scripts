@@ -104,19 +104,23 @@ function buildPointerForWrite(relativePath, extras = null, allowedExtras = []) {
   const pointer = { "/": normalizedPath };
   if (extras && Array.isArray(allowedExtras) && allowedExtras.length > 0) {
     allowedExtras.forEach((key) => {
+      const normalizedKey = String(key);
+      if (!normalizedKey || FORBIDDEN_POINTER_KEYS.includes(normalizedKey)) {
+        return;
+      }
       if (!Object.prototype.hasOwnProperty.call(extras, key)) return;
       const raw = extras[key];
       if (raw == null) return;
-      if (key === "ownership_transfer_date") {
+      if (normalizedKey === "ownership_transfer_date") {
         const iso = formatPointerDate(raw);
         if (iso) {
-          pointer[key] = iso;
+          pointer[normalizedKey] = iso;
         }
         return;
       }
       const trimmed = String(raw).trim();
       if (trimmed) {
-        pointer[key] = trimmed;
+        pointer[normalizedKey] = trimmed;
       }
     });
   }
@@ -1559,6 +1563,69 @@ function sanitizeRelationshipPointer(refLike, hintSide) {
   return pruneRelationshipPointer(normalizedPointer, sideHint);
 }
 
+function safeSanitizePointerForRelationship(refLike, hintSide) {
+  if (refLike == null) return null;
+  const pointer = sanitizeRelationshipPointer(refLike, hintSide);
+  if (pointer) return pointer;
+  const refPointer = pointerFromRef(refLike);
+  if (!refPointer) return null;
+  const finalized =
+    finalizePointerForWrite(refPointer, hintSide) ||
+    enforcePointerSchema(refPointer, hintSide);
+  if (!finalized) return null;
+  stripForbiddenPointerKeys(finalized);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(finalized, hintSide.disallowExtras);
+  }
+  return finalized;
+}
+
+function sanitizeRelationshipDirectories(types) {
+  if (!Array.isArray(types) || types.length === 0) return;
+  types.forEach((type) => {
+    if (typeof type !== "string") return;
+    const trimmed = type.trim();
+    if (!trimmed) return;
+    const hint = RELATIONSHIP_HINTS[trimmed];
+    if (!hint) return;
+    const dirPath = path.join("relationships", trimmed);
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath);
+    } catch (err) {
+      if (err && err.code === "ENOENT") return;
+      throw err;
+    }
+    entries.forEach((filename) => {
+      if (!/\.json$/i.test(filename)) return;
+      const fullPath = path.join(dirPath, filename);
+      let payload;
+      try {
+        const raw = fs.readFileSync(fullPath, "utf8");
+        payload = JSON.parse(raw);
+      } catch (err) {
+        return;
+      }
+      const sanitizedFrom = safeSanitizePointerForRelationship(
+        payload && payload.from,
+        hint.from,
+      );
+      const sanitizedTo = safeSanitizePointerForRelationship(
+        payload && payload.to,
+        hint.to,
+      );
+      if (!sanitizedFrom || !sanitizedTo) return;
+      const originalFrom = payload ? payload.from : null;
+      const originalTo = payload ? payload.to : null;
+      const unchanged =
+        JSON.stringify(originalFrom) === JSON.stringify(sanitizedFrom) &&
+        JSON.stringify(originalTo) === JSON.stringify(sanitizedTo);
+      if (unchanged) return;
+      writeJSON(fullPath, { from: sanitizedFrom, to: sanitizedTo });
+    });
+  });
+}
+
 function finalizePointerForWrite(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -2913,6 +2980,12 @@ function main() {
     writeUtility(parcelId, context);
     writeLayout(parcelId, context);
   }
+
+  sanitizeRelationshipDirectories([
+    "deed_has_file",
+    "sales_history_has_deed",
+    "file_has_fact_sheet",
+  ]);
 
   // Address last
   const secTwpRng = extractSecTwpRng($);
