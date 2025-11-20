@@ -529,6 +529,62 @@ function stripForbiddenPointerKeys(pointer) {
   return pointer;
 }
 
+function ensurePointerHasRequiredExtras(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object" || !hintSide) {
+    return pointer;
+  }
+  const requiredExtras = Array.isArray(hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  if (requiredExtras.length === 0) {
+    return pointer;
+  }
+
+  const missing = requiredExtras.filter(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(pointer, key) ||
+      pointer[key] == null ||
+      String(pointer[key]).trim() === "",
+  );
+  if (missing.length === 0) {
+    return pointer;
+  }
+
+  const pointerPath =
+    (typeof pointer["/"] === "string" && pointer["/"]) ||
+    (typeof pointer.path === "string" && pointer.path) ||
+    null;
+  const meta = {
+    pointerRaw: pointer,
+    refLike: pointer,
+    path: pointerPath,
+  };
+
+  missing.forEach((extraKey) => {
+    const resolved = resolvePointerExtra(meta, extraKey);
+    if (resolved == null) return;
+    if (extraKey === "ownership_transfer_date") {
+      const iso = formatPointerDate(resolved);
+      if (iso) {
+        pointer[extraKey] = iso;
+      }
+      return;
+    }
+    const trimmed = String(resolved).trim();
+    if (trimmed) {
+      pointer[extraKey] = trimmed;
+    }
+  });
+
+  const unresolved = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(pointer, key) ||
+      pointer[key] == null ||
+      String(pointer[key]).trim() === "",
+  );
+  return unresolved ? null : pointer;
+}
+
 function sanitizePointerExtraValue(key, raw) {
   if (raw == null) return null;
   if (key === "ownership_transfer_date") {
@@ -1761,11 +1817,42 @@ function sanitizeRelationshipDirectories(types) {
         hint.to,
       );
       if (!normalizedFrom || !normalizedTo) return;
-      const strictFrom =
+      let strictFrom =
         restrictPointerKeys(normalizedFrom, hint.from) || normalizedFrom;
-      const strictTo =
+      let strictTo =
         restrictPointerKeys(normalizedTo, hint.to) || normalizedTo;
       if (!strictFrom || !strictTo) return;
+
+      strictFrom = ensurePointerHasRequiredExtras(strictFrom, hint.from);
+      strictTo = ensurePointerHasRequiredExtras(strictTo, hint.to);
+      if (
+        !strictFrom ||
+        !strictTo ||
+        (hint.from &&
+          Array.isArray(hint.from.requiredExtras) &&
+          !hasRequiredExtras(strictFrom, hint.from.requiredExtras)) ||
+        (hint.to &&
+          Array.isArray(hint.to.requiredExtras) &&
+          !hasRequiredExtras(strictTo, hint.to.requiredExtras))
+      ) {
+        try {
+          fs.unlinkSync(fullPath);
+        } catch (unlinkErr) {
+          if (!unlinkErr || unlinkErr.code !== "ENOENT") {
+            throw unlinkErr;
+          }
+        }
+        return;
+      }
+
+      stripForbiddenPointerKeys(strictFrom);
+      stripForbiddenPointerKeys(strictTo);
+      if (hint.from && Array.isArray(hint.from.disallowExtras)) {
+        stripDisallowedExtras(strictFrom, hint.from.disallowExtras);
+      }
+      if (hint.to && Array.isArray(hint.to.disallowExtras)) {
+        stripDisallowedExtras(strictTo, hint.to.disallowExtras);
+      }
 
       const unchanged =
         JSON.stringify(originalFrom) === JSON.stringify(strictFrom) &&
@@ -1908,12 +1995,26 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     preparedTo,
     hint && hint.to,
   );
-  if (!strictFrom || !strictTo) return;
+  let enforcedFrom = ensurePointerHasRequiredExtras(
+    strictFrom,
+    hint && hint.from,
+  );
+  let enforcedTo = ensurePointerHasRequiredExtras(strictTo, hint && hint.to);
+  if (!enforcedFrom || !enforcedTo) return;
+
+  stripForbiddenPointerKeys(enforcedFrom);
+  stripForbiddenPointerKeys(enforcedTo);
+  if (hint.from && Array.isArray(hint.from.disallowExtras)) {
+    stripDisallowedExtras(enforcedFrom, hint.from.disallowExtras);
+  }
+  if (hint.to && Array.isArray(hint.to.disallowExtras)) {
+    stripDisallowedExtras(enforcedTo, hint.to.disallowExtras);
+  }
 
   const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
   writeJSON(targetPath, {
-    from: strictFrom,
-    to: strictTo,
+    from: enforcedFrom,
+    to: enforcedTo,
   });
 }
 
