@@ -48,6 +48,10 @@ function cloneDeep(obj) {
   return obj == null ? null : JSON.parse(JSON.stringify(obj));
 }
 
+function clonePointerPayload(pointer) {
+  return pointer ? cloneDeep(pointer) : null;
+}
+
 function nonEmptyString(value) {
   if (value == null) return null;
   const trimmed = String(value).trim();
@@ -3623,12 +3627,18 @@ function writeSalesRelationshipPayloads(
       return;
     }
 
-    writeCanonicalRelationshipRecord(
-      "sales_history_has_deed",
-      rec.idx,
-      salePointer,
-      deedPointer,
-    );
+    const salePointerForDeedRelationship =
+      clonePointerPayload(salePointer);
+    const deedPointerForSaleRelationship =
+      clonePointerPayload(deedPointer);
+    if (salePointerForDeedRelationship && deedPointerForSaleRelationship) {
+      writeOrientedRelationshipRecord(
+        "sales_history_has_deed",
+        rec.idx,
+        salePointerForDeedRelationship,
+        deedPointerForSaleRelationship,
+      );
+    }
 
     if (rec.fileArtifact && rec.fileArtifact.filename) {
       const filePointer = buildPointerPayloadFromFilename(
@@ -3636,23 +3646,39 @@ function writeSalesRelationshipPayloads(
         { request_identifier: rec.fileArtifact.request_identifier },
         ["request_identifier"],
       );
-      if (filePointer) {
-        writeCanonicalRelationshipRecord(
+      const deedPointerForFileRelationship =
+        clonePointerPayload(deedPointer);
+      const filePointerForRelationship =
+        clonePointerPayload(filePointer);
+      if (
+        deedPointerForFileRelationship &&
+        filePointerForRelationship
+      ) {
+        writeOrientedRelationshipRecord(
           "deed_has_file",
           rec.idx,
-          deedPointer,
-          filePointer,
+          deedPointerForFileRelationship,
+          filePointerForRelationship,
         );
       }
     }
 
     if (propertyPointer) {
-      writeCanonicalRelationshipRecord(
-        "property_has_sales_history",
-        rec.idx,
-        propertyPointer,
-        salePointer,
-      );
+      const propertyPointerForRelationship =
+        clonePointerPayload(propertyPointer);
+      const salePointerForPropertyRelationship =
+        clonePointerPayload(salePointer);
+      if (
+        propertyPointerForRelationship &&
+        salePointerForPropertyRelationship
+      ) {
+        writeOrientedRelationshipRecord(
+          "property_has_sales_history",
+          rec.idx,
+          propertyPointerForRelationship,
+          salePointerForPropertyRelationship,
+        );
+      }
     }
   });
 }
