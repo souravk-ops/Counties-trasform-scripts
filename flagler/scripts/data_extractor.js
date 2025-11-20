@@ -299,6 +299,22 @@ function writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer) {
   });
 }
 
+function writeRelationshipPayloadDirect(type, index, fromPointer, toPointer) {
+  if (!type || !fromPointer || !toPointer) return;
+  const dirPath = path.join("relationships", type);
+  ensureDir(dirPath);
+  const suffix =
+    index === undefined || index === null || String(index).trim() === ""
+      ? nextRelationshipIndex(dirPath)
+      : String(index).trim();
+  if (!suffix) return;
+  const filename = `${suffix}.json`;
+  writeJSON(path.join(dirPath, filename), {
+    from: fromPointer,
+    to: toPointer,
+  });
+}
+
 function attachSourceHttpRequest(target, request) {
   if (!target || !request) return;
   target.source_http_request = cloneDeep(request);
@@ -1898,6 +1914,18 @@ const STRICT_RELATIONSHIP_SCHEMAS = {
       requiredExtras: ["space_type_index"],
     },
   },
+  property_has_sales_history: {
+    from: {
+      pathPrefixes: ["property"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["sales_history_"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
 };
 
 function enforceStrictRelationshipPointers(type, fromPointer, toPointer) {
@@ -3148,49 +3176,100 @@ function writeSalesRelationshipPayloads(
   if (!Array.isArray(processedSales) || processedSales.length === 0) {
     return;
   }
+  const salesDeedSchema =
+    STRICT_RELATIONSHIP_SCHEMAS.sales_history_has_deed || { from: {}, to: {} };
+  const deedFileSchema =
+    STRICT_RELATIONSHIP_SCHEMAS.deed_has_file || { from: {}, to: {} };
+  const propertySalesSchema =
+    STRICT_RELATIONSHIP_SCHEMAS.property_has_sales_history || {
+      from: {},
+      to: {},
+    };
+  const propertyPointer =
+    propertyPointerTemplate && propertySalesSchema.from
+      ? sanitizePointerAgainstStrictSchema(
+          propertyPointerTemplate,
+          propertySalesSchema.from,
+        )
+      : null;
+
   processedSales.forEach((rec) => {
-    const salePointer = buildPointerForWrite(
+    const salePointerBase = buildPointerForWrite(
       rec.saleFilename,
       rec.saleNode,
       ["ownership_transfer_date", "request_identifier"],
     );
-    const deedPointer = buildPointerForWrite(rec.deedFilename);
+    const deedPointerBase = buildPointerForWrite(rec.deedFilename);
+
+    const salePointer =
+      salePointerBase &&
+      sanitizePointerAgainstStrictSchema(
+        salePointerBase,
+        salesDeedSchema.from || {},
+      );
+    const deedPointer =
+      deedPointerBase &&
+      sanitizePointerAgainstStrictSchema(
+        deedPointerBase,
+        salesDeedSchema.to || {},
+      );
+
     if (salePointer && deedPointer) {
-      writeCanonicalRelationshipRecord(
+      writeRelationshipPayloadDirect(
         "sales_history_has_deed",
         rec.idx,
         salePointer,
         deedPointer,
       );
     }
-    if (
-      rec.fileArtifact &&
-      rec.fileArtifact.filename &&
-      deedPointer
-    ) {
-      const filePointer = buildPointerForWrite(
+
+    const deedPointerForFile =
+      deedPointerBase &&
+      sanitizePointerAgainstStrictSchema(
+        deedPointerBase,
+        deedFileSchema.from || {},
+      );
+    let filePointer = null;
+    if (rec.fileArtifact && rec.fileArtifact.filename) {
+      const filePointerBase = buildPointerForWrite(
         rec.fileArtifact.filename,
         rec.fileArtifact.request_identifier
           ? { request_identifier: rec.fileArtifact.request_identifier }
           : null,
         rec.fileArtifact.request_identifier ? ["request_identifier"] : [],
       );
-      if (filePointer) {
-        writeCanonicalRelationshipRecord(
-          "deed_has_file",
+      filePointer =
+        filePointerBase &&
+        sanitizePointerAgainstStrictSchema(
+          filePointerBase,
+          deedFileSchema.to || {},
+        );
+    }
+
+    if (deedPointerForFile && filePointer) {
+      writeRelationshipPayloadDirect(
+        "deed_has_file",
+        rec.idx,
+        deedPointerForFile,
+        filePointer,
+      );
+    }
+
+    if (propertyPointer) {
+      const salePointerForProperty =
+        salePointerBase &&
+        sanitizePointerAgainstStrictSchema(
+          salePointerBase,
+          propertySalesSchema.to || {},
+        );
+      if (salePointerForProperty) {
+        writeRelationshipPayloadDirect(
+          "property_has_sales_history",
           rec.idx,
-          deedPointer,
-          filePointer,
+          propertyPointer,
+          salePointerForProperty,
         );
       }
-    }
-    if (propertyPointerTemplate && salePointer) {
-      writeCanonicalRelationshipRecord(
-        "property_has_sales_history",
-        rec.idx,
-        propertyPointerTemplate,
-        salePointer,
-      );
     }
   });
 }
