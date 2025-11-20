@@ -796,6 +796,24 @@ function restrictPointerKeys(pointer, hintSide) {
   return pointerHasBase(sanitized) ? sanitized : null;
 }
 
+function pruneToAllowedPointerKeys(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  const allowedExtras = resolveAllowedExtrasList(hintSide).map((key) =>
+    String(key),
+  );
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  const allowedKeys = new Set([...POINTER_BASE_KEYS, ...allowedExtras, ...requiredExtras]);
+  Object.keys(pointer).forEach((key) => {
+    const normalizedKey = String(key);
+    if (!allowedKeys.has(normalizedKey)) {
+      delete pointer[key];
+    }
+  });
+  return pointer;
+}
+
 function prepareRelationshipPointer(meta, pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -1807,6 +1825,8 @@ function sanitizeRelationshipDirectories(types) {
       if (hint.to && Array.isArray(hint.to.disallowExtras)) {
         stripDisallowedExtras(sanitizedTo, hint.to.disallowExtras);
       }
+      pruneToAllowedPointerKeys(sanitizedFrom, hint.from);
+      pruneToAllowedPointerKeys(sanitizedTo, hint.to);
 
       const normalizedFrom = sanitizePointerForHint(
         sanitizedFrom,
@@ -1853,6 +1873,8 @@ function sanitizeRelationshipDirectories(types) {
       if (hint.to && Array.isArray(hint.to.disallowExtras)) {
         stripDisallowedExtras(strictTo, hint.to.disallowExtras);
       }
+      pruneToAllowedPointerKeys(strictFrom, hint.from);
+      pruneToAllowedPointerKeys(strictTo, hint.to);
 
       const unchanged =
         JSON.stringify(originalFrom) === JSON.stringify(strictFrom) &&
@@ -2010,6 +2032,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (hint.to && Array.isArray(hint.to.disallowExtras)) {
     stripDisallowedExtras(enforcedTo, hint.to.disallowExtras);
   }
+  pruneToAllowedPointerKeys(enforcedFrom, hint.from);
+  pruneToAllowedPointerKeys(enforcedTo, hint.to);
 
   const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
   writeJSON(targetPath, {
