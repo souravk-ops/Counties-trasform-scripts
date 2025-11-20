@@ -3251,6 +3251,53 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
   return processedSales;
 }
+
+function relationshipPointersNeedSwap(type, fromPointer, toPointer) {
+  const hint = RELATIONSHIP_HINTS[type];
+  if (
+    !hint ||
+    !hint.from ||
+    !hint.to ||
+    !fromPointer ||
+    !toPointer
+  ) {
+    return false;
+  }
+  const fromMatches = pointerMatchesHint(fromPointer, hint.from);
+  const toMatches = pointerMatchesHint(toPointer, hint.to);
+  if (fromMatches && toMatches) {
+    return false;
+  }
+  const swappedFromMatches = pointerMatchesHint(toPointer, hint.from);
+  const swappedToMatches = pointerMatchesHint(fromPointer, hint.to);
+  return (
+    !fromMatches &&
+    !toMatches &&
+    swappedFromMatches &&
+    swappedToMatches
+  );
+}
+
+function writeOrientedRelationshipRecord(
+  type,
+  index,
+  fromPointer,
+  toPointer,
+) {
+  if (!fromPointer || !toPointer) return;
+  let preparedFrom = fromPointer;
+  let preparedTo = toPointer;
+  if (relationshipPointersNeedSwap(type, fromPointer, toPointer)) {
+    preparedFrom = toPointer;
+    preparedTo = fromPointer;
+  }
+  writeCanonicalRelationshipRecord(
+    type,
+    index,
+    preparedFrom,
+    preparedTo,
+  );
+}
 function writeSalesRelationshipPayloads(
   processedSales,
   propertyPointerTemplate,
@@ -3299,7 +3346,7 @@ function writeSalesRelationshipPayloads(
       );
 
     if (salePointerForDeed && deedPointerForSales) {
-      writeCanonicalRelationshipRecord(
+      writeOrientedRelationshipRecord(
         "sales_history_has_deed",
         rec.idx,
         salePointerForDeed,
@@ -3331,7 +3378,7 @@ function writeSalesRelationshipPayloads(
     }
 
     if (deedPointerForFile && filePointer) {
-      writeCanonicalRelationshipRecord(
+      writeOrientedRelationshipRecord(
         "deed_has_file",
         rec.idx,
         deedPointerForFile,
@@ -3347,7 +3394,7 @@ function writeSalesRelationshipPayloads(
           propertySalesSchema.to || {},
         );
       if (salePointerForProperty) {
-        writeCanonicalRelationshipRecord(
+        writeOrientedRelationshipRecord(
           "property_has_sales_history",
           rec.idx,
           propertyPointer,
@@ -3684,7 +3731,7 @@ function writeLayout(parcelId, context) {
           propertyLayoutSchema.to || {},
         );
       if (strictPropertyPointer && strictLayoutPointer) {
-        writeRelationshipPayloadFile(
+        writeOrientedRelationshipRecord(
           "property_has_layout",
           layoutCounter,
           strictPropertyPointer,
@@ -3709,7 +3756,7 @@ function writeLayout(parcelId, context) {
               propertyLayoutSchema.to || {},
             );
           if (strictFallbackPointer) {
-            writeRelationshipPayloadFile(
+            writeOrientedRelationshipRecord(
               "property_has_layout",
               layoutCounter,
               strictPropertyPointer,
