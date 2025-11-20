@@ -188,9 +188,14 @@ function buildRelationshipPointerSimple(type, side, ref, extraSource = null) {
   const ruleSet = RELATIONSHIP_POINTER_RULES[type] || {};
   const sideRules = ruleSet[side] || {};
   const allowedExtras = Array.isArray(sideRules.allowedExtras)
-    ? sideRules.allowedExtras
+    ? sideRules.allowedExtras.map((key) => String(key))
     : [];
-  allowedExtras.forEach((key) => {
+  const allowedExtrasSet = new Set(
+    allowedExtras.filter(
+      (key) => key && !FORBIDDEN_POINTER_KEYS.includes(String(key)),
+    ),
+  );
+  allowedExtrasSet.forEach((key) => {
     if (
       !extraSource ||
       !Object.prototype.hasOwnProperty.call(extraSource, key)
@@ -211,6 +216,16 @@ function buildRelationshipPointerSimple(type, side, ref, extraSource = null) {
       }
     }
   });
+  stripForbiddenPointerKeys(pointer);
+  Object.keys(pointer).forEach((key) => {
+    if (POINTER_BASE_KEYS.includes(key)) return;
+    if (!allowedExtrasSet.has(String(key))) {
+      delete pointer[key];
+    }
+  });
+  if (!pointerHasBase(pointer)) {
+    return null;
+  }
   if (
     Array.isArray(sideRules.requiredExtras) &&
     sideRules.requiredExtras.length
@@ -238,8 +253,7 @@ function writeRelationshipRecord(type, index, fromRef, toRef, extras = {}) {
     extras.to,
   );
   if (!fromPointer || !toPointer) return;
-  const targetPath = resolveRelationshipFilePath(type, index);
-  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+  writeRelationship(type, fromPointer, toPointer, index);
 }
 
 function buildLayoutPointer(relativePath, rawSpaceTypeIndex) {
