@@ -1378,6 +1378,10 @@ const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set([
   "deed_has_file",
   "sales_history_has_deed",
 ]);
+const RELATIONSHIPS_WITH_DIRECTION_OVERRIDES = new Set([
+  "deed_has_file",
+  "sales_history_has_deed",
+]);
 
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
@@ -1684,8 +1688,10 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const toPointerRaw = pointerFromRef(preparedTo);
   if (!fromPointerRaw || !toPointerRaw) return;
 
+  const allowOverrideSwap =
+    RELATIONSHIPS_WITH_DIRECTION_OVERRIDES.has(relationshipType);
   const canSwap =
-    !swapProhibited &&
+    (allowOverrideSwap || !swapProhibited) &&
     RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType);
   let effectiveFromRaw = fromPointerRaw;
   let effectiveToRaw = toPointerRaw;
