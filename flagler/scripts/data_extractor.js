@@ -2518,6 +2518,160 @@ function normalizeManagedRelationshipPayloads() {
   removeRelationshipDirectories(["file_has_fact_sheet", "layout_has_fact_sheet"]);
 }
 
+function buildPointerFromCandidateForRepair(candidate, hintSide = {}) {
+  if (!candidate) return null;
+  let pointerSource = candidate;
+  if (typeof candidate === "string") {
+    pointerSource = pointerFromRelativePath(candidate);
+  }
+  if (!pointerSource || typeof pointerSource !== "object") return null;
+
+  const basePath = resolvePointerBasePath(pointerSource);
+  if (!basePath) return null;
+
+  let normalizedBase = basePath;
+  if (!/^([a-z]+:)/i.test(basePath) || basePath.startsWith("./")) {
+    normalizedBase = normalizePointerPath(basePath);
+  }
+  if (!normalizedBase) return null;
+
+  const pathPrefixes = Array.isArray(hintSide.pathPrefixes)
+    ? hintSide.pathPrefixes
+    : [];
+  if (
+    pathPrefixes.length > 0 &&
+    !pathPrefixes.some((prefix) =>
+      normalizedBase.replace(/^[./\\]+/, "").startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+
+  const pointer = {};
+  if (normalizedBase.startsWith("cid:")) {
+    pointer.cid = normalizedBase.startsWith("cid:")
+      ? normalizedBase
+      : `cid:${normalizedBase}`;
+  } else if (/^[a-z]+:/i.test(normalizedBase) && !normalizedBase.startsWith("./")) {
+    pointer.uri = normalizedBase.trim();
+  } else {
+    const ensured = normalizePointerPath(normalizedBase);
+    if (!ensured) return null;
+    pointer["/"] = ensured;
+  }
+
+  const allowedExtras = Array.isArray(hintSide.allowedExtras)
+    ? hintSide.allowedExtras.map((key) => String(key))
+    : [];
+  const requiredExtras = Array.isArray(hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  requiredExtras.forEach((key) => {
+    if (!allowedExtras.includes(key)) {
+      allowedExtras.push(key);
+    }
+  });
+
+  const relativePath = pointer["/"]
+    ? pointer["/"].replace(/^[./\\]+/, "")
+    : null;
+  allowedExtras.forEach((key) => {
+    if (FORBIDDEN_POINTER_KEYS.includes(key)) return;
+    let value = sanitizePointerExtraValue(key, pointerSource[key]);
+    if ((value == null || value === "") && relativePath) {
+      value = readPointerExtraFromNode(relativePath, key);
+    }
+    if (value != null) {
+      pointer[key] = value;
+    }
+  });
+
+  const missingRequired = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(pointer, key) ||
+      pointer[key] == null ||
+      String(pointer[key]).trim() === "",
+  );
+  if (missingRequired) {
+    return null;
+  }
+
+  stripForbiddenPointerKeys(pointer);
+  pruneToAllowedPointerKeys(pointer, {
+    allowedExtras,
+    requiredExtras,
+  });
+  return pointerHasBase(pointer) ? pointer : null;
+}
+
+function repairRelationshipDirectory(type, hint = {}) {
+  if (typeof type !== "string" || !type.trim()) return;
+  const relationshipType = type.trim();
+  const dirPath = path.join("relationships", relationshipType);
+  let entries;
+  try {
+    entries = fs
+      .readdirSync(dirPath)
+      .filter((filename) => /\.json$/i.test(filename));
+  } catch (err) {
+    if (err && err.code === "ENOENT") return;
+    throw err;
+  }
+
+  entries.forEach((filename) => {
+    const fullPath = path.join(dirPath, filename);
+    let payload;
+    try {
+      payload = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+    } catch (err) {
+      return;
+    }
+    if (!payload) return;
+
+    let fromCandidate = payload.from;
+    let toCandidate = payload.to;
+    const fromMatches = pointerMatchesHint(fromCandidate, hint.from || {});
+    const toMatches = pointerMatchesHint(toCandidate, hint.to || {});
+    if (!fromMatches || !toMatches) {
+      const swappedFromMatches = pointerMatchesHint(
+        payload.to,
+        hint.from || {},
+      );
+      const swappedToMatches = pointerMatchesHint(
+        payload.from,
+        hint.to || {},
+      );
+      if (swappedFromMatches && swappedToMatches) {
+        fromCandidate = payload.to;
+        toCandidate = payload.from;
+      }
+    }
+
+    const normalizedFrom = buildPointerFromCandidateForRepair(
+      fromCandidate,
+      hint.from || {},
+    );
+    const normalizedTo = buildPointerFromCandidateForRepair(
+      toCandidate,
+      hint.to || {},
+    );
+
+    if (!normalizedFrom || !normalizedTo) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch (unlinkErr) {
+        if (!unlinkErr || unlinkErr.code !== "ENOENT") throw unlinkErr;
+      }
+      return;
+    }
+
+    const nextPayload = { from: normalizedFrom, to: normalizedTo };
+    if (JSON.stringify(payload) !== JSON.stringify(nextPayload)) {
+      writeJSON(fullPath, nextPayload);
+    }
+  });
+}
+
 function finalizePointerForWrite(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -4051,6 +4205,30 @@ function main() {
     "property_has_sales_history",
   ]);
   normalizeManagedRelationshipPayloads();
+  repairRelationshipDirectory("deed_has_file", {
+    from: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: ["request_identifier"],
+      requiredExtras: [],
+    },
+  });
+  repairRelationshipDirectory("sales_history_has_deed", {
+    from: {
+      pathPrefixes: ["sales_history_"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+    to: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  });
 
   // Address last
   const secTwpRng = extractSecTwpRng($);
