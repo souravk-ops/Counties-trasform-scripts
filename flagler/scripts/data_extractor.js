@@ -159,6 +159,44 @@ function buildLayoutPointer(relativePath, rawSpaceTypeIndex) {
   );
 }
 
+function buildPointerPayloadFromFilename(
+  filename,
+  extrasSource = null,
+  allowedExtras = [],
+) {
+  if (typeof filename !== "string") return null;
+  const normalizedPath = normalizePointerPath(filename);
+  if (!normalizedPath) return null;
+  const pointer = { "/": normalizedPath };
+  if (
+    extrasSource &&
+    typeof extrasSource === "object" &&
+    Array.isArray(allowedExtras) &&
+    allowedExtras.length > 0
+  ) {
+    allowedExtras.forEach((key) => {
+      const normalizedKey = String(key);
+      if (!Object.prototype.hasOwnProperty.call(extrasSource, normalizedKey)) {
+        return;
+      }
+      const raw = extrasSource[normalizedKey];
+      if (raw == null) return;
+      if (normalizedKey === "ownership_transfer_date") {
+        const normalizedDate = formatPointerDate(raw);
+        if (normalizedDate) {
+          pointer[normalizedKey] = normalizedDate;
+        }
+      } else {
+        const trimmed = String(raw).trim();
+        if (trimmed) {
+          pointer[normalizedKey] = trimmed;
+        }
+      }
+    });
+  }
+  return stripForbiddenPointerKeys(pointer);
+}
+
 function preparePointerForRelationship(type, pointerInput, sideKey) {
   if (!type || !pointerInput) return null;
   let candidate = null;
@@ -3147,9 +3185,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const propertyRelationshipRef = fs.existsSync(propertyFileOnDisk)
     ? (context && context.propertyFile) || "property.json"
     : null;
-  const propertyPointerTemplate = propertyRelationshipRef
-    ? buildPointerForWrite(propertyRelationshipRef)
-    : null;
 
   const salesCleanupPatterns = [
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
@@ -3246,7 +3281,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
   writeSalesRelationshipPayloads(
     processedSales,
-    propertyPointerTemplate,
+    propertyRelationshipRef,
   );
 
   return processedSales;
@@ -3300,107 +3335,65 @@ function writeOrientedRelationshipRecord(
 }
 function writeSalesRelationshipPayloads(
   processedSales,
-  propertyPointerTemplate,
+  propertyRelationshipRef,
 ) {
   if (!Array.isArray(processedSales) || processedSales.length === 0) {
     return;
   }
-  const salesDeedSchema =
-    STRICT_RELATIONSHIP_SCHEMAS.sales_history_has_deed || { from: {}, to: {} };
-  const deedFileSchema =
-    STRICT_RELATIONSHIP_SCHEMAS.deed_has_file || { from: {}, to: {} };
-  const propertySalesSchema =
-    STRICT_RELATIONSHIP_SCHEMAS.property_has_sales_history || {
-      from: {},
-      to: {},
-    };
-  const propertyPointer =
-    propertyPointerTemplate && propertySalesSchema.from
-      ? buildStrictPointerForSchema(
-          propertyPointerTemplate,
-          propertySalesSchema.from,
-        )
-      : null;
+  const propertyPointer = propertyRelationshipRef
+    ? buildPointerPayloadFromFilename(propertyRelationshipRef)
+    : null;
 
   processedSales.forEach((rec) => {
-    const salePointerBase =
-      buildSalesHistoryPointer(rec.saleFilename, rec.saleNode) ||
-      buildPointerForWrite(
-        rec.saleFilename,
-        rec.saleNode,
-        ["ownership_transfer_date", "request_identifier"],
-      );
-    const deedPointerBase = buildPointerForWrite(rec.deedFilename);
-
-    const salePointerForDeed =
-      salePointerBase &&
-      buildStrictPointerForSchema(
-        salePointerBase,
-        salesDeedSchema.from || {},
-      );
-    const deedPointerForSales =
-      deedPointerBase &&
-      buildStrictPointerForSchema(
-        deedPointerBase,
-        salesDeedSchema.to || {},
-      );
-
-    if (salePointerForDeed && deedPointerForSales) {
-      writeOrientedRelationshipRecord(
-        "sales_history_has_deed",
-        rec.idx,
-        salePointerForDeed,
-        deedPointerForSales,
-      );
+    const salePointer = buildPointerPayloadFromFilename(
+      rec.saleFilename,
+      rec.saleNode,
+      ["ownership_transfer_date", "request_identifier"],
+    );
+    if (
+      !salePointer ||
+      !Object.prototype.hasOwnProperty.call(
+        salePointer,
+        "ownership_transfer_date",
+      )
+    ) {
+      return;
+    }
+    const deedPointer = buildPointerPayloadFromFilename(rec.deedFilename);
+    if (!deedPointer) {
+      return;
     }
 
-    const deedPointerForFile =
-      deedPointerBase &&
-      buildStrictPointerForSchema(
-        deedPointerBase,
-        deedFileSchema.from || {},
-      );
-    let filePointer = null;
+    writeJSON(
+      resolveRelationshipFilePath("sales_history_has_deed", rec.idx),
+      {
+        from: salePointer,
+        to: deedPointer,
+      },
+    );
+
     if (rec.fileArtifact && rec.fileArtifact.filename) {
-      const filePointerBase = buildPointerForWrite(
+      const filePointer = buildPointerPayloadFromFilename(
         rec.fileArtifact.filename,
-        rec.fileArtifact.request_identifier
-          ? { request_identifier: rec.fileArtifact.request_identifier }
-          : null,
-        rec.fileArtifact.request_identifier ? ["request_identifier"] : [],
+        { request_identifier: rec.fileArtifact.request_identifier },
+        ["request_identifier"],
       );
-      filePointer =
-        filePointerBase &&
-        buildStrictPointerForSchema(
-          filePointerBase,
-          deedFileSchema.to || {},
-        );
-    }
-
-    if (deedPointerForFile && filePointer) {
-      writeOrientedRelationshipRecord(
-        "deed_has_file",
-        rec.idx,
-        deedPointerForFile,
-        filePointer,
-      );
+      if (filePointer) {
+        writeJSON(resolveRelationshipFilePath("deed_has_file", rec.idx), {
+          from: deedPointer,
+          to: filePointer,
+        });
+      }
     }
 
     if (propertyPointer) {
-      const salePointerForProperty =
-        salePointerBase &&
-        buildStrictPointerForSchema(
-          salePointerBase,
-          propertySalesSchema.to || {},
-        );
-      if (salePointerForProperty) {
-        writeOrientedRelationshipRecord(
-          "property_has_sales_history",
-          rec.idx,
-          propertyPointer,
-          salePointerForProperty,
-        );
-      }
+      writeJSON(
+        resolveRelationshipFilePath("property_has_sales_history", rec.idx),
+        {
+          from: propertyPointer,
+          to: salePointer,
+        },
+      );
     }
   });
 }
