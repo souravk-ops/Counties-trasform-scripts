@@ -3364,12 +3364,11 @@ function writeSalesRelationshipPayloads(
       return;
     }
 
-    writeJSON(
-      resolveRelationshipFilePath("sales_history_has_deed", rec.idx),
-      {
-        from: salePointer,
-        to: deedPointer,
-      },
+    writeCanonicalRelationshipRecord(
+      "sales_history_has_deed",
+      rec.idx,
+      salePointer,
+      deedPointer,
     );
 
     if (rec.fileArtifact && rec.fileArtifact.filename) {
@@ -3379,20 +3378,21 @@ function writeSalesRelationshipPayloads(
         ["request_identifier"],
       );
       if (filePointer) {
-        writeJSON(resolveRelationshipFilePath("deed_has_file", rec.idx), {
-          from: deedPointer,
-          to: filePointer,
-        });
+        writeCanonicalRelationshipRecord(
+          "deed_has_file",
+          rec.idx,
+          deedPointer,
+          filePointer,
+        );
       }
     }
 
     if (propertyPointer) {
-      writeJSON(
-        resolveRelationshipFilePath("property_has_sales_history", rec.idx),
-        {
-          from: propertyPointer,
-          to: salePointer,
-        },
+      writeCanonicalRelationshipRecord(
+        "property_has_sales_history",
+        rec.idx,
+        propertyPointer,
+        salePointer,
       );
     }
   });
