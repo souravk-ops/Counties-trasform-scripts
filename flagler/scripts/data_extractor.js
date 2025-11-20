@@ -424,6 +424,89 @@ function stripForbiddenPointerKeys(pointer) {
   return pointer;
 }
 
+function sanitizePointerExtraValue(key, raw) {
+  if (raw == null) return null;
+  if (key === "ownership_transfer_date") {
+    return formatPointerDate(raw);
+  }
+  const trimmed = typeof raw === "string" ? raw.trim() : String(raw).trim();
+  return trimmed || null;
+}
+
+function enforcePointerSchema(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+
+  const base = {};
+  POINTER_BASE_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalizedPath = normalizePointerPath(trimmed);
+      if (normalizedPath) {
+        base["/"] = normalizedPath;
+      }
+    } else {
+      base[key] = trimmed;
+    }
+  });
+
+  if (!pointerHasBase(base)) {
+    return null;
+  }
+
+  let allowedExtras =
+    hintSide && Object.prototype.hasOwnProperty.call(hintSide, "allowedExtras")
+      ? Array.isArray(hintSide.allowedExtras)
+        ? hintSide.allowedExtras.map((key) => String(key))
+        : []
+      : ALLOWED_POINTER_EXTRAS.slice();
+
+  const requiredExtras = Array.isArray(
+    hintSide && hintSide.requiredExtras,
+  )
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+
+  requiredExtras.forEach((key) => {
+    if (!allowedExtras.includes(String(key))) {
+      allowedExtras.push(String(key));
+    }
+  });
+
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
+  );
+
+  allowedExtras.forEach((extraKey) => {
+    const key = String(extraKey);
+    if (disallowedExtras.has(key)) return;
+    if (FORBIDDEN_POINTER_KEYS.includes(key)) return;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const value = sanitizePointerExtraValue(key, pointer[key]);
+    if (value != null) {
+      base[key] = value;
+    }
+  });
+
+  for (const key of requiredExtras) {
+    const strKey = String(key);
+    if (
+      !Object.prototype.hasOwnProperty.call(base, strKey) ||
+      base[strKey] == null ||
+      String(base[strKey]).trim() === ""
+    ) {
+      return null;
+    }
+  }
+
+  return base;
+}
+
 function scrubPointerRefLike(refLike) {
   if (!refLike || typeof refLike !== "object") {
     return refLike;
@@ -1361,19 +1444,64 @@ function buildPointerMeta(refLike) {
   };
 }
 
-function shouldSwapPointers(hint, fromMeta, toMeta) {
+function pointerPathFromPointer(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const rawPath = pointer["/"];
+  if (typeof rawPath !== "string") return null;
+  const normalized = normalizePointerPath(rawPath);
+  if (!normalized) return null;
+  return normalized.replace(/^[./\\]+/, "");
+}
+
+function hasRequiredExtras(pointer, extras) {
+  if (!pointer || typeof pointer !== "object") return false;
+  if (!Array.isArray(extras) || extras.length === 0) return true;
+  return extras.every((key) => {
+    const strKey = String(key);
+    if (!Object.prototype.hasOwnProperty.call(pointer, strKey)) return false;
+    const value = pointer[strKey];
+    if (value == null) return false;
+    return String(value).trim() !== "";
+  });
+}
+
+function shouldSwapPointers(hint, fromPointer, toPointer) {
   if (!hint) return false;
-  const fromMatchesExpected = matchesPathPrefix(fromMeta.path, hint.from && hint.from.pathPrefixes);
-  const toMatchesExpected = matchesPathPrefix(toMeta.path, hint.to && hint.to.pathPrefixes);
-  const fromMatchesTo = matchesPathPrefix(fromMeta.path, hint.to && hint.to.pathPrefixes);
-  const toMatchesFrom = matchesPathPrefix(toMeta.path, hint.from && hint.from.pathPrefixes);
+  const fromPath = pointerPathFromPointer(fromPointer);
+  const toPath = pointerPathFromPointer(toPointer);
+  const fromMatchesExpected = matchesPathPrefix(
+    fromPath,
+    hint.from && hint.from.pathPrefixes,
+  );
+  const toMatchesExpected = matchesPathPrefix(
+    toPath,
+    hint.to && hint.to.pathPrefixes,
+  );
+  const fromMatchesTo = matchesPathPrefix(
+    fromPath,
+    hint.to && hint.to.pathPrefixes,
+  );
+  const toMatchesFrom = matchesPathPrefix(
+    toPath,
+    hint.from && hint.from.pathPrefixes,
+  );
 
   if (!fromMatchesExpected && toMatchesExpected && toMatchesFrom) return true;
   if (fromMatchesTo && !toMatchesExpected) return true;
 
-  if (hint.from && Array.isArray(hint.from.requiredExtras) && hint.from.requiredExtras.length > 0) {
-    const fromHasExtras = pointerHasRequiredExtras(fromMeta, hint.from);
-    const toHasExtras = pointerHasRequiredExtras(toMeta, hint.from);
+  if (
+    hint.from &&
+    Array.isArray(hint.from.requiredExtras) &&
+    hint.from.requiredExtras.length > 0
+  ) {
+    const fromHasExtras = hasRequiredExtras(
+      fromPointer,
+      hint.from.requiredExtras,
+    );
+    const toHasExtras = hasRequiredExtras(
+      toPointer,
+      hint.from.requiredExtras,
+    );
     if (!fromHasExtras && toHasExtras) return true;
   }
 
@@ -1482,33 +1610,29 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
   const preparedFrom = scrubPointerRefLike(fromRefLike);
   const preparedTo = scrubPointerRefLike(toRefLike);
-  const fromMeta = buildPointerMeta(preparedFrom);
-  const toMeta = buildPointerMeta(preparedTo);
-  const canSwap =
-    RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType) ||
-    !hint.preventSwap;
-  let resolvedFromRef = preparedFrom;
-  let resolvedToRef = preparedTo;
+  const fromPointerRaw = pointerFromRef(preparedFrom);
+  const toPointerRaw = pointerFromRef(preparedTo);
+  if (!fromPointerRaw || !toPointerRaw) return;
+
+  const canSwap = RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType);
+  let effectiveFromRaw = fromPointerRaw;
+  let effectiveToRaw = toPointerRaw;
   if (
     canSwap &&
-    fromMeta &&
-    toMeta &&
-    shouldSwapPointers(hint, fromMeta, toMeta)
+    shouldSwapPointers(hint, fromPointerRaw, toPointerRaw)
   ) {
-    resolvedFromRef = toRefLike;
-    resolvedToRef = fromRefLike;
+    effectiveFromRaw = toPointerRaw;
+    effectiveToRaw = fromPointerRaw;
   }
 
-  const sanitizedFrom = sanitizeRelationshipPointer(
-    resolvedFromRef,
+  const finalFrom = enforcePointerSchema(
+    effectiveFromRaw,
     hint && hint.from,
   );
-  const sanitizedTo = sanitizeRelationshipPointer(
-    resolvedToRef,
+  const finalTo = enforcePointerSchema(
+    effectiveToRaw,
     hint && hint.to,
   );
-  const finalFrom = finalizePointerForWrite(sanitizedFrom, hint && hint.from);
-  const finalTo = finalizePointerForWrite(sanitizedTo, hint && hint.to);
   if (!finalFrom || !finalTo) return;
 
   stripForbiddenPointerKeys(finalFrom);
