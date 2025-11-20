@@ -147,6 +147,24 @@ function buildSalesHistoryPointer(relativePath, saleNode) {
   return pointer;
 }
 
+function buildSalesPointerExtras(source) {
+  if (!source || typeof source !== "object") return null;
+  const extras = {};
+  if (
+    typeof source.ownership_transfer_date === "string" &&
+    source.ownership_transfer_date.trim()
+  ) {
+    extras.ownership_transfer_date = source.ownership_transfer_date.trim();
+  }
+  if (
+    typeof source.request_identifier === "string" &&
+    source.request_identifier.trim()
+  ) {
+    extras.request_identifier = source.request_identifier.trim();
+  }
+  return Object.keys(extras).length ? extras : null;
+}
+
 const RELATIONSHIP_POINTER_RULES = {
   deed_has_file: {
     from: { allowedExtras: [] },
@@ -3048,7 +3066,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       idx,
       saleFilename,
       deedFilename,
-      { from: saleNode },
+      { from: buildSalesPointerExtras(saleNode) },
     );
     const fileArtifacts = buildFileArtifactsForSale(
       saleRecord,
@@ -3069,12 +3087,13 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       );
     }
     if (propertyRelationshipRef) {
+      const propertyRelExtras = buildSalesPointerExtras(saleNode);
       writeRelationshipRecord(
         "property_has_sales_history",
         idx,
         propertyRelationshipRef,
         saleFilename,
-        { to: saleNode },
+        { to: propertyRelExtras },
       );
     }
   });
