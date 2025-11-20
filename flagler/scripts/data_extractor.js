@@ -273,20 +273,59 @@ function canonicalizeRelationshipPointer(pointerInput, hintSide = {}) {
   return base;
 }
 
+function preparePointerForRelationshipOutput(
+  pointer,
+  hintSide,
+  schemaSide,
+) {
+  if (!pointer) return null;
+  const strictPointer = schemaSide
+    ? buildStrictPointerForSchema(pointer, schemaSide)
+    : pointer;
+  if (!strictPointer) return null;
+  return finalizeRelationshipPointerPayload(strictPointer, hintSide || {});
+}
+
+function writeRelationshipPayloadFile(
+  type,
+  suffix,
+  fromPointer,
+  toPointer,
+) {
+  if (!type || !fromPointer || !toPointer) return;
+  const hint = RELATIONSHIP_HINTS[type] || {};
+  const schema = STRICT_RELATIONSHIP_SCHEMAS[type] || {};
+  const preparedFrom = preparePointerForRelationshipOutput(
+    fromPointer,
+    hint.from,
+    schema.from,
+  );
+  const preparedTo = preparePointerForRelationshipOutput(
+    toPointer,
+    hint.to,
+    schema.to,
+  );
+  if (!preparedFrom || !preparedTo) return;
+  const targetPath = resolveRelationshipFilePath(type, suffix);
+  writeJSON(targetPath, {
+    from: preparedFrom,
+    to: preparedTo,
+  });
+}
+
 function writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer) {
-  if (!type) return;
+  if (!type || !fromPointer || !toPointer) return;
   const suffix =
     index === undefined ||
     index === null ||
     (typeof index === "string" && index.trim() === "")
       ? undefined
       : String(index).trim();
-  writeRelationship(type, fromPointer, toPointer, suffix);
+  writeRelationshipPayloadFile(type, suffix, fromPointer, toPointer);
 }
 
 function writeRelationshipPayloadDirect(type, index, fromPointer, toPointer) {
-  if (!type || !fromPointer || !toPointer) return;
-  writeRelationship(type, fromPointer, toPointer, index);
+  writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer);
 }
 
 function attachSourceHttpRequest(target, request) {
@@ -3586,11 +3625,11 @@ function writeLayout(parcelId, context) {
           propertyLayoutSchema.to || {},
         );
       if (strictPropertyPointer && strictLayoutPointer) {
-        writeRelationship(
+        writeRelationshipPayloadFile(
           "property_has_layout",
+          layoutCounter,
           strictPropertyPointer,
           strictLayoutPointer,
-          layoutCounter,
         );
       } else if (strictPropertyPointer) {
         const recoveredIndex =
@@ -3611,11 +3650,11 @@ function writeLayout(parcelId, context) {
               propertyLayoutSchema.to || {},
             );
           if (strictFallbackPointer) {
-            writeRelationship(
+            writeRelationshipPayloadFile(
               "property_has_layout",
+              layoutCounter,
               strictPropertyPointer,
               strictFallbackPointer,
-              layoutCounter,
             );
           }
         }
