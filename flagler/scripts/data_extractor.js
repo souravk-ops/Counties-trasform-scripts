@@ -117,6 +117,38 @@ function buildPointerForWrite(relativePath, extras = null, allowedExtras = []) {
   return pointer;
 }
 
+function buildSalesHistoryPointer(relativePath, saleNode) {
+  if (!saleNode || !saleNode.ownership_transfer_date) return null;
+  const extras = {
+    ownership_transfer_date: saleNode.ownership_transfer_date,
+  };
+  if (
+    saleNode.request_identifier &&
+    typeof saleNode.request_identifier === "string" &&
+    saleNode.request_identifier.trim()
+  ) {
+    extras.request_identifier = saleNode.request_identifier.trim();
+  }
+  const pointer = buildPointerForWrite(relativePath, extras, [
+    "ownership_transfer_date",
+    "request_identifier",
+  ]);
+  if (!pointer || !pointer.ownership_transfer_date) return null;
+  return pointer;
+}
+
+function buildLayoutPointer(relativePath, rawSpaceTypeIndex) {
+  if (!relativePath) return null;
+  const normalizedIndex =
+    rawSpaceTypeIndex != null ? String(rawSpaceTypeIndex).trim() : "";
+  if (!normalizedIndex) return null;
+  return buildPointerForWrite(
+    relativePath,
+    { space_type_index: normalizedIndex },
+    ["space_type_index"],
+  );
+}
+
 function writeDirectRelationshipFile(type, suffix, fromPointer, toPointer) {
   if (!fromPointer || !toPointer) return;
   writeRelationship(type, fromPointer, toPointer, suffix);
@@ -1542,6 +1574,18 @@ function removeFilesMatchingPatterns(patterns) {
   }
 }
 
+const EXTERNALLY_MANAGED_PATTERNS = [
+  /^relationship_deed_has_file(?:_\d+)?\.json$/i,
+  /^relationship_file_has_fact_sheet(?:_\d+)?\.json$/i,
+  /^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i,
+  /^file_\d+\.json$/i,
+  /^fact_sheet(?:_\d+)?\.json$/i,
+];
+
+function purgeExternallyManagedArtifacts() {
+  removeFilesMatchingPatterns(EXTERNALLY_MANAGED_PATTERNS);
+}
+
 function sanitizeDeedMetadata(deed) {
   if (!deed || typeof deed !== "object") return {};
   const sanitized = {};
@@ -1983,11 +2027,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleNode);
-    const salePointer = buildPointerForWrite(
-      saleFilename,
-      { ownership_transfer_date: saleNode.ownership_transfer_date },
-      ["ownership_transfer_date"],
-    );
+    const salePointer = buildSalesHistoryPointer(saleFilename, saleNode);
 
     const deedCandidate = {};
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
@@ -2009,7 +2049,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
     if (
       salePointer &&
-      salePointer.ownership_transfer_date &&
       deedPointer
     ) {
       writeDirectRelationshipFile(
@@ -2021,8 +2060,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     }
     if (
       propertyPointer &&
-      salePointer &&
-      salePointer.ownership_transfer_date
+      salePointer
     ) {
       writeDirectRelationshipFile(
         "property_has_sales_history",
@@ -2129,12 +2167,9 @@ function writePersonCompaniesSalesRelationships(
   let relCompanyCounter = 0;
   processedSales.forEach((rec) => {
     const ownersOnDate = ownersByDate[rec.transferDate] || [];
-    const saleRef = pointerWithAllowedExtras(
-      rec.saleFilename,
-      { ownership_transfer_date: rec.transferDate },
-      ["ownership_transfer_date"],
-    );
-    if (!saleRef || !saleRef.ownership_transfer_date) {
+    const saleRef =
+      buildSalesHistoryPointer(rec.saleFilename, rec.saleNode) || null;
+    if (!saleRef) {
       return;
     }
     ownersOnDate
@@ -2334,17 +2369,11 @@ function writeLayout(parcelId, context) {
           context.propertyFile.trim()) ||
           "property.json",
       );
-      const layoutPointer = buildPointerForWrite(
+      const layoutPointer = buildLayoutPointer(
         layoutFilename,
-        { space_type_index: String(normalizedIndexValue).trim() },
-        ["space_type_index"],
+        String(normalizedIndexValue).trim(),
       );
-      if (
-        propertyPointer &&
-        layoutPointer &&
-        typeof layoutPointer.space_type_index === "string" &&
-        layoutPointer.space_type_index.trim()
-      ) {
+      if (propertyPointer && layoutPointer) {
         writeRelationship(
           "property_has_layout",
           propertyPointer,
@@ -2483,6 +2512,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
 
 function main() {
   ensureDir("data");
+  purgeExternallyManagedArtifacts();
   const $ = loadHTML();
 
   const propertySeed = readJSON("property_seed.json");
