@@ -711,6 +711,58 @@ function sanitizePointerAgainstStrictSchema(pointer, schemaSide = {}) {
   return sanitized;
 }
 
+function finalizeRelationshipPointerPayload(pointer, hintSide = {}) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const basePath = resolvePointerBasePath(pointer);
+  if (!basePath) return null;
+
+  const sanitized = {};
+  if (basePath.startsWith("cid:")) {
+    const normalizedCid = basePath.startsWith("cid:")
+      ? basePath
+      : `cid:${basePath}`;
+    sanitized.cid = normalizedCid;
+  } else if (
+    /^[a-z]+:/i.test(basePath) &&
+    !basePath.startsWith("./")
+  ) {
+    sanitized.uri = basePath.trim();
+  } else {
+    const normalizedRelative = normalizePointerPath(basePath);
+    if (!normalizedRelative) return null;
+    sanitized["/"] = normalizedRelative;
+  }
+
+  const allowedExtras = new Set(
+    resolveAllowedExtrasList(hintSide).map((key) => String(key)),
+  );
+  const requiredExtras = Array.isArray(hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  requiredExtras.forEach((key) => allowedExtras.add(String(key)));
+
+  allowedExtras.forEach((key) => {
+    if (FORBIDDEN_POINTER_KEYS.includes(key)) return;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const normalizedValue = sanitizePointerExtraValue(key, pointer[key]);
+    if (normalizedValue != null) {
+      sanitized[key] = normalizedValue;
+    }
+  });
+
+  const missingRequired = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(sanitized, key) ||
+      sanitized[key] == null ||
+      String(sanitized[key]).trim() === "",
+  );
+  if (missingRequired) {
+    return null;
+  }
+
+  return sanitized;
+}
+
 function enforceRelationshipSchemaRules(types) {
   if (!Array.isArray(types) || types.length === 0) return;
   types.forEach((type) => {
@@ -1735,6 +1787,18 @@ const STRICT_RELATIONSHIP_SCHEMAS = {
       requiredExtras: [],
     },
   },
+  property_has_layout: {
+    from: {
+      pathPrefixes: ["property"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["layout_"],
+      allowedExtras: ["space_type_index"],
+      requiredExtras: ["space_type_index"],
+    },
+  },
 };
 
 function enforceStrictRelationshipPointers(type, fromPointer, toPointer) {
@@ -2289,6 +2353,15 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   }
   pruneToAllowedPointerKeys(enforcedFrom, hint.from);
   pruneToAllowedPointerKeys(enforcedTo, hint.to);
+  enforcedFrom = finalizeRelationshipPointerPayload(
+    enforcedFrom,
+    hint && hint.from,
+  );
+  enforcedTo = finalizeRelationshipPointerPayload(
+    enforcedTo,
+    hint && hint.to,
+  );
+  if (!enforcedFrom || !enforcedTo) return;
 
   const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
   writeJSON(targetPath, {
