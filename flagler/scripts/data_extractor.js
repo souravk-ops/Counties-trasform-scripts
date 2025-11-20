@@ -2413,6 +2413,111 @@ function sanitizeRelationshipDirectories(types) {
   });
 }
 
+function rebuildRelationshipPointer(rawPointer, hintSide = {}, schemaSide = {}) {
+  if (!rawPointer) return null;
+  const canonical =
+    canonicalizeRelationshipPointer(rawPointer, hintSide) ||
+    pointerFromRef(rawPointer) ||
+    null;
+  if (!canonical) return null;
+  const strictPointer =
+    buildStrictPointerForSchema(canonical, schemaSide) || canonical;
+  if (!strictPointer) return null;
+  let finalized = finalizeRelationshipPointerPayload(strictPointer, hintSide);
+  if (!finalized) return null;
+  finalized = ensurePointerHasRequiredExtras(finalized, hintSide);
+  if (
+    hintSide &&
+    Array.isArray(hintSide.requiredExtras) &&
+    !hasRequiredExtras(finalized, hintSide.requiredExtras)
+  ) {
+    const requiredExtras = hintSide.requiredExtras.map((key) => String(key));
+    const meta = buildPointerMeta(strictPointer);
+    let hydrated = { ...finalized };
+    requiredExtras.forEach((key) => {
+      if (
+        Object.prototype.hasOwnProperty.call(hydrated, key) &&
+        hydrated[key] != null &&
+        String(hydrated[key]).trim() !== ""
+      ) {
+        return;
+      }
+      const resolved = resolvePointerExtra(meta, key);
+      if (resolved != null) {
+        hydrated[key] = resolved;
+      }
+    });
+    if (!hasRequiredExtras(hydrated, requiredExtras)) {
+      return null;
+    }
+    finalized = hydrated;
+  }
+  stripForbiddenPointerKeys(finalized);
+  pruneToAllowedPointerKeys(finalized, hintSide);
+  return finalized;
+}
+
+function normalizeRelationshipDirectory(type) {
+  if (typeof type !== "string" || !type.trim()) return;
+  const relationshipType = type.trim();
+  const dirPath = path.join("relationships", relationshipType);
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath);
+  } catch (err) {
+    if (err && err.code === "ENOENT") return;
+    throw err;
+  }
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  const hint = RELATIONSHIP_HINTS[relationshipType] || {};
+  const schema = STRICT_RELATIONSHIP_SCHEMAS[relationshipType] || {};
+  entries.forEach((name) => {
+    if (!/\.json$/i.test(name)) return;
+    const fullPath = path.join(dirPath, name);
+    let payload;
+    try {
+      payload = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+    } catch (err) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch (unlinkErr) {
+        if (!unlinkErr || unlinkErr.code !== "ENOENT") throw unlinkErr;
+      }
+      return;
+    }
+    const normalizedFrom = rebuildRelationshipPointer(
+      payload && payload.from,
+      hint.from || {},
+      schema.from || {},
+    );
+    const normalizedTo = rebuildRelationshipPointer(
+      payload && payload.to,
+      hint.to || {},
+      schema.to || {},
+    );
+    if (!normalizedFrom || !normalizedTo) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch (unlinkErr) {
+        if (!unlinkErr || unlinkErr.code !== "ENOENT") throw unlinkErr;
+      }
+      return;
+    }
+    writeJSON(fullPath, { from: normalizedFrom, to: normalizedTo });
+  });
+}
+
+function normalizeManagedRelationshipPayloads() {
+  const managedTypes = [
+    "deed_has_file",
+    "sales_history_has_deed",
+    "property_has_layout",
+    "property_has_sales_history",
+  ];
+  managedTypes.forEach((type) => normalizeRelationshipDirectory(type));
+  removeRelationshipDirectories(["file_has_fact_sheet", "layout_has_fact_sheet"]);
+}
+
 function finalizePointerForWrite(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -3945,10 +4050,7 @@ function main() {
     "property_has_layout",
     "property_has_sales_history",
   ]);
-  removeRelationshipDirectories([
-    "file_has_fact_sheet",
-    "layout_has_fact_sheet",
-  ]);
+  normalizeManagedRelationshipPayloads();
 
   // Address last
   const secTwpRng = extractSecTwpRng($);
