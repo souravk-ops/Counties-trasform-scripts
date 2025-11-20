@@ -2070,11 +2070,19 @@ function removeRelationshipDirectories(types) {
 }
 
 const EXTERNALLY_MANAGED_PATTERNS = [
-  /^relationship_deed_has_file(?:_\d+)?\.json$/i,
   /^relationship_file_has_fact_sheet(?:_\d+)?\.json$/i,
   /^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i,
   /^file_\d+\.json$/i,
   /^fact_sheet(?:_\d+)?\.json$/i,
+];
+
+const MANAGED_RELATIONSHIP_TYPES = [
+  "deed_has_file",
+  "property_has_layout",
+  "property_has_sales_history",
+  "sales_history_has_deed",
+  "sales_history_has_person",
+  "sales_history_has_company",
 ];
 
 function purgeExternallyManagedArtifacts() {
@@ -2083,10 +2091,13 @@ function purgeExternallyManagedArtifacts() {
     "relationships",
   ]);
   removeRelationshipDirectories([
-    "deed_has_file",
     "file_has_fact_sheet",
     "layout_has_fact_sheet",
   ]);
+}
+
+function purgeManagedRelationshipDirectories() {
+  removeRelationshipDirectories(MANAGED_RELATIONSHIP_TYPES);
 }
 
 function sanitizeDeedMetadata(deed) {
@@ -3069,6 +3080,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
 function main() {
   ensureDir("data");
   purgeExternallyManagedArtifacts();
+  purgeManagedRelationshipDirectories();
   const $ = loadHTML();
 
   const propertySeed = readJSON("property_seed.json");
