@@ -1707,13 +1707,9 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
     stripDisallowedExtras(finalTo, hint.to.disallowExtras);
   }
 
-  const normalizedFrom =
-    sanitizePointerForHint(finalFrom, hint && hint.from) || finalFrom;
-  const normalizedTo =
-    sanitizePointerForHint(finalTo, hint && hint.to) || finalTo;
-  if (!pointerHasBase(normalizedFrom) || !pointerHasBase(normalizedTo)) {
-    return;
-  }
+  const normalizedFrom = sanitizePointerForHint(finalFrom, hint && hint.from);
+  const normalizedTo = sanitizePointerForHint(finalTo, hint && hint.to);
+  if (!normalizedFrom || !normalizedTo) return;
 
   const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
   writeJSON(targetPath, {
