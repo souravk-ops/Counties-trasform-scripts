@@ -147,6 +147,101 @@ function buildSalesHistoryPointer(relativePath, saleNode) {
   return pointer;
 }
 
+const RELATIONSHIP_POINTER_RULES = {
+  deed_has_file: {
+    from: { allowedExtras: [] },
+    to: { allowedExtras: ["request_identifier"] },
+  },
+  sales_history_has_deed: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+    to: { allowedExtras: [] },
+  },
+  property_has_sales_history: {
+    from: { allowedExtras: [] },
+    to: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
+};
+
+function buildRelationshipPointerSimple(type, side, ref, extraSource = null) {
+  if (!type || !side || !ref) return null;
+  let pointer = null;
+  if (typeof ref === "string") {
+    pointer = buildPointerForWrite(ref);
+  } else {
+    const refPointer = pointerFromRef(ref);
+    pointer = refPointer ? { ...refPointer } : null;
+  }
+  if (!pointer || (!pointer["/"] && !pointer.cid && !pointer.uri)) {
+    return null;
+  }
+  Object.keys(pointer).forEach((key) => {
+    if (!POINTER_BASE_KEYS.includes(key)) {
+      delete pointer[key];
+    }
+  });
+  const ruleSet = RELATIONSHIP_POINTER_RULES[type] || {};
+  const sideRules = ruleSet[side] || {};
+  const allowedExtras = Array.isArray(sideRules.allowedExtras)
+    ? sideRules.allowedExtras
+    : [];
+  allowedExtras.forEach((key) => {
+    if (
+      !extraSource ||
+      !Object.prototype.hasOwnProperty.call(extraSource, key)
+    ) {
+      return;
+    }
+    const rawValue = extraSource[key];
+    if (rawValue == null) return;
+    if (key === "ownership_transfer_date") {
+      const iso = formatPointerDate(rawValue);
+      if (iso) {
+        pointer[key] = iso;
+      }
+    } else {
+      const trimmed = String(rawValue).trim();
+      if (trimmed) {
+        pointer[key] = trimmed;
+      }
+    }
+  });
+  if (
+    Array.isArray(sideRules.requiredExtras) &&
+    sideRules.requiredExtras.length
+  ) {
+    const missing = sideRules.requiredExtras.some((key) => {
+      const value = pointer[key];
+      return value == null || String(value).trim() === "";
+    });
+    if (missing) return null;
+  }
+  return pointer;
+}
+
+function writeRelationshipRecord(type, index, fromRef, toRef, extras = {}) {
+  const fromPointer = buildRelationshipPointerSimple(
+    type,
+    "from",
+    fromRef,
+    extras.from,
+  );
+  const toPointer = buildRelationshipPointerSimple(
+    type,
+    "to",
+    toRef,
+    extras.to,
+  );
+  if (!fromPointer || !toPointer) return;
+  const targetPath = resolveRelationshipFilePath(type, index);
+  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+}
+
 function buildLayoutPointer(relativePath, rawSpaceTypeIndex) {
   if (!relativePath) return null;
   const normalizedIndex =
@@ -2379,16 +2474,12 @@ function buildFileArtifactsForSale(
     request_identifier: requestIdentifier,
   };
   const filename = `file_${idx}.json`;
-  const filePointer = buildPointerForWrite(
-    filename,
-    { request_identifier: requestIdentifier },
-    ["request_identifier"],
-  );
-  if (!filePointer) return null;
   return {
     fileNode,
     filename,
-    filePointer,
+    pointerExtras: {
+      request_identifier: requestIdentifier,
+    },
   };
 }
 
@@ -2863,11 +2954,8 @@ function writeProperty($, parcelId, context) {
 function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const { parcelId, defaultSourceHttpRequest } = context || {};
   const propertyFileOnDisk = path.join("data", "property.json");
-  const propertyPointerSource = fs.existsSync(propertyFileOnDisk)
+  const propertyRelationshipRef = fs.existsSync(propertyFileOnDisk)
     ? (context && context.propertyFile) || "property.json"
-    : null;
-  const propertyPointer = propertyPointerSource
-    ? buildPointerForWrite(propertyPointerSource)
     : null;
 
   const salesCleanupPatterns = [
@@ -2914,7 +3002,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const idx = saleCounter;
     const saleFilename = `sales_history_${idx}.json`;
     writeJSON(path.join("data", saleFilename), saleNode);
-    const salePointer = buildSalesHistoryPointer(saleFilename, saleNode);
 
     const deedCandidate = {};
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
@@ -2933,7 +3020,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
-    const deedPointer = buildPointerForWrite(deedFilename);
 
     processedSales.push({
       source: saleRecord,
@@ -2943,42 +3029,38 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleNode,
     });
 
-    if (
-      salePointer &&
-      deedPointer
-    ) {
-      writeDirectRelationshipFile(
-        "sales_history_has_deed",
-        idx,
-        salePointer,
-        deedPointer,
-      );
-    }
+    writeRelationshipRecord(
+      "sales_history_has_deed",
+      idx,
+      saleFilename,
+      deedFilename,
+      { from: saleNode },
+    );
     const fileArtifacts = buildFileArtifactsForSale(
       saleRecord,
       idx,
       context,
     );
     if (fileArtifacts) {
-      writeJSON(path.join("data", fileArtifacts.filename), fileArtifacts.fileNode);
-      if (deedPointer && fileArtifacts.filePointer) {
-        writeDirectRelationshipFile(
-          "deed_has_file",
-          idx,
-          deedPointer,
-          fileArtifacts.filePointer,
-        );
-      }
+      writeJSON(
+        path.join("data", fileArtifacts.filename),
+        fileArtifacts.fileNode,
+      );
+      writeRelationshipRecord(
+        "deed_has_file",
+        idx,
+        deedFilename,
+        fileArtifacts.filename,
+        { to: fileArtifacts.pointerExtras },
+      );
     }
-    if (
-      propertyPointer &&
-      salePointer
-    ) {
-      writeDirectRelationshipFile(
+    if (propertyRelationshipRef) {
+      writeRelationshipRecord(
         "property_has_sales_history",
         idx,
-        propertyPointer,
-        salePointer,
+        propertyRelationshipRef,
+        saleFilename,
+        { to: saleNode },
       );
     }
   });
