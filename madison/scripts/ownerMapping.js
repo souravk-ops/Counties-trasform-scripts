@@ -123,34 +123,6 @@ const SUFFIX_TOKEN_MAP = new Map([
   ["PHD", "PhD"],
 ]);
 
-const LAST_NAME_PREFIXES = new Set([
-  "MC",
-  "MAC",
-  "O",
-  "ST",
-  "ST.",
-  "SAN",
-  "SANTA",
-  "DE",
-  "DEL",
-  "DELA",
-  "DE LAS",
-  "DELOS",
-  "DE LOS",
-  "DE LA",
-  "DI",
-  "DA",
-  "DOS",
-  "DU",
-  "VAN",
-  "VON",
-  "LA",
-  "LE",
-  "EL",
-  "LOS",
-  "LAS",
-]);
-
 function normalizeTokenForLookup(token) {
   return (token || "").replace(/\./g, "").replace(/'/g, "").toUpperCase();
 }
@@ -306,23 +278,14 @@ function classifyOwner(raw) {
   const parseFirstLast = (tokensArr) => {
     if (tokensArr.length < 2) return null;
     const tokensCopy = [...tokensArr];
-    const lastTokens = [];
-    lastTokens.unshift(tokensCopy.pop());
-    while (tokensCopy.length > 0) {
-      const prevKey = normalizeTokenForLookup(tokensCopy[tokensCopy.length - 1]);
-      if (LAST_NAME_PREFIXES.has(prevKey)) {
-        lastTokens.unshift(tokensCopy.pop());
-      } else {
-        break;
-      }
-    }
+    const lastToken = tokensCopy.pop();
     const firstToken = tokensCopy.shift();
     const middleTokens = tokensCopy;
-    if (!firstToken || !lastTokens.length) return null;
+    if (!firstToken || !lastToken) return null;
     return {
       firstName: titleCaseName(firstToken),
       middleName: middleTokens.length ? titleCaseName(middleTokens.join(" ")) : null,
-      lastName: titleCaseName(lastTokens.join(" ")),
+      lastName: titleCaseName(lastToken),
     };
   };
 
