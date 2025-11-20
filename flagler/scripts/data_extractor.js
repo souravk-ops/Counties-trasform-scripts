@@ -390,8 +390,7 @@ function writeRelationshipPayloadDirect(type, index, fromPointer, toPointer) {
 }
 
 function attachSourceHttpRequest(target, request) {
-  if (!target || !request) return;
-  target.source_http_request = cloneDeep(request);
+  if (!target) return;
 }
 
 function formatPointerDate(value) {
@@ -3605,6 +3604,72 @@ function writeOrientedRelationshipRecord(
     preparedTo,
   );
 }
+
+function extractPointerForDirectRelationship(pointer, hintSide = {}) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const sanitized = {};
+  POINTER_BASE_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const raw = pointer[key];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (key === "/") {
+      const normalized = normalizePointerPath(trimmed);
+      if (normalized) {
+        sanitized["/"] = normalized;
+      }
+    } else {
+      sanitized[key] = trimmed;
+    }
+  });
+  if (!pointerHasBase(sanitized)) {
+    return null;
+  }
+  const allowedExtras = resolveAllowedExtrasList(hintSide);
+  allowedExtras.forEach((key) => {
+    if (FORBIDDEN_POINTER_KEYS.includes(key)) return;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const value = sanitizePointerExtraValue(key, pointer[key]);
+    if (value != null) {
+      sanitized[key] = value;
+    }
+  });
+  if (
+    hintSide &&
+    Array.isArray(hintSide.requiredExtras) &&
+    !hasRequiredExtras(sanitized, hintSide.requiredExtras)
+  ) {
+    return null;
+  }
+  return sanitized;
+}
+
+function writeDirectRelationshipPayload(
+  type,
+  index,
+  fromPointer,
+  toPointer,
+) {
+  if (!type || !fromPointer || !toPointer) return;
+  const hint = RELATIONSHIP_HINTS[type] || {};
+  const sanitizedFrom = extractPointerForDirectRelationship(
+    fromPointer,
+    hint.from || {},
+  );
+  const sanitizedTo = extractPointerForDirectRelationship(
+    toPointer,
+    hint.to || {},
+  );
+  if (!sanitizedFrom || !sanitizedTo) {
+    return;
+  }
+  const targetPath = resolveRelationshipFilePath(type, index);
+  writeJSON(targetPath, {
+    from: sanitizedFrom,
+    to: sanitizedTo,
+  });
+}
 function writeSalesRelationshipPayloads(
   processedSales,
   propertyRelationshipRef,
@@ -3636,18 +3701,12 @@ function writeSalesRelationshipPayloads(
       return;
     }
 
-    const salePointerForDeedRelationship =
-      clonePointerPayload(salePointer);
-    const deedPointerForSaleRelationship =
-      clonePointerPayload(deedPointer);
-    if (salePointerForDeedRelationship && deedPointerForSaleRelationship) {
-      writeOrientedRelationshipRecord(
-        "sales_history_has_deed",
-        rec.idx,
-        salePointerForDeedRelationship,
-        deedPointerForSaleRelationship,
-      );
-    }
+    writeDirectRelationshipPayload(
+      "sales_history_has_deed",
+      rec.idx,
+      salePointer,
+      deedPointer,
+    );
 
     if (rec.fileArtifact && rec.fileArtifact.filename) {
       const filePointer = buildPointerPayloadFromFilename(
@@ -3655,39 +3714,23 @@ function writeSalesRelationshipPayloads(
         { request_identifier: rec.fileArtifact.request_identifier },
         ["request_identifier"],
       );
-      const deedPointerForFileRelationship =
-        clonePointerPayload(deedPointer);
-      const filePointerForRelationship =
-        clonePointerPayload(filePointer);
-      if (
-        deedPointerForFileRelationship &&
-        filePointerForRelationship
-      ) {
-        writeOrientedRelationshipRecord(
+      if (filePointer) {
+        writeDirectRelationshipPayload(
           "deed_has_file",
           rec.idx,
-          deedPointerForFileRelationship,
-          filePointerForRelationship,
+          deedPointer,
+          filePointer,
         );
       }
     }
 
     if (propertyPointer) {
-      const propertyPointerForRelationship =
-        clonePointerPayload(propertyPointer);
-      const salePointerForPropertyRelationship =
-        clonePointerPayload(salePointer);
-      if (
-        propertyPointerForRelationship &&
-        salePointerForPropertyRelationship
-      ) {
-        writeOrientedRelationshipRecord(
-          "property_has_sales_history",
-          rec.idx,
-          propertyPointerForRelationship,
-          salePointerForPropertyRelationship,
-        );
-      }
+      writeDirectRelationshipPayload(
+        "property_has_sales_history",
+        rec.idx,
+        propertyPointer,
+        salePointer,
+      );
     }
   });
 }
