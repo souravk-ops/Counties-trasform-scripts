@@ -1378,14 +1378,6 @@ const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
   "file_has_fact_sheet",
   "layout_has_fact_sheet",
 ]);
-const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set([
-  "deed_has_file",
-  "sales_history_has_deed",
-]);
-const RELATIONSHIPS_WITH_DIRECTION_OVERRIDES = new Set([
-  "deed_has_file",
-  "sales_history_has_deed",
-]);
 
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
@@ -1508,48 +1500,6 @@ function hasRequiredExtras(pointer, extras) {
   });
 }
 
-function shouldSwapPointers(hint, fromPointer, toPointer) {
-  if (!hint) return false;
-  const fromPath = pointerPathFromPointer(fromPointer);
-  const toPath = pointerPathFromPointer(toPointer);
-  const fromMatchesExpected = matchesPathPrefix(
-    fromPath,
-    hint.from && hint.from.pathPrefixes,
-  );
-  const toMatchesExpected = matchesPathPrefix(
-    toPath,
-    hint.to && hint.to.pathPrefixes,
-  );
-  const fromMatchesTo = matchesPathPrefix(
-    fromPath,
-    hint.to && hint.to.pathPrefixes,
-  );
-  const toMatchesFrom = matchesPathPrefix(
-    toPath,
-    hint.from && hint.from.pathPrefixes,
-  );
-
-  if (!fromMatchesExpected && toMatchesExpected && toMatchesFrom) return true;
-  if (fromMatchesTo && !toMatchesExpected) return true;
-
-  if (
-    hint.from &&
-    Array.isArray(hint.from.requiredExtras) &&
-    hint.from.requiredExtras.length > 0
-  ) {
-    const fromHasExtras = hasRequiredExtras(
-      fromPointer,
-      hint.from.requiredExtras,
-    );
-    const toHasExtras = hasRequiredExtras(
-      toPointer,
-      hint.from.requiredExtras,
-    );
-    if (!fromHasExtras && toHasExtras) return true;
-  }
-
-  return false;
-}
 
 function sanitizeRelationshipPointer(refLike, hintSide) {
   if (refLike == null) return null;
