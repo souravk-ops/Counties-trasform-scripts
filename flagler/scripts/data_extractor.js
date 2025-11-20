@@ -48,6 +48,12 @@ function cloneDeep(obj) {
   return obj == null ? null : JSON.parse(JSON.stringify(obj));
 }
 
+function nonEmptyString(value) {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : null;
+}
+
 function normalizePointerPath(value) {
   if (typeof value !== "string") return null;
   let trimmed = value.trim();
@@ -1365,7 +1371,6 @@ const RELATIONSHIP_HINTS = {
 };
 
 const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
-  "deed_has_file",
   "file_has_fact_sheet",
   "layout_has_fact_sheet",
 ]);
@@ -1713,6 +1718,91 @@ function parseBookAndPage(raw) {
     return { book: match[1], page: match[2] };
   }
   return { book: null, page: null };
+}
+
+function normalizeDocumentUrl(rawUrl, fallbackBaseUrl) {
+  const candidate = nonEmptyString(rawUrl);
+  if (!candidate) return null;
+  if (/^https?:\/\//i.test(candidate)) {
+    return candidate;
+  }
+  if (candidate.startsWith("//")) {
+    return `https:${candidate}`;
+  }
+  const base = nonEmptyString(fallbackBaseUrl);
+  if (!base) return null;
+  try {
+    const resolved = new URL(candidate, base);
+    return resolved.toString();
+  } catch (err) {
+    return null;
+  }
+}
+
+function deriveDeedRequestIdentifier(
+  saleRecord,
+  idx,
+  parcelId,
+  transferDate,
+  fallbackBaseUrl,
+) {
+  const normalizedLink = normalizeDocumentUrl(
+    saleRecord && saleRecord.link,
+    fallbackBaseUrl,
+  );
+  const candidates = [
+    nonEmptyString(saleRecord && saleRecord.instrument),
+    normalizedLink,
+    nonEmptyString(saleRecord && saleRecord.link),
+    transferDate && nonEmptyString(saleRecord && saleRecord.bookPage)
+      ? `${transferDate}_${nonEmptyString(saleRecord.bookPage)}`
+      : null,
+    parcelId ? `${parcelId}_deed_${idx}` : null,
+    `deed_${idx}`,
+  ];
+  for (const value of candidates) {
+    const normalized = nonEmptyString(value);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function buildFileArtifactsForSale(
+  saleRecord,
+  idx,
+  context,
+  fallbackBaseUrl,
+) {
+  const { parcelId } = context || {};
+  const normalizedUrl = normalizeDocumentUrl(
+    saleRecord && saleRecord.link,
+    fallbackBaseUrl,
+  );
+  if (!normalizedUrl) return null;
+  const requestIdentifier =
+    normalizedUrl ||
+    nonEmptyString(saleRecord && saleRecord.instrument) ||
+    (parcelId ? `${parcelId}_file_${idx}` : null) ||
+    `deed_file_${idx}`;
+  const fileNode = {
+    request_identifier: requestIdentifier,
+  };
+  attachSourceHttpRequest(fileNode, {
+    method: "GET",
+    url: normalizedUrl,
+  });
+  const filename = `file_${idx}.json`;
+  const filePointer = buildPointerForWrite(
+    filename,
+    { request_identifier: requestIdentifier },
+    ["request_identifier"],
+  );
+  if (!filePointer) return null;
+  return {
+    fileNode,
+    filename,
+    filePointer,
+  };
 }
 
 function removeFilesMatchingPatterns(patterns, directories = ["data"]) {
@@ -2206,8 +2296,12 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
   const processedSales = [];
   let saleCounter = 0;
+  const fallbackDocumentBaseUrl =
+    (defaultSourceHttpRequest && defaultSourceHttpRequest.url) ||
+    (DEFAULT_SOURCE_HTTP_REQUEST && DEFAULT_SOURCE_HTTP_REQUEST.url) ||
+    null;
 
-  // File records (URs) are generated downstream, so skip producing file nodes or deed_has_file relationships here.
+  // Build deed/file artifacts for sales so downstream validators receive fully-specified relationships.
   sales.forEach((saleRecord) => {
     const transferDate = normalizeSaleDate(saleRecord.saleDate);
     if (!transferDate) return;
@@ -2233,6 +2327,16 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
     if (book) deedCandidate.book = book;
     if (page) deedCandidate.page = page;
+    const deedRequestIdentifier = deriveDeedRequestIdentifier(
+      saleRecord,
+      idx,
+      parcelId,
+      transferDate,
+      fallbackDocumentBaseUrl,
+    );
+    if (deedRequestIdentifier) {
+      deedCandidate.request_identifier = deedRequestIdentifier;
+    }
     attachSourceHttpRequest(deedCandidate, defaultSourceHttpRequest);
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
@@ -2257,6 +2361,23 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
         salePointer,
         deedPointer,
       );
+    }
+    const fileArtifacts = buildFileArtifactsForSale(
+      saleRecord,
+      idx,
+      context,
+      fallbackDocumentBaseUrl,
+    );
+    if (fileArtifacts) {
+      writeJSON(path.join("data", fileArtifacts.filename), fileArtifacts.fileNode);
+      if (deedPointer && fileArtifacts.filePointer) {
+        writeDirectRelationshipFile(
+          "deed_has_file",
+          idx,
+          deedPointer,
+          fileArtifacts.filePointer,
+        );
+      }
     }
     if (
       propertyPointer &&
@@ -2615,21 +2736,16 @@ function extractSecTwpRng($) {
 
 function attemptWriteAddress(unnorm, secTwpRng, context) {
   const { defaultSourceHttpRequest } = context || {};
-  const stringOrNull = (value) => {
-    if (value == null) return null;
-    const trimmed = String(value).trim();
-    return trimmed ? trimmed : null;
-  };
   const normalizedSource =
     unnorm && typeof unnorm.normalized_address === "object"
       ? unnorm.normalized_address
       : null;
   const fallbackUnnormalized =
-    stringOrNull(unnorm && unnorm.full_address) ||
-    stringOrNull(unnorm && unnorm.address) ||
-    stringOrNull(unnorm && unnorm.address_text) ||
-    stringOrNull(normalizedSource && normalizedSource.original_address);
-  const normalizedCountry = stringOrNull(
+    nonEmptyString(unnorm && unnorm.full_address) ||
+    nonEmptyString(unnorm && unnorm.address) ||
+    nonEmptyString(unnorm && unnorm.address_text) ||
+    nonEmptyString(normalizedSource && normalizedSource.original_address);
+  const normalizedCountry = nonEmptyString(
     normalizedSource && normalizedSource.country_code,
   );
 
@@ -2643,7 +2759,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   const normalizedValues =
     normalizedSource && typeof normalizedSource === "object"
       ? normalizedRequiredKeys.map((key) =>
-          stringOrNull(normalizedSource[key]),
+          nonEmptyString(normalizedSource[key]),
         )
       : [];
   const hasCompleteNormalizedAddress =
@@ -2651,7 +2767,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     normalizedValues.every((val) => val && typeof val === "string");
 
   const address = {};
-  const countyName = stringOrNull(unnorm && unnorm.county_jurisdiction);
+  const countyName = nonEmptyString(unnorm && unnorm.county_jurisdiction);
   if (countyName) address.county_name = countyName;
 
   if (secTwpRng && secTwpRng.section) address.section = secTwpRng.section;
@@ -2671,27 +2787,27 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     address.city_name = cityName ? cityName.toUpperCase() : null;
     address.state_code = stateCode;
     address.postal_code = postalCode;
-    const suffix = stringOrNull(
+    const suffix = nonEmptyString(
       normalizedSource && normalizedSource.street_suffix_type,
     );
     if (suffix) address.street_suffix_type = suffix;
-    const preDir = stringOrNull(
+    const preDir = nonEmptyString(
       normalizedSource && normalizedSource.street_pre_directional_text,
     );
     if (preDir) address.street_pre_directional_text = preDir;
-    const postDir = stringOrNull(
+    const postDir = nonEmptyString(
       normalizedSource && normalizedSource.street_post_directional_text,
     );
     if (postDir) address.street_post_directional_text = postDir;
-    const unit = stringOrNull(
+    const unit = nonEmptyString(
       normalizedSource && normalizedSource.unit_identifier,
     );
     if (unit) address.unit_identifier = unit;
-    const route = stringOrNull(
+    const route = nonEmptyString(
       normalizedSource && normalizedSource.route_number,
     );
     if (route) address.route_number = route;
-    const plusFour = stringOrNull(
+    const plusFour = nonEmptyString(
       normalizedSource && normalizedSource.plus_four_postal_code,
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
@@ -2709,7 +2825,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     address.country_code = normalizedCountry || "US";
   }
 
-  const requestIdentifier = stringOrNull(
+  const requestIdentifier = nonEmptyString(
     unnorm && unnorm.request_identifier,
   );
   if (requestIdentifier) address.request_identifier = requestIdentifier;
