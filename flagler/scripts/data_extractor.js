@@ -234,10 +234,6 @@ function normalizePointerValue(raw) {
     return { cid: trimmed.startsWith("cid:") ? trimmed : `cid:${trimmed}` };
   }
 
-  if (/^https?:\/\//i.test(trimmed)) {
-    return { uri: trimmed };
-  }
-
   const normalizedPath = normalizePointerPath(trimmed);
   return normalizedPath ? { "/": normalizedPath } : null;
 }
@@ -1645,6 +1641,28 @@ function safeSanitizePointerForRelationship(refLike, hintSide) {
   return finalized;
 }
 
+function buildNormalizedRelationshipPointer(refLike, hintSide) {
+  if (refLike == null) return null;
+  const sanitizedPointer =
+    safeSanitizePointerForRelationship(refLike, hintSide) ||
+    sanitizeRelationshipPointer(refLike, hintSide) ||
+    pointerFromRef(refLike);
+  if (!sanitizedPointer) return null;
+  const normalizedForHint = sanitizePointerForHint(
+    sanitizedPointer,
+    hintSide,
+  );
+  if (!normalizedForHint) return null;
+  const strictPointer =
+    restrictPointerKeys(normalizedForHint, hintSide) || normalizedForHint;
+  if (!strictPointer) return null;
+  stripForbiddenPointerKeys(strictPointer);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(strictPointer, hintSide.disallowExtras);
+  }
+  return pointerHasBase(strictPointer) ? strictPointer : null;
+}
+
 function sanitizeRelationshipDirectories(types) {
   if (!Array.isArray(types) || types.length === 0) return;
   types.forEach((type) => {
@@ -1715,6 +1733,13 @@ function sanitizeRelationshipDirectories(types) {
       }
 
       if (!sanitizedFrom || !sanitizedTo || !fromMatches || !toMatches) {
+        try {
+          fs.unlinkSync(fullPath);
+        } catch (unlinkErr) {
+          if (!unlinkErr || unlinkErr.code !== "ENOENT") {
+            throw unlinkErr;
+          }
+        }
         return;
       }
 
@@ -1875,30 +1900,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
   const preparedFrom = scrubPointerRefLike(fromRefLike);
   const preparedTo = scrubPointerRefLike(toRefLike);
-  const fromPointerRaw = pointerFromRef(preparedFrom);
-  const toPointerRaw = pointerFromRef(preparedTo);
-  if (!fromPointerRaw || !toPointerRaw) return;
-
-  const finalFrom = enforcePointerSchema(fromPointerRaw, hint && hint.from);
-  const finalTo = enforcePointerSchema(toPointerRaw, hint && hint.to);
-  if (!finalFrom || !finalTo) return;
-
-  stripForbiddenPointerKeys(finalFrom);
-  stripForbiddenPointerKeys(finalTo);
-  if (hint && hint.from && Array.isArray(hint.from.disallowExtras)) {
-    stripDisallowedExtras(finalFrom, hint.from.disallowExtras);
-  }
-  if (hint && hint.to && Array.isArray(hint.to.disallowExtras)) {
-    stripDisallowedExtras(finalTo, hint.to.disallowExtras);
-  }
-
-  const normalizedFrom = sanitizePointerForHint(finalFrom, hint && hint.from);
-  const normalizedTo = sanitizePointerForHint(finalTo, hint && hint.to);
-  if (!normalizedFrom || !normalizedTo) return;
-  const strictFrom =
-    restrictPointerKeys(normalizedFrom, hint && hint.from) || normalizedFrom;
-  const strictTo =
-    restrictPointerKeys(normalizedTo, hint && hint.to) || normalizedTo;
+  const strictFrom = buildNormalizedRelationshipPointer(
+    preparedFrom,
+    hint && hint.from,
+  );
+  const strictTo = buildNormalizedRelationshipPointer(
+    preparedTo,
+    hint && hint.to,
+  );
   if (!strictFrom || !strictTo) return;
 
   const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
