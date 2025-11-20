@@ -301,18 +301,7 @@ function writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer) {
 
 function writeRelationshipPayloadDirect(type, index, fromPointer, toPointer) {
   if (!type || !fromPointer || !toPointer) return;
-  const dirPath = path.join("relationships", type);
-  ensureDir(dirPath);
-  const suffix =
-    index === undefined || index === null || String(index).trim() === ""
-      ? nextRelationshipIndex(dirPath)
-      : String(index).trim();
-  if (!suffix) return;
-  const filename = `${suffix}.json`;
-  writeJSON(path.join(dirPath, filename), {
-    from: fromPointer,
-    to: toPointer,
-  });
+  writeRelationship(type, fromPointer, toPointer, index);
 }
 
 function attachSourceHttpRequest(target, request) {
