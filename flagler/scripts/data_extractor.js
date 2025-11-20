@@ -275,28 +275,13 @@ function canonicalizeRelationshipPointer(pointerInput, hintSide = {}) {
 
 function writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer) {
   if (!type) return;
-  const schema = STRICT_RELATIONSHIP_SCHEMAS[type] || { from: {}, to: {} };
-  const normalizedFrom = canonicalizeRelationshipPointer(
-    fromPointer,
-    schema.from || {},
-  );
-  const normalizedTo = canonicalizeRelationshipPointer(
-    toPointer,
-    schema.to || {},
-  );
-  if (!normalizedFrom || !normalizedTo) return;
-  const dirPath = path.join("relationships", type);
-  ensureDir(dirPath);
   const suffix =
-    index === undefined || index === null || index === ""
-      ? nextRelationshipIndex(dirPath)
+    index === undefined ||
+    index === null ||
+    (typeof index === "string" && index.trim() === "")
+      ? undefined
       : String(index).trim();
-  if (!suffix) return;
-  const filename = `${suffix}.json`;
-  writeJSON(path.join(dirPath, filename), {
-    from: normalizedFrom,
-    to: normalizedTo,
-  });
+  writeRelationship(type, fromPointer, toPointer, suffix);
 }
 
 function writeRelationshipPayloadDirect(type, index, fromPointer, toPointer) {
@@ -3578,6 +3563,27 @@ function writeLayout(parcelId, context) {
           layoutPointer,
           layoutCounter,
         );
+      } else if (propertyPointer) {
+        const recoveredIndex =
+          out.space_type_index != null &&
+          String(out.space_type_index).trim() !== ""
+            ? String(out.space_type_index).trim()
+            : null;
+        if (recoveredIndex) {
+          const fallbackLayoutPointer = buildPointerForWrite(
+            layoutFilename,
+            { space_type_index: recoveredIndex },
+            ["space_type_index"],
+          );
+          if (fallbackLayoutPointer) {
+            writeRelationship(
+              "property_has_layout",
+              propertyPointer,
+              fallbackLayoutPointer,
+              layoutCounter,
+            );
+          }
+        }
       }
     }
   });
