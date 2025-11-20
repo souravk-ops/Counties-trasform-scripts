@@ -178,7 +178,9 @@ function preparePointerForRelationship(type, pointerInput, sideKey) {
   if (!candidate) return null;
   const hint = RELATIONSHIP_HINTS[type];
   const sideHint = hint ? hint[sideKey] : null;
-  return finalizePointerForWrite(candidate, sideHint);
+  const enrichedCandidate =
+    hydratePointerExtras(candidate, pointerInput, sideHint) || candidate;
+  return finalizePointerForWrite(enrichedCandidate, sideHint);
 }
 
 function writeDirectRelationshipFile(type, suffix, fromPointer, toPointer) {
@@ -449,6 +451,76 @@ function resolvePointerExtra(meta, key) {
   }
 
   return null;
+}
+
+function hydratePointerExtras(pointerCandidate, refLike, hintSide) {
+  if (!pointerCandidate || typeof pointerCandidate !== "object") {
+    return pointerCandidate;
+  }
+  const allowedExtrasList = resolveAllowedExtrasList(hintSide).map((key) =>
+    String(key),
+  );
+  const requiredExtras = Array.isArray(hintSide && hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  requiredExtras.forEach((key) => {
+    if (!allowedExtrasList.includes(key)) {
+      allowedExtrasList.push(key);
+    }
+  });
+  const disallowedExtras = new Set(
+    hintSide && Array.isArray(hintSide.disallowExtras)
+      ? hintSide.disallowExtras.map((key) => String(key))
+      : [],
+  );
+  if (
+    allowedExtrasList.length === 0 &&
+    disallowedExtras.size === 0 &&
+    requiredExtras.length === 0
+  ) {
+    return pointerCandidate;
+  }
+  const meta = buildPointerMeta(refLike || pointerCandidate);
+  if (!meta) {
+    return pointerCandidate;
+  }
+  const hydrated = { ...pointerCandidate };
+  disallowedExtras.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(hydrated, key)) {
+      delete hydrated[key];
+    }
+  });
+  FORBIDDEN_POINTER_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(hydrated, key)) {
+      delete hydrated[key];
+    }
+  });
+  allowedExtrasList.forEach((key) => {
+    if (disallowedExtras.has(key) || FORBIDDEN_POINTER_KEYS.includes(key)) {
+      return;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(hydrated, key) &&
+      hydrated[key] != null &&
+      String(hydrated[key]).trim() !== ""
+    ) {
+      if (key === "ownership_transfer_date") {
+        const normalized = formatPointerDate(hydrated[key]);
+        if (normalized) {
+          hydrated[key] = normalized;
+          return;
+        }
+      } else {
+        hydrated[key] = String(hydrated[key]).trim();
+        return;
+      }
+    }
+    const resolved = resolvePointerExtra(meta, key);
+    if (resolved != null) {
+      hydrated[key] = resolved;
+    }
+  });
+  return hydrated;
 }
 
 function stripForbiddenPointerKeys(pointer) {
@@ -2883,7 +2955,10 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   if (secTwpRng && secTwpRng.township) address.township = secTwpRng.township;
   if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
 
-  if (hasCompleteNormalizedAddress) {
+  let usedNormalizedAddress = false;
+  if (fallbackUnnormalized) {
+    address.unnormalized_address = fallbackUnnormalized;
+  } else if (hasCompleteNormalizedAddress) {
     const [
       streetNumber,
       streetName,
@@ -2920,17 +2995,12 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
       normalizedSource && normalizedSource.plus_four_postal_code,
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
-  } else if (fallbackUnnormalized) {
-    address.unnormalized_address = fallbackUnnormalized;
+    usedNormalizedAddress = true;
   }
 
-  if (normalizedCountry && hasCompleteNormalizedAddress) {
+  if (usedNormalizedAddress && normalizedCountry) {
     address.country_code = normalizedCountry;
-  } else if (!address.country_code && normalizedCountry) {
-    address.country_code = normalizedCountry;
-  }
-
-  if (!address.country_code) {
+  } else if (!address.country_code) {
     address.country_code = normalizedCountry || "US";
   }
 
@@ -2992,6 +3062,9 @@ function main() {
     "deed_has_file",
     "sales_history_has_deed",
     "file_has_fact_sheet",
+    "layout_has_fact_sheet",
+    "property_has_layout",
+    "property_has_sales_history",
   ]);
 
   // Address last
