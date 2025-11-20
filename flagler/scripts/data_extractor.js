@@ -723,6 +723,27 @@ function sanitizePointerForHint(pointer, hintSide) {
   return normalizePointerOutput(pointer, hintSide);
 }
 
+function restrictPointerKeys(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const allowedExtrasList = resolveAllowedExtrasList(hintSide).map((key) =>
+    String(key),
+  );
+  const allowedKeys = new Set(POINTER_BASE_KEYS);
+  allowedExtrasList.forEach((key) => allowedKeys.add(String(key)));
+  const requiredExtras =
+    hintSide && Array.isArray(hintSide.requiredExtras)
+      ? hintSide.requiredExtras.map((key) => String(key))
+      : [];
+  requiredExtras.forEach((key) => allowedKeys.add(String(key)));
+  const sanitized = {};
+  Object.keys(pointer).forEach((key) => {
+    const strKey = String(key);
+    if (!allowedKeys.has(strKey)) return;
+    sanitized[strKey] = pointer[key];
+  });
+  return pointerHasBase(sanitized) ? sanitized : null;
+}
+
 function prepareRelationshipPointer(meta, pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -1557,7 +1578,14 @@ function pointerPathFromPointer(pointer) {
   if (typeof rawPath !== "string") return null;
   const normalized = normalizePointerPath(rawPath);
   if (!normalized) return null;
-  return normalized.replace(/^[./\\]+/, "");
+  let sanitized = normalized.replace(/^[./\\]+/, "");
+  if (/^data[\\/]/i.test(sanitized)) {
+    sanitized = sanitized.replace(/^data[\\/]+/i, "");
+  }
+  if (/^relationships[\\/]/i.test(sanitized)) {
+    sanitized = sanitized.replace(/^relationships[\\/]+/i, "");
+  }
+  return sanitized;
 }
 
 function hasRequiredExtras(pointer, extras) {
@@ -1708,12 +1736,17 @@ function sanitizeRelationshipDirectories(types) {
         hint.to,
       );
       if (!normalizedFrom || !normalizedTo) return;
+      const strictFrom =
+        restrictPointerKeys(normalizedFrom, hint.from) || normalizedFrom;
+      const strictTo =
+        restrictPointerKeys(normalizedTo, hint.to) || normalizedTo;
+      if (!strictFrom || !strictTo) return;
 
       const unchanged =
-        JSON.stringify(originalFrom) === JSON.stringify(normalizedFrom) &&
-        JSON.stringify(originalTo) === JSON.stringify(normalizedTo);
+        JSON.stringify(originalFrom) === JSON.stringify(strictFrom) &&
+        JSON.stringify(originalTo) === JSON.stringify(strictTo);
       if (unchanged) return;
-      writeJSON(fullPath, { from: normalizedFrom, to: normalizedTo });
+      writeJSON(fullPath, { from: strictFrom, to: strictTo });
     });
   });
 }
@@ -1862,11 +1895,16 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const normalizedFrom = sanitizePointerForHint(finalFrom, hint && hint.from);
   const normalizedTo = sanitizePointerForHint(finalTo, hint && hint.to);
   if (!normalizedFrom || !normalizedTo) return;
+  const strictFrom =
+    restrictPointerKeys(normalizedFrom, hint && hint.from) || normalizedFrom;
+  const strictTo =
+    restrictPointerKeys(normalizedTo, hint && hint.to) || normalizedTo;
+  if (!strictFrom || !strictTo) return;
 
   const targetPath = resolveRelationshipFilePath(relationshipType, suffix);
   writeJSON(targetPath, {
-    from: normalizedFrom,
-    to: normalizedTo,
+    from: strictFrom,
+    to: strictTo,
   });
 }
 
@@ -2956,9 +2994,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
 
   let usedNormalizedAddress = false;
-  if (fallbackUnnormalized) {
-    address.unnormalized_address = fallbackUnnormalized;
-  } else if (hasCompleteNormalizedAddress) {
+  if (hasCompleteNormalizedAddress) {
     const [
       streetNumber,
       streetName,
@@ -2996,12 +3032,19 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
     usedNormalizedAddress = true;
+  } else if (fallbackUnnormalized) {
+    address.unnormalized_address = fallbackUnnormalized;
   }
 
-  if (usedNormalizedAddress && normalizedCountry) {
+  if (usedNormalizedAddress) {
+    address.country_code = normalizedCountry || "US";
+  } else if (fallbackUnnormalized) {
+    address.country_code =
+      normalizedCountry || address.country_code || "US";
+  } else if (normalizedCountry && !address.country_code) {
     address.country_code = normalizedCountry;
   } else if (!address.country_code) {
-    address.country_code = normalizedCountry || "US";
+    address.country_code = "US";
   }
 
   const requestIdentifier = nonEmptyString(
