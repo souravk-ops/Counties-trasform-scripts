@@ -2118,6 +2118,22 @@ function pointerMatchesHint(pointer, hintSide) {
   return matchesPathPrefix(normalizedPath, hintSide.pathPrefixes);
 }
 
+function relationshipAppearsSwapped(originalFrom, originalTo, hint) {
+  if (!hint || !originalFrom || !originalTo) return false;
+  const hasFromPrefixes =
+    hint.from &&
+    Array.isArray(hint.from.pathPrefixes) &&
+    hint.from.pathPrefixes.length > 0;
+  const hasToPrefixes =
+    hint.to &&
+    Array.isArray(hint.to.pathPrefixes) &&
+    hint.to.pathPrefixes.length > 0;
+  if (!hasFromPrefixes || !hasToPrefixes) return false;
+  const fromLooksLikeTo = pointerMatchesHint(originalFrom, hint.to);
+  const toLooksLikeFrom = pointerMatchesHint(originalTo, hint.from);
+  return fromLooksLikeTo && toLooksLikeFrom;
+}
+
 
 function sanitizeRelationshipPointer(refLike, hintSide) {
   if (refLike == null) return null;
@@ -2210,10 +2226,29 @@ function sanitizeRelationshipDirectories(types) {
       let fromMatches = pointerMatchesHint(sanitizedFrom, hint.from);
       let toMatches = pointerMatchesHint(sanitizedTo, hint.to);
 
+      const looksReversed = relationshipAppearsSwapped(
+        originalFrom,
+        originalTo,
+        hint,
+      );
+      if (looksReversed && hint && hint.preventSwap === true) {
+        sanitizedFrom = safeSanitizePointerForRelationship(
+          originalTo,
+          hint.from,
+        );
+        sanitizedTo = safeSanitizePointerForRelationship(
+          originalFrom,
+          hint.to,
+        );
+        fromMatches = pointerMatchesHint(sanitizedFrom, hint.from);
+        toMatches = pointerMatchesHint(sanitizedTo, hint.to);
+      }
+
       if (
         (!sanitizedFrom || !sanitizedTo || !fromMatches || !toMatches) &&
         originalFrom &&
-        originalTo
+        originalTo &&
+        (!hint || hint.preventSwap !== true)
       ) {
         const swappedFrom = safeSanitizePointerForRelationship(
           originalTo,
