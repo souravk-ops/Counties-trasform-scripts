@@ -2223,14 +2223,43 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
   const preparedFrom = scrubPointerRefLike(fromRefLike);
   const preparedTo = scrubPointerRefLike(toRefLike);
-  const strictFrom = buildNormalizedRelationshipPointer(
+  let strictFrom = buildNormalizedRelationshipPointer(
     preparedFrom,
     hint && hint.from,
   );
-  const strictTo = buildNormalizedRelationshipPointer(
+  let strictTo = buildNormalizedRelationshipPointer(
     preparedTo,
     hint && hint.to,
   );
+  let fromMatches = pointerMatchesHint(strictFrom, hint.from);
+  let toMatches = pointerMatchesHint(strictTo, hint.to);
+  if ((!fromMatches || !toMatches) && preparedFrom && preparedTo) {
+    const swappedFrom = buildNormalizedRelationshipPointer(
+      preparedTo,
+      hint && hint.from,
+    );
+    const swappedTo = buildNormalizedRelationshipPointer(
+      preparedFrom,
+      hint && hint.to,
+    );
+    const swappedMatches =
+      pointerMatchesHint(swappedFrom, hint.from) &&
+      pointerMatchesHint(swappedTo, hint.to);
+    const swapAllowed =
+      swappedMatches &&
+      (!hint ||
+        hint.preventSwap !== true ||
+        (!fromMatches && !toMatches));
+    if (swapAllowed) {
+      strictFrom = swappedFrom;
+      strictTo = swappedTo;
+      fromMatches = true;
+      toMatches = true;
+    }
+  }
+  if (!fromMatches || !toMatches) {
+    return;
+  }
   let enforcedFrom = ensurePointerHasRequiredExtras(
     strictFrom,
     hint && hint.from,
@@ -2296,40 +2325,14 @@ function parseBookAndPage(raw) {
   return { book: null, page: null };
 }
 
-function normalizeDocumentUrl(rawUrl, fallbackBaseUrl) {
-  const candidate = nonEmptyString(rawUrl);
-  if (!candidate) return null;
-  if (/^https?:\/\//i.test(candidate)) {
-    return candidate;
-  }
-  if (candidate.startsWith("//")) {
-    return `https:${candidate}`;
-  }
-  const base = nonEmptyString(fallbackBaseUrl);
-  if (!base) return null;
-  try {
-    const resolved = new URL(candidate, base);
-    return resolved.toString();
-  } catch (err) {
-    return null;
-  }
-}
-
 function deriveDeedRequestIdentifier(
   saleRecord,
   idx,
   parcelId,
   transferDate,
-  fallbackBaseUrl,
 ) {
-  const normalizedLink = normalizeDocumentUrl(
-    saleRecord && saleRecord.link,
-    fallbackBaseUrl,
-  );
   const candidates = [
     nonEmptyString(saleRecord && saleRecord.instrument),
-    normalizedLink,
-    nonEmptyString(saleRecord && saleRecord.link),
     transferDate && nonEmptyString(saleRecord && saleRecord.bookPage)
       ? `${transferDate}_${nonEmptyString(saleRecord.bookPage)}`
       : null,
@@ -2347,26 +2350,34 @@ function buildFileArtifactsForSale(
   saleRecord,
   idx,
   context,
-  fallbackBaseUrl,
 ) {
   const { parcelId } = context || {};
-  const normalizedUrl = normalizeDocumentUrl(
-    saleRecord && saleRecord.link,
-    fallbackBaseUrl,
-  );
-  if (!normalizedUrl) return null;
-  const requestIdentifier =
-    normalizedUrl ||
-    nonEmptyString(saleRecord && saleRecord.instrument) ||
-    (parcelId ? `${parcelId}_file_${idx}` : null) ||
-    `deed_file_${idx}`;
+  const instrument = nonEmptyString(saleRecord && saleRecord.instrument);
+  const bookPage = nonEmptyString(saleRecord && saleRecord.bookPage);
+  const normalizedBookPage = bookPage
+    ? bookPage.replace(/[^0-9A-Za-z]+/g, "_")
+    : null;
+  const identifierCandidates = [
+    instrument && normalizedBookPage
+      ? `${instrument}_${normalizedBookPage}`
+      : null,
+    normalizedBookPage ? `book_page_${normalizedBookPage}` : null,
+    instrument ? `${instrument}_${idx}` : null,
+    parcelId ? `${parcelId}_file_${idx}` : null,
+    `deed_file_${idx}`,
+  ];
+  let requestIdentifier = null;
+  for (const value of identifierCandidates) {
+    const normalized = nonEmptyString(value);
+    if (normalized) {
+      requestIdentifier = normalized;
+      break;
+    }
+  }
+  if (!requestIdentifier) return null;
   const fileNode = {
     request_identifier: requestIdentifier,
   };
-  attachSourceHttpRequest(fileNode, {
-    method: "GET",
-    url: normalizedUrl,
-  });
   const filename = `file_${idx}.json`;
   const filePointer = buildPointerForWrite(
     filename,
@@ -2883,11 +2894,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
   const processedSales = [];
   let saleCounter = 0;
-  const fallbackDocumentBaseUrl =
-    (defaultSourceHttpRequest && defaultSourceHttpRequest.url) ||
-    (DEFAULT_SOURCE_HTTP_REQUEST && DEFAULT_SOURCE_HTTP_REQUEST.url) ||
-    null;
-
   // Build deed/file artifacts for sales so downstream validators receive fully-specified relationships.
   sales.forEach((saleRecord) => {
     const transferDate = normalizeSaleDate(saleRecord.saleDate);
@@ -2919,7 +2925,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       idx,
       parcelId,
       transferDate,
-      fallbackDocumentBaseUrl,
     );
     if (deedRequestIdentifier) {
       deedCandidate.request_identifier = deedRequestIdentifier;
@@ -2953,7 +2958,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       saleRecord,
       idx,
       context,
-      fallbackDocumentBaseUrl,
     );
     if (fileArtifacts) {
       writeJSON(path.join("data", fileArtifacts.filename), fileArtifacts.fileNode);
@@ -3327,7 +3331,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     unnorm && typeof unnorm.normalized_address === "object"
       ? unnorm.normalized_address
       : null;
-  const fallbackUnnormalized =
+  const unnormalizedValue =
     nonEmptyString(unnorm && unnorm.full_address) ||
     nonEmptyString(unnorm && unnorm.address) ||
     nonEmptyString(unnorm && unnorm.address_text) ||
@@ -3361,8 +3365,11 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   if (secTwpRng && secTwpRng.township) address.township = secTwpRng.township;
   if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
 
-  let usedNormalizedAddress = false;
-  if (hasCompleteNormalizedAddress) {
+  const shouldPreferUnnormalized = Boolean(unnormalizedValue);
+
+  if (shouldPreferUnnormalized) {
+    address.unnormalized_address = unnormalizedValue;
+  } else if (hasCompleteNormalizedAddress) {
     const [
       streetNumber,
       streetName,
@@ -3399,16 +3406,14 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
       normalizedSource && normalizedSource.plus_four_postal_code,
     );
     if (plusFour) address.plus_four_postal_code = plusFour;
-    usedNormalizedAddress = true;
-  } else if (fallbackUnnormalized) {
-    address.unnormalized_address = fallbackUnnormalized;
+  } else if (unnormalizedValue) {
+    address.unnormalized_address = unnormalizedValue;
   }
 
-  if (usedNormalizedAddress) {
+  if (address.unnormalized_address) {
+    address.country_code = normalizedCountry || address.country_code || "US";
+  } else if (hasCompleteNormalizedAddress) {
     address.country_code = normalizedCountry || "US";
-  } else if (fallbackUnnormalized) {
-    address.country_code =
-      normalizedCountry || address.country_code || "US";
   } else if (normalizedCountry && !address.country_code) {
     address.country_code = normalizedCountry;
   } else if (!address.country_code) {
