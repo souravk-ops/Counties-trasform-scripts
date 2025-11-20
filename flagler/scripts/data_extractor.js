@@ -225,13 +225,6 @@ function preparePointerForRelationship(type, pointerInput, sideKey) {
   return finalizePointerForWrite(enrichedCandidate, sideHint);
 }
 
-function writeDirectRelationshipFile(type, suffix, fromPointer, toPointer) {
-  const preparedFrom = preparePointerForRelationship(type, fromPointer, "from");
-  const preparedTo = preparePointerForRelationship(type, toPointer, "to");
-  if (!preparedFrom || !preparedTo) return;
-  writeRelationship(type, preparedFrom, preparedTo, suffix);
-}
-
 function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
   if (!type) return;
   const preparedFrom = preparePointerForRelationship(type, fromPointer, "from");
@@ -3645,31 +3638,6 @@ function extractPointerForDirectRelationship(pointer, hintSide = {}) {
   return sanitized;
 }
 
-function writeDirectRelationshipPayload(
-  type,
-  index,
-  fromPointer,
-  toPointer,
-) {
-  if (!type || !fromPointer || !toPointer) return;
-  const hint = RELATIONSHIP_HINTS[type] || {};
-  const sanitizedFrom = extractPointerForDirectRelationship(
-    fromPointer,
-    hint.from || {},
-  );
-  const sanitizedTo = extractPointerForDirectRelationship(
-    toPointer,
-    hint.to || {},
-  );
-  if (!sanitizedFrom || !sanitizedTo) {
-    return;
-  }
-  const targetPath = resolveRelationshipFilePath(type, index);
-  writeJSON(targetPath, {
-    from: sanitizedFrom,
-    to: sanitizedTo,
-  });
-}
 function writeSalesRelationshipPayloads(
   processedSales,
   propertyRelationshipRef,
@@ -3701,7 +3669,7 @@ function writeSalesRelationshipPayloads(
       return;
     }
 
-    writeDirectRelationshipPayload(
+    writeOrientedRelationshipRecord(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
@@ -3715,7 +3683,7 @@ function writeSalesRelationshipPayloads(
         ["request_identifier"],
       );
       if (filePointer) {
-        writeDirectRelationshipPayload(
+        writeOrientedRelationshipRecord(
           "deed_has_file",
           rec.idx,
           deedPointer,
@@ -3725,7 +3693,7 @@ function writeSalesRelationshipPayloads(
     }
 
     if (propertyPointer) {
-      writeDirectRelationshipPayload(
+      writeOrientedRelationshipRecord(
         "property_has_sales_history",
         rec.idx,
         propertyPointer,
