@@ -1374,7 +1374,10 @@ const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
   "file_has_fact_sheet",
   "layout_has_fact_sheet",
 ]);
-const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set();
+const RELATIONSHIPS_ALLOWING_FORCED_SWAP = new Set([
+  "deed_has_file",
+  "sales_history_has_deed",
+]);
 
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
@@ -1649,22 +1652,13 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   const canSwap = RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType);
   let effectiveFromRaw = fromPointerRaw;
   let effectiveToRaw = toPointerRaw;
-  if (
-    canSwap &&
-    shouldSwapPointers(hint, fromPointerRaw, toPointerRaw)
-  ) {
+  if (canSwap && shouldSwapPointers(hint, fromPointerRaw, toPointerRaw)) {
     effectiveFromRaw = toPointerRaw;
     effectiveToRaw = fromPointerRaw;
   }
 
-  const finalFrom = enforcePointerSchema(
-    effectiveFromRaw,
-    hint && hint.from,
-  );
-  const finalTo = enforcePointerSchema(
-    effectiveToRaw,
-    hint && hint.to,
-  );
+  const finalFrom = enforcePointerSchema(effectiveFromRaw, hint && hint.from);
+  const finalTo = enforcePointerSchema(effectiveToRaw, hint && hint.to);
   if (!finalFrom || !finalTo) return;
 
   stripForbiddenPointerKeys(finalFrom);
@@ -1675,7 +1669,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   if (hint && hint.to && Array.isArray(hint.to.disallowExtras)) {
     stripDisallowedExtras(finalTo, hint.to.disallowExtras);
   }
-  if (!pointerHasBase(finalFrom) || !pointerHasBase(finalTo)) {
+
+  const normalizedFrom =
+    sanitizePointerForHint(finalFrom, hint && hint.from) || finalFrom;
+  const normalizedTo =
+    sanitizePointerForHint(finalTo, hint && hint.to) || finalTo;
+  if (!pointerHasBase(normalizedFrom) || !pointerHasBase(normalizedTo)) {
     return;
   }
 
@@ -1684,8 +1683,8 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
 
   const filename = `relationship_${relationshipType}${suffixPortion}.json`;
   writeJSON(path.join("data", filename), {
-    from: finalFrom,
-    to: finalTo,
+    from: normalizedFrom,
+    to: normalizedTo,
   });
 }
 
