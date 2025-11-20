@@ -594,6 +594,171 @@ function sanitizePointerExtraValue(key, raw) {
   return trimmed || null;
 }
 
+function resolvePointerBasePath(pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  if (typeof pointer.cid === "string" && pointer.cid.trim()) {
+    const trimmed = pointer.cid.trim();
+    return trimmed.startsWith("cid:") ? trimmed : `cid:${trimmed}`;
+  }
+  if (typeof pointer.uri === "string" && pointer.uri.trim()) {
+    return pointer.uri.trim();
+  }
+  const candidates = [
+    pointer["/"],
+    pointer.path,
+    pointer.filename,
+    pointer.file,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const normalized = normalizePointerPath(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function readPointerExtraFromNode(relativePath, key) {
+  if (!relativePath || !key) return null;
+  const sanitized = relativePath.replace(/^[./\\]+/, "");
+  const dataPath = path.join("data", sanitized);
+  let payload;
+  try {
+    payload = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+  } catch (err) {
+    return null;
+  }
+  if (!payload || typeof payload !== "object") return null;
+  if (!Object.prototype.hasOwnProperty.call(payload, key)) return null;
+  return sanitizePointerExtraValue(key, payload[key]);
+}
+
+function sanitizePointerAgainstStrictSchema(pointer, schemaSide = {}) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const normalizedBase = resolvePointerBasePath(pointer);
+  if (!normalizedBase) return null;
+  const isFilePath = !/^([a-z]+:)/i.test(normalizedBase);
+  const relativePath = isFilePath
+    ? normalizedBase.replace(/^[./\\]+/, "")
+    : null;
+  const pathPrefixes = Array.isArray(schemaSide.pathPrefixes)
+    ? schemaSide.pathPrefixes
+    : [];
+  if (
+    pathPrefixes.length > 0 &&
+    (!relativePath ||
+      !pathPrefixes.some((prefix) => relativePath.startsWith(prefix)))
+  ) {
+    return null;
+  }
+
+  const allowedExtras = Array.isArray(schemaSide.allowedExtras)
+    ? schemaSide.allowedExtras.map((key) => String(key))
+    : [];
+  const requiredExtras = Array.isArray(schemaSide.requiredExtras)
+    ? schemaSide.requiredExtras.map((key) => String(key))
+    : [];
+
+  const sanitized = {};
+  if (normalizedBase.startsWith("cid:")) {
+    sanitized.cid = normalizedBase.startsWith("cid:")
+      ? normalizedBase
+      : `cid:${normalizedBase}`;
+  } else if (/^[a-z]+:/i.test(normalizedBase) && !normalizedBase.startsWith("./")) {
+    sanitized.uri = normalizedBase;
+  } else {
+    sanitized["/"] = normalizedBase;
+  }
+
+  allowedExtras.forEach((key) => {
+    const normalizedValue = sanitizePointerExtraValue(
+      key,
+      pointer && pointer[key],
+    );
+    if (normalizedValue != null) {
+      sanitized[key] = normalizedValue;
+    }
+  });
+
+  for (const key of requiredExtras) {
+    if (
+      Object.prototype.hasOwnProperty.call(sanitized, key) &&
+      sanitized[key] != null &&
+      String(sanitized[key]).trim() !== ""
+    ) {
+      continue;
+    }
+    const resolved =
+      relativePath != null
+        ? readPointerExtraFromNode(relativePath, key)
+        : null;
+    if (resolved != null) {
+      sanitized[key] = resolved;
+    }
+  }
+
+  const missingRequired = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(sanitized, key) ||
+      sanitized[key] == null ||
+      String(sanitized[key]).trim() === "",
+  );
+  if (missingRequired) {
+    return null;
+  }
+  return sanitized;
+}
+
+function enforceRelationshipSchemaRules(types) {
+  if (!Array.isArray(types) || types.length === 0) return;
+  types.forEach((type) => {
+    const schema = STRICT_RELATIONSHIP_SCHEMAS[type];
+    if (!schema) return;
+    const dirPath = path.join("relationships", type);
+    let entries;
+    try {
+      entries = fs
+        .readdirSync(dirPath)
+        .filter((filename) => /\.json$/i.test(filename));
+    } catch (err) {
+      if (err && err.code === "ENOENT") {
+        return;
+      }
+      throw err;
+    }
+    entries.forEach((filename) => {
+      const fullPath = path.join(dirPath, filename);
+      let payload;
+      try {
+        payload = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+      } catch (err) {
+        return;
+      }
+      const sanitizedFrom = sanitizePointerAgainstStrictSchema(
+        payload && payload.from,
+        schema.from || {},
+      );
+      const sanitizedTo = sanitizePointerAgainstStrictSchema(
+        payload && payload.to,
+        schema.to || {},
+      );
+      if (!sanitizedFrom || !sanitizedTo) {
+        try {
+          fs.unlinkSync(fullPath);
+        } catch (unlinkErr) {
+          if (!unlinkErr || unlinkErr.code !== "ENOENT") {
+            throw unlinkErr;
+          }
+        }
+        return;
+      }
+      const nextPayload = { from: sanitizedFrom, to: sanitizedTo };
+      if (JSON.stringify(payload) !== JSON.stringify(nextPayload)) {
+        writeJSON(fullPath, nextPayload);
+      }
+    });
+  });
+}
+
 function enforcePointerSchema(pointer, hintSide) {
   if (!pointer || typeof pointer !== "object") return null;
 
@@ -1541,6 +1706,33 @@ const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
   "file_has_fact_sheet",
   "layout_has_fact_sheet",
 ]);
+
+const STRICT_RELATIONSHIP_SCHEMAS = {
+  deed_has_file: {
+    from: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: ["request_identifier"],
+      requiredExtras: [],
+    },
+  },
+  sales_history_has_deed: {
+    from: {
+      pathPrefixes: ["sales_history_"],
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+    to: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  },
+};
 
 function readJsonFromData(relativePath) {
   if (!relativePath) return null;
@@ -3254,6 +3446,10 @@ function main() {
     "layout_has_fact_sheet",
     "property_has_layout",
     "property_has_sales_history",
+  ]);
+  enforceRelationshipSchemaRules([
+    "deed_has_file",
+    "sales_history_has_deed",
   ]);
 
   // Address last
