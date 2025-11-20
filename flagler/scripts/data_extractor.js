@@ -149,16 +149,43 @@ function buildLayoutPointer(relativePath, rawSpaceTypeIndex) {
   );
 }
 
+function preparePointerForRelationship(type, pointerInput, sideKey) {
+  if (!type || !pointerInput) return null;
+  let candidate = null;
+  if (
+    typeof pointerInput === "object" &&
+    POINTER_BASE_KEYS.some(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(pointerInput, key) &&
+        typeof pointerInput[key] === "string" &&
+        pointerInput[key].trim(),
+    )
+  ) {
+    candidate = { ...pointerInput };
+  } else {
+    candidate = pointerFromRef(pointerInput);
+  }
+  if (!candidate) return null;
+  const hint = RELATIONSHIP_HINTS[type];
+  const sideHint = hint ? hint[sideKey] : null;
+  return finalizePointerForWrite(candidate, sideHint);
+}
+
 function writeDirectRelationshipFile(type, suffix, fromPointer, toPointer) {
-  if (!fromPointer || !toPointer) return;
-  writeRelationship(type, fromPointer, toPointer, suffix);
+  const preparedFrom = preparePointerForRelationship(type, fromPointer, "from");
+  const preparedTo = preparePointerForRelationship(type, toPointer, "to");
+  if (!preparedFrom || !preparedTo) return;
+  writeRelationship(type, preparedFrom, preparedTo, suffix);
 }
 
 function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
-  if (!type || !fromPointer || !toPointer) return;
+  if (!type) return;
+  const preparedFrom = preparePointerForRelationship(type, fromPointer, "from");
+  const preparedTo = preparePointerForRelationship(type, toPointer, "to");
+  if (!preparedFrom || !preparedTo) return;
   const suffix =
     index === undefined || index === null || index === "" ? undefined : index;
-  writeRelationship(type, fromPointer, toPointer, suffix);
+  writeRelationship(type, preparedFrom, preparedTo, suffix);
 }
 
 function attachSourceHttpRequest(target, request) {
@@ -1659,7 +1686,10 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
 
 function writeRelationshipFromFilenames(type, fromFilename, toFilename, suffix) {
   if (!fromFilename || !toFilename) return;
-  writeRelationship(type, fromFilename, toFilename, suffix);
+  const preparedFrom = preparePointerForRelationship(type, fromFilename, "from");
+  const preparedTo = preparePointerForRelationship(type, toFilename, "to");
+  if (!preparedFrom || !preparedTo) return;
+  writeRelationship(type, preparedFrom, preparedTo, suffix);
 }
 
 function normalizeSaleDate(value) {
