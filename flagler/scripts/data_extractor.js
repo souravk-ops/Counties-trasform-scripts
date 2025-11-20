@@ -3176,7 +3176,7 @@ function writeSalesRelationshipPayloads(
     };
   const propertyPointer =
     propertyPointerTemplate && propertySalesSchema.from
-      ? sanitizePointerAgainstStrictSchema(
+      ? canonicalizeRelationshipPointer(
           propertyPointerTemplate,
           propertySalesSchema.from,
         )
@@ -3190,31 +3190,31 @@ function writeSalesRelationshipPayloads(
     );
     const deedPointerBase = buildPointerForWrite(rec.deedFilename);
 
-    const salePointer =
+    const salePointerForDeed =
       salePointerBase &&
-      sanitizePointerAgainstStrictSchema(
+      canonicalizeRelationshipPointer(
         salePointerBase,
         salesDeedSchema.from || {},
       );
     const deedPointer =
       deedPointerBase &&
-      sanitizePointerAgainstStrictSchema(
+      canonicalizeRelationshipPointer(
         deedPointerBase,
         salesDeedSchema.to || {},
       );
 
-    if (salePointer && deedPointer) {
-      writeRelationshipPayloadDirect(
+    if (salePointerForDeed && deedPointer) {
+      writeCanonicalRelationshipRecord(
         "sales_history_has_deed",
         rec.idx,
-        salePointer,
+        salePointerForDeed,
         deedPointer,
       );
     }
 
     const deedPointerForFile =
       deedPointerBase &&
-      sanitizePointerAgainstStrictSchema(
+      canonicalizeRelationshipPointer(
         deedPointerBase,
         deedFileSchema.from || {},
       );
@@ -3229,14 +3229,14 @@ function writeSalesRelationshipPayloads(
       );
       filePointer =
         filePointerBase &&
-        sanitizePointerAgainstStrictSchema(
+        canonicalizeRelationshipPointer(
           filePointerBase,
           deedFileSchema.to || {},
         );
     }
 
     if (deedPointerForFile && filePointer) {
-      writeRelationshipPayloadDirect(
+      writeCanonicalRelationshipRecord(
         "deed_has_file",
         rec.idx,
         deedPointerForFile,
@@ -3247,12 +3247,12 @@ function writeSalesRelationshipPayloads(
     if (propertyPointer) {
       const salePointerForProperty =
         salePointerBase &&
-        sanitizePointerAgainstStrictSchema(
+        canonicalizeRelationshipPointer(
           salePointerBase,
           propertySalesSchema.to || {},
         );
       if (salePointerForProperty) {
-        writeRelationshipPayloadDirect(
+        writeCanonicalRelationshipRecord(
           "property_has_sales_history",
           rec.idx,
           propertyPointer,
