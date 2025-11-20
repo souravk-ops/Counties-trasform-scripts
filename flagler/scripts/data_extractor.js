@@ -2289,13 +2289,14 @@ function sanitizeRelationshipDirectories(types) {
 
       let fromMatches = pointerMatchesHint(sanitizedFrom, hint.from);
       let toMatches = pointerMatchesHint(sanitizedTo, hint.to);
+      const swappingAllowed = !hint || hint.preventSwap !== true;
 
       const looksReversed = relationshipAppearsSwapped(
         originalFrom,
         originalTo,
         hint,
       );
-      if (looksReversed && hint && hint.preventSwap === true) {
+      if (looksReversed && swappingAllowed) {
         sanitizedFrom = safeSanitizePointerForRelationship(
           originalTo,
           hint.from,
@@ -2312,7 +2313,7 @@ function sanitizeRelationshipDirectories(types) {
         (!sanitizedFrom || !sanitizedTo || !fromMatches || !toMatches) &&
         originalFrom &&
         originalTo &&
-        (!hint || hint.preventSwap !== true)
+        swappingAllowed
       ) {
         const swappedFrom = safeSanitizePointerForRelationship(
           originalTo,
@@ -2326,10 +2327,9 @@ function sanitizeRelationshipDirectories(types) {
           pointerMatchesHint(swappedFrom, hint.from) &&
           pointerMatchesHint(swappedTo, hint.to);
         const swapAllowed =
+          swappingAllowed &&
           swapMatches &&
-          (!hint ||
-            hint.preventSwap !== true ||
-            (!fromMatches && !toMatches));
+          (!fromMatches && !toMatches);
         if (swapAllowed) {
           sanitizedFrom = swappedFrom;
           sanitizedTo = swappedTo;
@@ -2611,6 +2611,9 @@ function buildPointerFromCandidateForRepair(candidate, hintSide = {}) {
 function repairRelationshipDirectory(type, hint = {}) {
   if (typeof type !== "string" || !type.trim()) return;
   const relationshipType = type.trim();
+  const preventSwap = hint && hint.preventSwap === true;
+  const fromHint = (hint && hint.from) || {};
+  const toHint = (hint && hint.to) || {};
   const dirPath = path.join("relationships", relationshipType);
   let entries;
   try {
@@ -2634,16 +2637,16 @@ function repairRelationshipDirectory(type, hint = {}) {
 
     let fromCandidate = payload.from;
     let toCandidate = payload.to;
-    const fromMatches = pointerMatchesHint(fromCandidate, hint.from || {});
-    const toMatches = pointerMatchesHint(toCandidate, hint.to || {});
-    if (!fromMatches || !toMatches) {
+    const fromMatches = pointerMatchesHint(fromCandidate, fromHint);
+    const toMatches = pointerMatchesHint(toCandidate, toHint);
+    if (!preventSwap && (!fromMatches || !toMatches)) {
       const swappedFromMatches = pointerMatchesHint(
         payload.to,
-        hint.from || {},
+        fromHint,
       );
       const swappedToMatches = pointerMatchesHint(
         payload.from,
-        hint.to || {},
+        toHint,
       );
       if (swappedFromMatches && swappedToMatches) {
         fromCandidate = payload.to;
@@ -2653,11 +2656,11 @@ function repairRelationshipDirectory(type, hint = {}) {
 
     const normalizedFrom = buildPointerFromCandidateForRepair(
       fromCandidate,
-      hint.from || {},
+      fromHint,
     );
     const normalizedTo = buildPointerFromCandidateForRepair(
       toCandidate,
-      hint.to || {},
+      toHint,
     );
 
     if (!normalizedFrom || !normalizedTo) {
@@ -2798,6 +2801,7 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   }
 
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
+  const swappingAllowed = hint.preventSwap !== true;
   const preparedFrom = scrubPointerRefLike(fromRefLike);
   const preparedTo = scrubPointerRefLike(toRefLike);
   let strictFrom = buildNormalizedRelationshipPointer(
@@ -2810,7 +2814,12 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   );
   let fromMatches = pointerMatchesHint(strictFrom, hint.from);
   let toMatches = pointerMatchesHint(strictTo, hint.to);
-  if ((!fromMatches || !toMatches) && preparedFrom && preparedTo) {
+  if (
+    swappingAllowed &&
+    (!fromMatches || !toMatches) &&
+    preparedFrom &&
+    preparedTo
+  ) {
     const swappedFrom = buildNormalizedRelationshipPointer(
       preparedTo,
       hint && hint.from,
@@ -2823,10 +2832,7 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
       pointerMatchesHint(swappedFrom, hint.from) &&
       pointerMatchesHint(swappedTo, hint.to);
     const swapAllowed =
-      swappedMatches &&
-      (!hint ||
-        hint.preventSwap !== true ||
-        (!fromMatches && !toMatches));
+      swappingAllowed && swappedMatches && (!fromMatches && !toMatches);
     if (swapAllowed) {
       strictFrom = swappedFrom;
       strictTo = swappedTo;
@@ -3552,6 +3558,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
 
 function relationshipPointersNeedSwap(type, fromPointer, toPointer) {
   const hint = RELATIONSHIP_HINTS[type];
+  if (hint && hint.preventSwap === true) {
+    return false;
+  }
   if (
     !hint ||
     !hint.from ||
@@ -4232,6 +4241,7 @@ function main() {
   ]);
   normalizeManagedRelationshipPayloads();
   repairRelationshipDirectory("deed_has_file", {
+    preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
       allowedExtras: [],
@@ -4244,6 +4254,7 @@ function main() {
     },
   });
   repairRelationshipDirectory("sales_history_has_deed", {
+    preventSwap: true,
     from: {
       pathPrefixes: ["sales_history_"],
       allowedExtras: ["ownership_transfer_date", "request_identifier"],
