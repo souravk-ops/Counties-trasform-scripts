@@ -283,7 +283,26 @@ function preparePointerForRelationshipOutput(
     ? buildStrictPointerForSchema(pointer, schemaSide)
     : pointer;
   if (!strictPointer) return null;
-  return finalizeRelationshipPointerPayload(strictPointer, hintSide || {});
+  const finalized = finalizeRelationshipPointerPayload(
+    strictPointer,
+    hintSide || {},
+  );
+  if (!finalized) return null;
+  const ensured = ensurePointerHasRequiredExtras(
+    { ...finalized },
+    hintSide || {},
+  );
+  if (
+    !ensured ||
+    (hintSide &&
+      Array.isArray(hintSide.requiredExtras) &&
+      !hasRequiredExtras(ensured, hintSide.requiredExtras))
+  ) {
+    return null;
+  }
+  pruneToAllowedPointerKeys(ensured, hintSide || {});
+  stripForbiddenPointerKeys(ensured);
+  return ensured;
 }
 
 function writeRelationshipPayloadFile(
@@ -877,6 +896,9 @@ function finalizeRelationshipPointerPayload(pointer, hintSide = {}) {
       sanitized[key] = normalizedValue;
     }
   });
+
+  stripForbiddenPointerKeys(sanitized);
+  pruneToAllowedPointerKeys(sanitized, hintSide || {});
 
   const missingRequired = requiredExtras.some(
     (key) =>
@@ -3254,11 +3276,13 @@ function writeSalesRelationshipPayloads(
       : null;
 
   processedSales.forEach((rec) => {
-    const salePointerBase = buildPointerForWrite(
-      rec.saleFilename,
-      rec.saleNode,
-      ["ownership_transfer_date", "request_identifier"],
-    );
+    const salePointerBase =
+      buildSalesHistoryPointer(rec.saleFilename, rec.saleNode) ||
+      buildPointerForWrite(
+        rec.saleFilename,
+        rec.saleNode,
+        ["ownership_transfer_date", "request_identifier"],
+      );
     const deedPointerBase = buildPointerForWrite(rec.deedFilename);
 
     const salePointerForDeed =
