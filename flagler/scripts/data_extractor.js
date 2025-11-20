@@ -1500,6 +1500,21 @@ function hasRequiredExtras(pointer, extras) {
   });
 }
 
+function pointerMatchesHint(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return false;
+  if (
+    !hintSide ||
+    !Array.isArray(hintSide.pathPrefixes) ||
+    hintSide.pathPrefixes.length === 0
+  ) {
+    return true;
+  }
+  const pointerPath = pointerPathFromPointer(pointer);
+  if (!pointerPath) return false;
+  const normalizedPath = pointerPath.replace(/^[./\\]+/, "");
+  return matchesPathPrefix(normalizedPath, hintSide.pathPrefixes);
+}
+
 
 function sanitizeRelationshipPointer(refLike, hintSide) {
   if (refLike == null) return null;
@@ -1556,22 +1571,77 @@ function sanitizeRelationshipDirectories(types) {
       } catch (err) {
         return;
       }
-      const sanitizedFrom = safeSanitizePointerForRelationship(
-        payload && payload.from,
-        hint.from,
-      );
-      const sanitizedTo = safeSanitizePointerForRelationship(
-        payload && payload.to,
-        hint.to,
-      );
-      if (!sanitizedFrom || !sanitizedTo) return;
       const originalFrom = payload ? payload.from : null;
       const originalTo = payload ? payload.to : null;
+      let sanitizedFrom = safeSanitizePointerForRelationship(
+        originalFrom,
+        hint.from,
+      );
+      let sanitizedTo = safeSanitizePointerForRelationship(
+        originalTo,
+        hint.to,
+      );
+
+      let fromMatches = pointerMatchesHint(sanitizedFrom, hint.from);
+      let toMatches = pointerMatchesHint(sanitizedTo, hint.to);
+
+      if (
+        (!sanitizedFrom || !sanitizedTo || !fromMatches || !toMatches) &&
+        originalFrom &&
+        originalTo
+      ) {
+        const swappedFrom = safeSanitizePointerForRelationship(
+          originalTo,
+          hint.from,
+        );
+        const swappedTo = safeSanitizePointerForRelationship(
+          originalFrom,
+          hint.to,
+        );
+        const swapMatches =
+          pointerMatchesHint(swappedFrom, hint.from) &&
+          pointerMatchesHint(swappedTo, hint.to);
+        const swapAllowed =
+          swapMatches &&
+          (!hint ||
+            hint.preventSwap !== true ||
+            (!fromMatches && !toMatches));
+        if (swapAllowed) {
+          sanitizedFrom = swappedFrom;
+          sanitizedTo = swappedTo;
+          fromMatches = pointerMatchesHint(sanitizedFrom, hint.from);
+          toMatches = pointerMatchesHint(sanitizedTo, hint.to);
+        }
+      }
+
+      if (!sanitizedFrom || !sanitizedTo || !fromMatches || !toMatches) {
+        return;
+      }
+
+      stripForbiddenPointerKeys(sanitizedFrom);
+      stripForbiddenPointerKeys(sanitizedTo);
+      if (hint.from && Array.isArray(hint.from.disallowExtras)) {
+        stripDisallowedExtras(sanitizedFrom, hint.from.disallowExtras);
+      }
+      if (hint.to && Array.isArray(hint.to.disallowExtras)) {
+        stripDisallowedExtras(sanitizedTo, hint.to.disallowExtras);
+      }
+
+      const normalizedFrom = sanitizePointerForHint(
+        sanitizedFrom,
+        hint.from,
+      );
+      const normalizedTo = sanitizePointerForHint(
+        sanitizedTo,
+        hint.to,
+      );
+      if (!normalizedFrom || !normalizedTo) return;
+
       const unchanged =
-        JSON.stringify(originalFrom) === JSON.stringify(sanitizedFrom) &&
-        JSON.stringify(originalTo) === JSON.stringify(sanitizedTo);
+        JSON.stringify(originalFrom) === JSON.stringify(normalizedFrom) &&
+        JSON.stringify(originalTo) === JSON.stringify(normalizedTo);
       if (unchanged) return;
-      writeJSON(fullPath, { from: sanitizedFrom, to: sanitizedTo });
+      writeJSON(fullPath, { from: normalizedFrom, to: normalizedTo });
     });
   });
 }
