@@ -1715,17 +1715,40 @@ function parseBookAndPage(raw) {
   return { book: null, page: null };
 }
 
-function removeFilesMatchingPatterns(patterns) {
-  try {
-    const entries = fs.readdirSync("data");
-    entries.forEach((filename) => {
-      if (patterns.some((regex) => regex.test(filename))) {
-        fs.unlinkSync(path.join("data", filename));
-      }
-    });
-  } catch (err) {
-    if (err && err.code !== "ENOENT") throw err;
-  }
+function removeFilesMatchingPatterns(patterns, directories = ["data"]) {
+  if (!Array.isArray(patterns) || patterns.length === 0) return;
+  const dirs =
+    Array.isArray(directories) && directories.length > 0
+      ? directories
+      : ["data"];
+  dirs.forEach((dir) => {
+    if (!dir || typeof dir !== "string") return;
+    try {
+      const entries = fs.readdirSync(dir);
+      entries.forEach((filename) => {
+        if (patterns.some((regex) => regex.test(filename))) {
+          fs.unlinkSync(path.join(dir, filename));
+        }
+      });
+    } catch (err) {
+      if (err && err.code !== "ENOENT") throw err;
+    }
+  });
+}
+
+function removeRelationshipDirectories(types) {
+  if (!Array.isArray(types) || types.length === 0) return;
+  types.forEach((type) => {
+    if (typeof type !== "string") return;
+    const trimmed = type.trim();
+    if (!trimmed) return;
+    const targetDir = path.join("relationships", trimmed);
+    try {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    } catch (err) {
+      if (err && err.code !== "ENOENT") throw err;
+    }
+  });
 }
 
 const EXTERNALLY_MANAGED_PATTERNS = [
@@ -1737,7 +1760,15 @@ const EXTERNALLY_MANAGED_PATTERNS = [
 ];
 
 function purgeExternallyManagedArtifacts() {
-  removeFilesMatchingPatterns(EXTERNALLY_MANAGED_PATTERNS);
+  removeFilesMatchingPatterns(EXTERNALLY_MANAGED_PATTERNS, [
+    "data",
+    "relationships",
+  ]);
+  removeRelationshipDirectories([
+    "deed_has_file",
+    "file_has_fact_sheet",
+    "layout_has_fact_sheet",
+  ]);
 }
 
 function sanitizeDeedMetadata(deed) {
@@ -2151,11 +2182,26 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     ? buildPointerForWrite(propertyPointerSource)
     : null;
 
-  removeFilesMatchingPatterns([
+  const salesCleanupPatterns = [
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
     /^relationship_(file_has_fact_sheet|layout_has_fact_sheet)(?:_\d+)?\.json$/i,
     /^(sales_history|sales|deed|file|fact_sheet)_\d+\.json$/i,
     /^fact_sheet\.json$/i,
+  ];
+  removeFilesMatchingPatterns(salesCleanupPatterns, ["data", "relationships"]);
+  removeRelationshipDirectories([
+    "deed_has_file",
+    "deed_file",
+    "file_has_fact_sheet",
+    "layout_has_fact_sheet",
+    "property_has_file",
+    "property_has_sales_history",
+    "sales_history_has_deed",
+    "sales_history_has_person",
+    "sales_history_has_company",
+    "sales_deed",
+    "sales_person",
+    "sales_company",
   ]);
 
   const processedSales = [];
@@ -2444,11 +2490,20 @@ function writeUtility(parcelId, context) {
 function writeLayout(parcelId, context) {
   const { defaultSourceHttpRequest } = context || {};
   const layouts = readJSON(path.join("owners", "layout_data.json"));
-  removeFilesMatchingPatterns([
+  const layoutCleanupPatterns = [
     /^relationship_property_has_layout(?:_\d+)?\.json$/i,
     /^relationship_layout_has_fact_sheet(?:_\d+)?\.json$/i,
     /^relationship_file_has_fact_sheet(?:_\d+)?\.json$/i,
     /^fact_sheet(?:_\d+)?\.json$/i,
+  ];
+  removeFilesMatchingPatterns(layoutCleanupPatterns, [
+    "data",
+    "relationships",
+  ]);
+  removeRelationshipDirectories([
+    "property_has_layout",
+    "layout_has_fact_sheet",
+    "file_has_fact_sheet",
   ]);
   if (!layouts) return;
   const key = `property_${parcelId}`;
