@@ -790,8 +790,11 @@ function sanitizePointerAgainstStrictSchema(pointer, schemaSide = {}) {
     sanitized.cid = normalizedBase.startsWith("cid:")
       ? normalizedBase
       : `cid:${normalizedBase}`;
-  } else if (/^[a-z]+:/i.test(normalizedBase) && !normalizedBase.startsWith("./")) {
-    sanitized.uri = normalizedBase;
+  } else if (
+    /^[a-z]+:/i.test(normalizedBase) &&
+    !normalizedBase.startsWith("./")
+  ) {
+    return null;
   } else {
     sanitized["/"] = normalizedBase;
   }
@@ -3601,6 +3604,12 @@ function main() {
   enforceRelationshipSchemaRules([
     "deed_has_file",
     "sales_history_has_deed",
+    "property_has_layout",
+    "property_has_sales_history",
+  ]);
+  removeRelationshipDirectories([
+    "file_has_fact_sheet",
+    "layout_has_fact_sheet",
   ]);
 
   // Address last
