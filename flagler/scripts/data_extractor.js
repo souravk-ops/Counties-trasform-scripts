@@ -1698,27 +1698,14 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   }
 
   const hint = RELATIONSHIP_HINTS[relationshipType] || {};
-  const swapProhibited = Boolean(hint && hint.preventSwap);
   const preparedFrom = scrubPointerRefLike(fromRefLike);
   const preparedTo = scrubPointerRefLike(toRefLike);
   const fromPointerRaw = pointerFromRef(preparedFrom);
   const toPointerRaw = pointerFromRef(preparedTo);
   if (!fromPointerRaw || !toPointerRaw) return;
 
-  const allowOverrideSwap =
-    RELATIONSHIPS_WITH_DIRECTION_OVERRIDES.has(relationshipType);
-  const canSwap =
-    (allowOverrideSwap || !swapProhibited) &&
-    RELATIONSHIPS_ALLOWING_FORCED_SWAP.has(relationshipType);
-  let effectiveFromRaw = fromPointerRaw;
-  let effectiveToRaw = toPointerRaw;
-  if (canSwap && shouldSwapPointers(hint, fromPointerRaw, toPointerRaw)) {
-    effectiveFromRaw = toPointerRaw;
-    effectiveToRaw = fromPointerRaw;
-  }
-
-  const finalFrom = enforcePointerSchema(effectiveFromRaw, hint && hint.from);
-  const finalTo = enforcePointerSchema(effectiveToRaw, hint && hint.to);
+  const finalFrom = enforcePointerSchema(fromPointerRaw, hint && hint.from);
+  const finalTo = enforcePointerSchema(toPointerRaw, hint && hint.to);
   if (!finalFrom || !finalTo) return;
 
   stripForbiddenPointerKeys(finalFrom);
