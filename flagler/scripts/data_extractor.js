@@ -3598,15 +3598,20 @@ function writeOrientedRelationshipRecord(
   );
 }
 
-function writeValidatedRelationship(type, index, fromPointer, toPointer) {
+function writeDirectRelationship(type, index, fromPointer, toPointer) {
   if (!type || !fromPointer || !toPointer) return;
+  const dirPath = path.join("relationships", type);
+  ensureDir(dirPath);
+  stripForbiddenPointerKeys(fromPointer);
+  stripForbiddenPointerKeys(toPointer);
   const suffix =
     index === undefined ||
     index === null ||
     (typeof index === "string" && index.trim() === "")
-      ? undefined
+      ? nextRelationshipIndex(dirPath)
       : String(index).trim();
-  writeRelationshipPayloadFile(type, suffix, fromPointer, toPointer);
+  const targetPath = path.join(dirPath, `${suffix}.json`);
+  writeJSON(targetPath, { from: fromPointer, to: toPointer });
 }
 
 function extractPointerForDirectRelationship(pointer, hintSide = {}) {
@@ -3656,6 +3661,11 @@ function writeSalesRelationshipPayloads(
   if (!Array.isArray(processedSales) || processedSales.length === 0) {
     return;
   }
+  removeRelationshipDirectories([
+    "deed_has_file",
+    "sales_history_has_deed",
+    "property_has_sales_history",
+  ]);
   const propertyPointer = propertyRelationshipRef
     ? buildPointerPayloadFromFilename(propertyRelationshipRef)
     : null;
@@ -3680,7 +3690,7 @@ function writeSalesRelationshipPayloads(
       return;
     }
 
-    writeValidatedRelationship(
+    writeDirectRelationship(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
@@ -3694,7 +3704,7 @@ function writeSalesRelationshipPayloads(
         ["request_identifier"],
       );
       if (filePointer) {
-        writeValidatedRelationship(
+        writeDirectRelationship(
           "deed_has_file",
           rec.idx,
           deedPointer,
@@ -3704,7 +3714,7 @@ function writeSalesRelationshipPayloads(
     }
 
     if (propertyPointer) {
-      writeValidatedRelationship(
+      writeDirectRelationship(
         "property_has_sales_history",
         rec.idx,
         propertyPointer,
@@ -4030,7 +4040,7 @@ function writeLayout(parcelId, context) {
         layoutPointer &&
         Object.prototype.hasOwnProperty.call(layoutPointer, "space_type_index")
       ) {
-        writeValidatedRelationship(
+        writeDirectRelationship(
           "property_has_layout",
           layoutCounter,
           propertyPointer,
@@ -4209,48 +4219,6 @@ function main() {
     writeUtility(parcelId, context);
     writeLayout(parcelId, context);
   }
-
-  sanitizeRelationshipDirectories([
-    "deed_has_file",
-    "sales_history_has_deed",
-    "file_has_fact_sheet",
-    "layout_has_fact_sheet",
-    "property_has_layout",
-    "property_has_sales_history",
-  ]);
-  enforceRelationshipSchemaRules([
-    "deed_has_file",
-    "sales_history_has_deed",
-    "property_has_layout",
-    "property_has_sales_history",
-  ]);
-  normalizeManagedRelationshipPayloads();
-  repairRelationshipDirectory("deed_has_file", {
-    preventSwap: true,
-    from: {
-      pathPrefixes: ["deed_"],
-      allowedExtras: [],
-      requiredExtras: [],
-    },
-    to: {
-      pathPrefixes: ["file_"],
-      allowedExtras: ["request_identifier"],
-      requiredExtras: [],
-    },
-  });
-  repairRelationshipDirectory("sales_history_has_deed", {
-    preventSwap: true,
-    from: {
-      pathPrefixes: ["sales_history_"],
-      allowedExtras: ["ownership_transfer_date", "request_identifier"],
-      requiredExtras: ["ownership_transfer_date"],
-    },
-    to: {
-      pathPrefixes: ["deed_"],
-      allowedExtras: [],
-      requiredExtras: [],
-    },
-  });
 
   // Address last
   const secTwpRng = extractSecTwpRng($);
