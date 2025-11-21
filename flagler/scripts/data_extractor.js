@@ -163,16 +163,8 @@ function buildSalesHistoryPointer(relativePath, saleNode) {
   const extras = {
     ownership_transfer_date: saleNode.ownership_transfer_date,
   };
-  if (
-    saleNode.request_identifier &&
-    typeof saleNode.request_identifier === "string" &&
-    saleNode.request_identifier.trim()
-  ) {
-    extras.request_identifier = saleNode.request_identifier.trim();
-  }
   const pointer = buildPointerForWrite(relativePath, extras, [
     "ownership_transfer_date",
-    "request_identifier",
   ]);
   if (!pointer || !pointer.ownership_transfer_date) return null;
   return pointer;
@@ -228,6 +220,132 @@ function buildPointerPayloadFromFilename(
   return stripForbiddenPointerKeys(pointer);
 }
 
+const SIMPLE_RELATIONSHIP_RULES = {
+  deed_file: {},
+  deed_has_file: {},
+  property_has_file: {},
+  property_has_sales_history: {
+    to: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
+  sales_history_has_deed: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
+  sales_history_has_person: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
+  sales_history_has_company: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
+  property_has_layout: {
+    to: {
+      allowedExtras: ["space_type_index"],
+      requiredExtras: ["space_type_index"],
+    },
+  },
+  layout_has_fact_sheet: {
+    from: {
+      allowedExtras: ["space_type_index"],
+      requiredExtras: ["space_type_index"],
+    },
+  },
+};
+
+function normalizePointerInput(pointerInput) {
+  if (!pointerInput) return null;
+  if (typeof pointerInput === "string") {
+    const normalized = normalizePointerPath(pointerInput);
+    return normalized ? { "/": normalized } : null;
+  }
+  if (typeof pointerInput !== "object") return null;
+  if (
+    typeof pointerInput.cid === "string" &&
+    pointerInput.cid.trim()
+  ) {
+    return { cid: pointerInput.cid.trim() };
+  }
+  if (
+    typeof pointerInput.uri === "string" &&
+    pointerInput.uri.trim()
+  ) {
+    return { uri: pointerInput.uri.trim() };
+  }
+  if (typeof pointerInput["/"] === "string") {
+    const normalized = normalizePointerPath(pointerInput["/"]);
+    return normalized ? { "/": normalized } : null;
+  }
+  return null;
+}
+
+function sanitizePointerForSimpleRules(pointerInput, sideRules = {}) {
+  const base = normalizePointerInput(pointerInput);
+  if (!base) return null;
+  const sanitized = { ...base };
+  const allowedExtras = Array.isArray(sideRules.allowedExtras)
+    ? sideRules.allowedExtras.map((key) => String(key))
+    : [];
+  const requiredExtras = Array.isArray(sideRules.requiredExtras)
+    ? sideRules.requiredExtras.map((key) => String(key))
+    : [];
+  const extrasToCopy = new Set([...allowedExtras, ...requiredExtras].filter(Boolean));
+  extrasToCopy.forEach((key) => {
+    if (!pointerInput || typeof pointerInput !== "object") return;
+    const normalizedValue = sanitizePointerExtraValue(
+      key,
+      pointerInput[key],
+    );
+    if (normalizedValue != null) {
+      sanitized[key] = normalizedValue;
+    }
+  });
+  const missingRequired = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(sanitized, key) ||
+      sanitized[key] == null ||
+      String(sanitized[key]).trim() === "",
+  );
+  if (missingRequired) {
+    return null;
+  }
+  return sanitized;
+}
+
+function writeRelationshipRecordBasic(type, index, fromInput, toInput) {
+  if (!type) return;
+  const rules = SIMPLE_RELATIONSHIP_RULES[type] || {};
+  const fromPointer = sanitizePointerForSimpleRules(
+    fromInput,
+    rules.from || {},
+  );
+  const toPointer = sanitizePointerForSimpleRules(
+    toInput,
+    rules.to || {},
+  );
+  if (!fromPointer || !toPointer) return;
+  const dirPath = path.join("relationships", type);
+  ensureDir(dirPath);
+  const suffix =
+    index === undefined ||
+    index === null ||
+    (typeof index === "string" && index.trim() === "")
+      ? nextRelationshipIndex(dirPath)
+      : String(index).trim();
+  if (!suffix) return;
+  const targetPath = path.join(dirPath, `${suffix}.json`);
+  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+}
+
 function writePointerRelationshipSimple(
   type,
   index,
@@ -271,13 +389,6 @@ function preparePointerForRelationship(type, pointerInput, sideKey) {
   return finalizePointerForWrite(enrichedCandidate, sideHint);
 }
 
-function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
-  if (!type) return;
-  const preparedFrom = preparePointerForRelationship(type, fromPointer, "from");
-  const preparedTo = preparePointerForRelationship(type, toPointer, "to");
-  if (!preparedFrom || !preparedTo) return;
-  writeStrictRelationshipRecord(type, index, preparedFrom, preparedTo);
-}
 
 function canonicalizeRelationshipPointer(pointerInput, hintSide = {}) {
   if (!pointerInput) return null;
@@ -3590,27 +3701,6 @@ function parseBookAndPage(raw) {
   return { book: null, page: null };
 }
 
-function deriveDeedRequestIdentifier(
-  saleRecord,
-  idx,
-  parcelId,
-  transferDate,
-) {
-  const candidates = [
-    nonEmptyString(saleRecord && saleRecord.instrument),
-    transferDate && nonEmptyString(saleRecord && saleRecord.bookPage)
-      ? `${transferDate}_${nonEmptyString(saleRecord.bookPage)}`
-      : null,
-    parcelId ? `${parcelId}_deed_${idx}` : null,
-    `deed_${idx}`,
-  ];
-  for (const value of candidates) {
-    const normalized = nonEmptyString(value);
-    if (normalized) return normalized;
-  }
-  return null;
-}
-
 const INSTRUMENT_TO_DOCUMENT_TYPE = [
   { token: "QUIT", label: "Quitclaim Deed" },
   { token: "QCD", label: "Quitclaim Deed" },
@@ -3738,7 +3828,7 @@ function sanitizeDeedMetadata(deed) {
     }
     sanitized[key] = normalized;
   };
-  ["book", "instrument_number", "page", "request_identifier", "volume"].forEach(
+  ["book", "instrument_number", "page", "volume"].forEach(
     assignString,
   );
   [
@@ -3786,11 +3876,6 @@ function sanitizeSalesHistoryRecord(record) {
   if (typeof record.sale_type === "string") {
     const val = record.sale_type.trim();
     if (val) sanitized.sale_type = val;
-  }
-
-  if (typeof record.request_identifier === "string") {
-    const reqId = record.request_identifier.trim();
-    if (reqId) sanitized.request_identifier = reqId;
   }
 
   if (record.source_http_request && typeof record.source_http_request === "object") {
@@ -4114,7 +4199,6 @@ function writeProperty($, parcelId, context) {
     number_of_units: null,
     subdivision: null,
     zoning: null,
-    request_identifier: parcelId || null,
   };
   attachSourceHttpRequest(property, defaultSourceHttpRequest);
   const propertyFilename = "property.json";
@@ -4184,15 +4268,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const { book, page } = parseBookAndPage(saleRecord.bookPage);
     if (book) deedCandidate.book = book;
     if (page) deedCandidate.page = page;
-    const deedRequestIdentifier = deriveDeedRequestIdentifier(
-      saleRecord,
-      idx,
-      parcelId,
-      transferDate,
-    );
-    if (deedRequestIdentifier) {
-      deedCandidate.request_identifier = deedRequestIdentifier;
-    }
     attachSourceHttpRequest(deedCandidate, defaultSourceHttpRequest);
     const deedNode = sanitizeDeedMetadata(deedCandidate);
     const deedFilename = `deed_${idx}.json`;
@@ -4277,10 +4352,6 @@ function writeOrientedRelationshipRecord(
   );
 }
 
-function writeDirectRelationship(type, index, fromPointer, toPointer) {
-  writeSimpleRelationshipFile(type, index, fromPointer, toPointer);
-}
-
 function extractPointerForDirectRelationship(pointer, hintSide = {}) {
   if (!pointer || typeof pointer !== "object") return null;
   const sanitized = {};
@@ -4348,12 +4419,8 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
           (rec.saleNode && rec.saleNode.ownership_transfer_date) ||
           rec.transferDate ||
           null,
-        request_identifier:
-          rec.saleNode && rec.saleNode.request_identifier
-            ? rec.saleNode.request_identifier
-            : null,
       },
-      ["ownership_transfer_date", "request_identifier"],
+      ["ownership_transfer_date"],
     );
     if (
       !salePointer ||
@@ -4369,7 +4436,7 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
       return;
     }
 
-    writeSimpleRelationshipFile(
+    writeRelationshipRecordBasic(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
@@ -4377,7 +4444,7 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
     );
 
     if (basePropertyPointer && pointerHasBase(basePropertyPointer)) {
-      writeSimpleRelationshipFile(
+      writeRelationshipRecordBasic(
         "property_has_sales_history",
         rec.idx,
         clonePointerPayload(basePropertyPointer),
@@ -4409,20 +4476,20 @@ function writeDeedAndFileRelationships(processedSales, propertyFilename) {
     if (!deedPointer || !filePointer) {
       return;
     }
-    writeSimpleRelationshipFile(
+    writeRelationshipRecordBasic(
       "deed_has_file",
       rec.idx,
       deedPointer,
       filePointer,
     );
-    writeSimpleRelationshipFile(
+    writeRelationshipRecordBasic(
       "deed_file",
       rec.idx,
       deedPointer,
       filePointer,
     );
     if (propertyPointerForFiles && pointerHasBase(propertyPointerForFiles)) {
-      writeSimpleRelationshipFile(
+      writeRelationshipRecordBasic(
         "property_has_file",
         rec.idx,
         clonePointerPayload(propertyPointerForFiles),
@@ -4538,7 +4605,7 @@ function writePersonCompaniesSalesRelationships(
           const personRef = pointerFromRelativePath(`person_${pIdx}.json`);
           if (!personRef) return;
           relPersonCounter++;
-          writeSimpleRelationshipFile(
+          writeRelationshipRecordBasic(
             "sales_history_has_person",
             relPersonCounter,
             saleRef,
@@ -4554,7 +4621,7 @@ function writePersonCompaniesSalesRelationships(
           const companyRef = pointerFromRelativePath(`company_${cIdx}.json`);
           if (!companyRef) return;
           relCompanyCounter++;
-          writeSimpleRelationshipFile(
+          writeRelationshipRecordBasic(
             "sales_history_has_company",
             relCompanyCounter,
             saleRef,
@@ -4747,7 +4814,7 @@ function writeLayout(parcelId, context) {
         layoutPointer &&
         Object.prototype.hasOwnProperty.call(layoutPointer, "space_type_index")
       ) {
-        writeDirectRelationship(
+        writeRelationshipRecordBasic(
           "property_has_layout",
           layoutCounter,
           propertyPointer,
@@ -4868,10 +4935,6 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
     address.country_code = "US";
   }
 
-  const requestIdentifier = nonEmptyString(
-    unnorm && unnorm.request_identifier,
-  );
-  if (requestIdentifier) address.request_identifier = requestIdentifier;
   const sourceRequest =
     (unnorm && unnorm.source_http_request) || defaultSourceHttpRequest;
   attachSourceHttpRequest(address, sourceRequest);
