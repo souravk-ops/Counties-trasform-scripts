@@ -2332,9 +2332,9 @@ function sanitizeRelationshipPointerByRule(type, side, pointer) {
     null;
   const allowedKeys = new Set(["/", "cid", "uri"]);
   const extras =
-    rules && Array.isArray(rules.allowedExtras) && rules.allowedExtras.length
+    rules && Array.isArray(rules.allowedExtras)
       ? rules.allowedExtras.map((key) => String(key))
-      : ALLOWED_POINTER_EXTRAS;
+      : ALLOWED_POINTER_EXTRAS.map((key) => String(key));
   extras.forEach((key) => {
     if (!FORBIDDEN_POINTER_KEYS.includes(String(key))) {
       allowedKeys.add(String(key));
@@ -2458,7 +2458,10 @@ function getRefPath(refLike, pointerRaw) {
 function matchesPathPrefix(pathValue, prefixes) {
   if (!Array.isArray(prefixes) || prefixes.length === 0) return false;
   if (!pathValue) return false;
-  return prefixes.some((prefix) => pathValue.startsWith(prefix));
+  const normalized = String(pathValue).toLowerCase();
+  return prefixes.some((prefix) =>
+    normalized.startsWith(String(prefix).toLowerCase()),
+  );
 }
 
 function fetchValueFromRefLike(refLike, key) {
@@ -3396,17 +3399,6 @@ function mapInstrumentToDocumentType(value) {
   return null;
 }
 
-function guessFileFormatFromUrl(value) {
-  const normalized = nonEmptyString(value);
-  if (!normalized) return null;
-  const lower = normalized.split("?")[0].toLowerCase();
-  if (lower.endsWith(".pdf")) return "application/pdf";
-  if (lower.endsWith(".tif") || lower.endsWith(".tiff")) return "image/tiff";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".png")) return "image/png";
-  return null;
-}
-
 function deriveFileDisplayName(idx, saleRecord, transferDate) {
   const parts = [
     nonEmptyString(saleRecord && saleRecord.bookPage),
@@ -3420,22 +3412,14 @@ function deriveFileDisplayName(idx, saleRecord, transferDate) {
 
 function buildFilePayloadForSale(saleRecord, idx, transferDate) {
   const name = deriveFileDisplayName(idx, saleRecord, transferDate);
-  const originalUrl = nonEmptyString(saleRecord && saleRecord.link);
   const documentType = mapInstrumentToDocumentType(
     saleRecord && saleRecord.instrument,
   );
-  const fileFormat = guessFileFormatFromUrl(originalUrl);
   const payload = {
     name,
   };
-  if (originalUrl) {
-    payload.original_url = originalUrl;
-  }
   if (documentType) {
     payload.document_type = documentType;
-  }
-  if (fileFormat) {
-    payload.file_format = fileFormat;
   }
   return payload;
 }
