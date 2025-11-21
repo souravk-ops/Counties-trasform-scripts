@@ -2918,9 +2918,12 @@ function normalizeRelationshipDirectory(type) {
 
 function normalizeManagedRelationshipPayloads() {
   const managedTypes = [
-    "sales_history_has_deed",
+    "deed_file",
+    "deed_has_file",
+    "property_has_file",
     "property_has_layout",
     "property_has_sales_history",
+    "sales_history_has_deed",
   ];
   managedTypes.forEach((type) => normalizeRelationshipDirectory(type));
   removeRelationshipDirectories(["file_has_fact_sheet", "layout_has_fact_sheet"]);
@@ -4687,6 +4690,7 @@ function main() {
   // Address last
   const secTwpRng = extractSecTwpRng($);
   attemptWriteAddress(unnormalized, secTwpRng, context);
+  normalizeManagedRelationshipPayloads();
   sanitizeRelationshipDirectories([
     "deed_file",
     "deed_has_file",
