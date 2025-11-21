@@ -358,10 +358,23 @@ function writeRelationshipPayloadFile(
     schema.to,
   );
   if (!preparedFrom || !preparedTo) return;
+  const sanitizedFrom = sanitizeRelationshipPointerByRule(
+    type,
+    "from",
+    preparedFrom,
+  );
+  const sanitizedTo = sanitizeRelationshipPointerByRule(
+    type,
+    "to",
+    preparedTo,
+  );
+  if (!sanitizedFrom || !sanitizedTo) {
+    return;
+  }
   const targetPath = resolveRelationshipFilePath(type, suffix);
   writeJSON(targetPath, {
-    from: preparedFrom,
-    to: preparedTo,
+    from: sanitizedFrom,
+    to: sanitizedTo,
   });
 }
 
@@ -2079,6 +2092,116 @@ const STRICT_RELATIONSHIP_SCHEMAS = {
     },
   },
 };
+
+const RELATIONSHIP_POINTER_RULES = {
+  deed_has_file: {
+    from: { allowedExtras: [] },
+    to: { allowedExtras: ["request_identifier"] },
+  },
+  file_has_fact_sheet: {
+    from: { allowedExtras: ["request_identifier"] },
+    to: { allowedExtras: [] },
+  },
+  layout_has_fact_sheet: {
+    from: {
+      allowedExtras: ["space_type_index"],
+      requiredExtras: ["space_type_index"],
+    },
+    to: { allowedExtras: [] },
+  },
+  property_has_layout: {
+    from: { allowedExtras: [] },
+    to: {
+      allowedExtras: ["space_type_index"],
+      requiredExtras: ["space_type_index"],
+    },
+  },
+  property_has_sales_history: {
+    from: { allowedExtras: [] },
+    to: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+  },
+  sales_history_has_deed: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+    to: { allowedExtras: [] },
+  },
+  sales_history_has_company: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+    to: { allowedExtras: [] },
+  },
+  sales_history_has_person: {
+    from: {
+      allowedExtras: ["ownership_transfer_date", "request_identifier"],
+      requiredExtras: ["ownership_transfer_date"],
+    },
+    to: { allowedExtras: [] },
+  },
+};
+
+function sanitizeRelationshipPointerByRule(type, side, pointer) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const rules =
+    (RELATIONSHIP_POINTER_RULES[type] &&
+      RELATIONSHIP_POINTER_RULES[type][side]) ||
+    null;
+  const allowedKeys = new Set(["/", "cid", "uri"]);
+  const extras =
+    rules && Array.isArray(rules.allowedExtras) && rules.allowedExtras.length
+      ? rules.allowedExtras.map((key) => String(key))
+      : ALLOWED_POINTER_EXTRAS;
+  extras.forEach((key) => {
+    if (!FORBIDDEN_POINTER_KEYS.includes(String(key))) {
+      allowedKeys.add(String(key));
+    }
+  });
+
+  const sanitized = {};
+  allowedKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) {
+      return;
+    }
+    if (key === "/") {
+      const normalized = normalizePointerPath(pointer["/"]);
+      if (normalized) sanitized["/"] = normalized;
+      return;
+    }
+    if (key === "cid" || key === "uri") {
+      const trimmed = String(pointer[key]).trim();
+      if (trimmed) sanitized[key] = trimmed;
+      return;
+    }
+    const value = sanitizePointerExtraValue(key, pointer[key]);
+    if (value != null) {
+      sanitized[key] = value;
+    }
+  });
+
+  if (!pointerHasBase(sanitized)) {
+    return null;
+  }
+
+  if (rules && Array.isArray(rules.requiredExtras)) {
+    const missing = rules.requiredExtras.some(
+      (key) =>
+        !Object.prototype.hasOwnProperty.call(sanitized, key) ||
+        sanitized[key] == null ||
+        String(sanitized[key]).trim() === "",
+    );
+    if (missing) {
+      return null;
+    }
+  }
+
+  return sanitized;
+}
 
 function enforceStrictRelationshipPointers(type, fromPointer, toPointer) {
   if (!fromPointer || !toPointer) {
