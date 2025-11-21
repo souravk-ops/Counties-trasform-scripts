@@ -3440,6 +3440,23 @@ function writeRelationship(type, fromRefLike, toRefLike, suffix) {
   });
 }
 
+function writeRawRelationshipFile(type, index, fromPointer, toPointer) {
+  if (!type || !fromPointer || !toPointer) return;
+  const relationshipType = String(type).trim();
+  if (!relationshipType) return;
+  const dirPath = path.join("relationships", relationshipType);
+  ensureDir(dirPath);
+  const suffix =
+    index === undefined ||
+    index === null ||
+    (typeof index === "string" && index.trim() === "")
+      ? nextRelationshipIndex(dirPath)
+      : String(index).trim();
+  if (!suffix) return;
+  const targetPath = path.join(dirPath, `${suffix}.json`);
+  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+}
+
 function writeRelationshipFromFilenames(type, fromFilename, toFilename, suffix) {
   if (!fromFilename || !toFilename) return;
   const preparedFrom = preparePointerForRelationship(type, fromFilename, "from");
@@ -4203,16 +4220,39 @@ function extractPointerForDirectRelationship(pointer, hintSide = {}) {
 }
 
 function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
-  if (!Array.isArray(processedSales) || processedSales.length === 0) {
-    return;
-  }
   removeRelationshipDirectories([
     "sales_history_has_deed",
     "property_has_sales_history",
   ]);
+  if (!Array.isArray(processedSales) || processedSales.length === 0) {
+    return;
+  }
+
+  const basePropertyPointer =
+    propertyPointer && typeof propertyPointer === "object"
+      ? clonePointerPayload(propertyPointer)
+      : typeof propertyPointer === "string"
+        ? buildSimplePointer(propertyPointer)
+        : null;
 
   processedSales.forEach((rec) => {
-    const salePointer = buildSalesHistoryPointer(rec.saleFilename, rec.saleNode);
+    if (!rec || !rec.saleFilename || !rec.deedFilename) {
+      return;
+    }
+    const salePointer = buildSimplePointer(
+      rec.saleFilename,
+      {
+        ownership_transfer_date:
+          (rec.saleNode && rec.saleNode.ownership_transfer_date) ||
+          rec.transferDate ||
+          null,
+        request_identifier:
+          rec.saleNode && rec.saleNode.request_identifier
+            ? rec.saleNode.request_identifier
+            : null,
+      },
+      ["ownership_transfer_date", "request_identifier"],
+    );
     if (
       !salePointer ||
       !Object.prototype.hasOwnProperty.call(
@@ -4227,18 +4267,18 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
       return;
     }
 
-    writeRelationshipRecordSimple(
+    writeRawRelationshipFile(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
       deedPointer,
     );
 
-    if (propertyPointer) {
-      writeRelationshipRecordSimple(
+    if (basePropertyPointer && pointerHasBase(basePropertyPointer)) {
+      writeRawRelationshipFile(
         "property_has_sales_history",
         rec.idx,
-        propertyPointer,
+        clonePointerPayload(basePropertyPointer),
         salePointer,
       );
     }
@@ -4246,41 +4286,39 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
 }
 
 function writeDeedAndFileRelationships(processedSales, propertyFilename) {
-  if (!Array.isArray(processedSales) || processedSales.length === 0) {
-    return;
-  }
   removeRelationshipDirectories([
     "deed_has_file",
     "deed_file",
     "property_has_file",
   ]);
-  const propertyPointerForFiles = propertyFilename
-    ? buildSimplePointer(propertyFilename)
-    : null;
+  if (!Array.isArray(processedSales) || processedSales.length === 0) {
+    return;
+  }
+  const propertyPointerForFiles =
+    typeof propertyFilename === "string" && propertyFilename.trim()
+      ? buildSimplePointer(propertyFilename)
+      : propertyFilename && typeof propertyFilename === "object"
+        ? clonePointerPayload(propertyFilename)
+        : null;
   processedSales.forEach((rec) => {
-    if (!rec.deedFilename || !rec.fileFilename) return;
+    if (!rec || !rec.deedFilename || !rec.fileFilename) return;
     const deedPointer = buildSimplePointer(rec.deedFilename);
     const filePointer = buildSimplePointer(rec.fileFilename);
     if (!deedPointer || !filePointer) {
       return;
     }
-    writeRelationshipRecordSimple(
+    writeRawRelationshipFile(
       "deed_has_file",
       rec.idx,
       deedPointer,
       filePointer,
     );
-    writeRelationshipRecordSimple(
-      "deed_file",
-      rec.idx,
-      deedPointer,
-      filePointer,
-    );
-    if (propertyPointerForFiles) {
-      writeRelationshipRecordSimple(
+    writeRawRelationshipFile("deed_file", rec.idx, deedPointer, filePointer);
+    if (propertyPointerForFiles && pointerHasBase(propertyPointerForFiles)) {
+      writeRawRelationshipFile(
         "property_has_file",
         rec.idx,
-        propertyPointerForFiles,
+        clonePointerPayload(propertyPointerForFiles),
         filePointer,
       );
     }
