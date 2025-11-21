@@ -324,15 +324,52 @@ function sanitizePointerForSimpleRules(pointerInput, sideRules = {}) {
 function writeRelationshipRecordBasic(type, index, fromInput, toInput) {
   if (!type) return;
   const rules = SIMPLE_RELATIONSHIP_RULES[type] || {};
-  const fromPointer = sanitizePointerForSimpleRules(
+  let fromPointer = sanitizePointerForSimpleRules(
     fromInput,
     rules.from || {},
   );
-  const toPointer = sanitizePointerForSimpleRules(
+  let toPointer = sanitizePointerForSimpleRules(
     toInput,
     rules.to || {},
   );
   if (!fromPointer || !toPointer) return;
+  const hint = RELATIONSHIP_HINTS[type] || {};
+  const fromHint = hint.from || {};
+  const toHint = hint.to || {};
+  const swappingAllowed = !hint || hint.preventSwap !== true;
+  let fromMatches = pointerMatchesHint(fromPointer, fromHint);
+  let toMatches = pointerMatchesHint(toPointer, toHint);
+  if ((!fromMatches || !toMatches) && swappingAllowed) {
+    const swappedFromMatches = pointerMatchesHint(toPointer, fromHint);
+    const swappedToMatches = pointerMatchesHint(fromPointer, toHint);
+    if (swappedFromMatches && swappedToMatches) {
+      const originalFrom = fromPointer;
+      fromPointer = toPointer;
+      toPointer = originalFrom;
+      fromMatches = true;
+      toMatches = true;
+    }
+  }
+  if (!fromMatches || !toMatches) {
+    return;
+  }
+
+  fromPointer = { ...fromPointer };
+  toPointer = { ...toPointer };
+  stripForbiddenPointerKeys(fromPointer);
+  stripForbiddenPointerKeys(toPointer);
+  if (Array.isArray(fromHint.disallowExtras)) {
+    stripDisallowedExtras(fromPointer, fromHint.disallowExtras);
+  }
+  if (Array.isArray(toHint.disallowExtras)) {
+    stripDisallowedExtras(toPointer, toHint.disallowExtras);
+  }
+  pruneToAllowedPointerKeys(fromPointer, fromHint);
+  pruneToAllowedPointerKeys(toPointer, toHint);
+  fromPointer = ensurePointerHasRequiredExtras(fromPointer, fromHint);
+  toPointer = ensurePointerHasRequiredExtras(toPointer, toHint);
+  if (!fromPointer || !toPointer) return;
+
   const dirPath = path.join("relationships", type);
   ensureDir(dirPath);
   const suffix =
