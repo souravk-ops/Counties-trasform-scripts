@@ -11,8 +11,7 @@ function readHtml(filepath) {
 }
 
 // Updated selectors based on the provided HTML
-const PARCEL_SELECTOR =
-  "#ctlBodyPane_ctl02_ctl01_dynamicSummary_rptrDynamicColumns_ctl00_pnlSingleValue span";
+const PARCEL_SELECTOR = "#ctlBodyPane_ctl02_ctl01_dynamicSummary_rptrDynamicColumns_ctl00_pnlSingleValue span";
 const BUILDING_SECTION_TITLE = "Residential Buildings"; // Corrected title from HTML
 
 function textTrim(s) {
@@ -92,7 +91,7 @@ function toInt(val) {
 function defaultLayout(space_type, idx) {
   return {
     space_type,
-    space_type_index: String(idx),
+    space_index: idx,
     flooring_material_type: null,
     size_square_feet: null,
     floor_level: null,
@@ -159,33 +158,14 @@ function main() {
   const $ = readHtml(inputPath);
   const parcelId = getParcelId($);
   if (!parcelId) throw new Error("Parcel ID not found");
-
   const buildings = collectBuildings($);
   const layouts = buildLayoutsFromBuildings(buildings);
-  const normalizedLayouts = layouts.map((layout, idx) => {
-    const indexFromSource =
-      layout && layout.space_type_index != null
-        ? String(layout.space_type_index).trim()
-        : "";
-    let ensuredIndex = indexFromSource || String(idx + 1);
-    ensuredIndex = String(ensuredIndex).trim();
-    if (!ensuredIndex) {
-      ensuredIndex = String(idx + 1);
-    }
-    if (!/^\d+(\.\d+)?(\.\d+)?$/.test(ensuredIndex)) {
-      ensuredIndex = String(idx + 1);
-    }
-    return {
-      ...layout,
-      space_type_index: ensuredIndex,
-    };
-  });
 
   const outDir = path.resolve("owners");
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, "layout_data.json");
   const outObj = {};
-  outObj[`property_${parcelId}`] = { layouts: normalizedLayouts };
+  outObj[`property_${parcelId}`] = { layouts };
   fs.writeFileSync(outPath, JSON.stringify(outObj, null, 2), "utf8");
   console.log(`Wrote ${outPath}`);
 }
