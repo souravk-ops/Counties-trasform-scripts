@@ -9,7 +9,7 @@ const $ = cheerio.load(html);
 
 // Updated CSS Selectors
 const PARCEL_SELECTOR = "#ctlBodyPane_ctl07_ctl01_dynamicSummary_rptrDynamicColumns_ctl00_pnlSingleValue span";
-const CURRENT_OWNER_SELECTOR = "#ctlBodyPane_ctl01_mSection .sdw1-owners-container > div";
+const CURRENT_OWNER_SELECTOR = "#ctlBodyPane_ctl01_mSection .sdw1-owners-container > div:first-child";
 const SALES_TABLE_SELECTOR = "#ctlBodyPane_ctl14_ctl01_grdSales tbody tr";
 
 // Utility helpers
@@ -33,10 +33,11 @@ function cleanRawName(raw) {
     /\bA\/K\/A\b/gi,
     /\bFBO\b/gi,
     /\bC\/O\b/gi,
-    /\bAS\s+PER\b/gi,
     /\b%\s*INTEREST\b/gi,
     /\b\d{1,3}%\b/gi,
     /\b\d{1,3}%\s*INTEREST\b/gi,
+    /\bJR\.?\b/gi,
+    /\bSR\.?\b/gi,
   ];
   noisePatterns.forEach((re) => {
     s = s.replace(re, " ");
@@ -81,90 +82,6 @@ function cleanInvalidCharsFromName(raw) {
   return parsedName;
 }
 
-const PREFIX_TOKEN_MAP = new Map([
-  ["MR", "Mr"],
-  ["MRS", "Mrs"],
-  ["MS", "Ms"],
-  ["MISS", "Miss"],
-  ["DR", "Dr"],
-  ["REV", "Rev"],
-  ["REVEREND", "Rev"],
-  ["HON", "Hon"],
-  ["HONORABLE", "Hon"],
-  ["PROF", "Prof"],
-  ["PROFESSOR", "Prof"],
-  ["CAPT", "Capt"],
-  ["CAPTAIN", "Capt"],
-  ["LT", "Lt"],
-  ["LTCOL", "Lt Col"],
-  ["LT COL", "Lt Col"],
-  ["LT.COL", "Lt Col"],
-  ["COL", "Col"],
-  ["PASTOR", "Pastor"],
-]);
-
-const SUFFIX_TOKEN_MAP = new Map([
-  ["JR", "Jr"],
-  ["JR.", "Jr"],
-  ["SR", "Sr"],
-  ["SR.", "Sr"],
-  ["II", "II"],
-  ["III", "III"],
-  ["IV", "IV"],
-  ["V", "V"],
-  ["ESQ", "Esq"],
-  ["ESQ.", "Esq"],
-  ["ESQUIRE", "Esq"],
-  ["MD", "MD"],
-  ["M.D", "MD"],
-  ["DDS", "DDS"],
-  ["CPA", "CPA"],
-  ["PH.D", "PhD"],
-  ["PHD", "PhD"],
-]);
-
-const LAST_NAME_PREFIXES = new Set([
-  "MC",
-  "MAC",
-  "O",
-  "ST",
-  "ST.",
-  "SAN",
-  "SANTA",
-  "DE",
-  "DEL",
-  "DELA",
-  "DE LAS",
-  "DELOS",
-  "DE LOS",
-  "DE LA",
-  "DI",
-  "DA",
-  "DOS",
-  "DU",
-  "VAN",
-  "VON",
-  "LA",
-  "LE",
-  "EL",
-  "LOS",
-  "LAS",
-]);
-
-function normalizeTokenForLookup(token) {
-  return (token || "").replace(/\./g, "").replace(/'/g, "").toUpperCase();
-}
-
-function titleCaseName(value) {
-  if (!value) return value;
-  return value
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 const COMPANY_KEYWORDS = [
   "inc",
   "llc",
@@ -207,27 +124,10 @@ function splitCompositeNames(name) {
   const cleaned = cleanRawName(name);
   if (!cleaned) return [];
   const parts = cleaned
-    .split(/\s*&\s*|\s+and\s+|\s*\n+\s*/i)
+    .split(/\s*&\s*|\s+and\s+/i)
     .map((p) => p.trim())
     .filter(Boolean);
   return parts;
-}
-
-function extractNamesFromCell($cell) {
-  if (!$cell || $cell.length === 0) return [];
-  const htmlContent = $cell.html();
-  if (!htmlContent) {
-    const textOnly = txt($cell.text());
-    return textOnly ? [textOnly] : [];
-  }
-  return htmlContent
-    .split(/<br\s*\/?>/i)
-    .map((fragment) => {
-      const wrapped = cheerio.load(`<div>${fragment}</div>`);
-      return txt(wrapped.text());
-    })
-    .map((name) => name.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
 }
 
 function classifyOwner(raw) {
@@ -236,114 +136,29 @@ function classifyOwner(raw) {
     return { valid: false, reason: "empty_after_clean", raw };
   }
   if (isCompanyName(cleaned)) {
-    return {
-      valid: true,
-      owner: { type: "company", name: cleaned },
-    };
+    return { valid: true, owner: { type: "company", name: cleaned } };
   }
-  const originalTokens = cleaned.split(/\s+/).map((p) => p.trim()).filter(Boolean);
-  if (originalTokens.length < 2) {
+  const tokens = cleaned.split(/\s+/).map((p) => p.trim()).filter(Boolean);
+  if (tokens.length < 2) {
     return { valid: false, reason: "person_missing_last_name", raw: cleaned };
   }
-
-  const tokens = [...originalTokens];
-  let prefixName = null;
-  while (tokens.length > 0) {
-    const lookup = normalizeTokenForLookup(tokens[0]);
-    if (PREFIX_TOKEN_MAP.has(lookup)) {
-      prefixName = PREFIX_TOKEN_MAP.get(lookup);
-      tokens.shift();
-    } else {
-      break;
-    }
-  }
-
-  let suffixName = null;
-  while (tokens.length > 0) {
-    const lookup = normalizeTokenForLookup(tokens[tokens.length - 1]);
-    if (SUFFIX_TOKEN_MAP.has(lookup)) {
-      suffixName = SUFFIX_TOKEN_MAP.get(lookup);
-      tokens.pop();
-    } else {
-      break;
-    }
-  }
-
-  const sanitizedTokens = tokens
-    .map((tok) => cleanInvalidCharsFromName(tok))
-    .filter(Boolean);
-
-  if (sanitizedTokens.length < 2) {
-    return { valid: false, reason: "person_missing_first_or_last", raw: cleaned };
-  }
-
-  const assumeLastFirst =
-    cleaned === cleaned.toUpperCase() ||
-    /^[A-Z\s'.-]+$/.test(cleaned);
-
-  const parseLastFirst = (tokensArr) => {
-    if (tokensArr.length < 2) return null;
-    const n = tokensArr.length;
-    let firstIndex = n - 1;
-    if (n > 2) {
-      const lastTokenCandidate = tokensArr[n - 1];
-      if (/^[A-Z]$/.test(lastTokenCandidate) || /^[A-Z]\.$/.test(lastTokenCandidate)) {
-        firstIndex = n - 2;
-      }
-    }
-    if (firstIndex <= 0) return null;
-    const lastTokens = tokensArr.slice(0, firstIndex);
-    const firstToken = tokensArr[firstIndex];
-    const middleTokens = tokensArr.slice(firstIndex + 1);
-    if (!lastTokens.length) return null;
-    return {
-      firstName: titleCaseName(firstToken),
-      middleName: middleTokens.length ? titleCaseName(middleTokens.join(" ")) : null,
-      lastName: titleCaseName(lastTokens.join(" ")),
+  const first = cleanInvalidCharsFromName(tokens[0]);
+  const last = cleanInvalidCharsFromName(tokens[tokens.length - 1]);
+  const middleTokens = tokens.slice(1, -1);
+  // if (/^[A-Za-z]$/.test(last)) {
+  //   return { valid: false, reason: "person_missing_last_name", raw: cleaned };
+  // }
+  const middle = cleanInvalidCharsFromName(middleTokens.join(" ").trim());
+  if (first && last) {
+    const person = {
+      type: "person",
+      first_name: first,
+      last_name: last,
+      middle_name: middle ? middle : null,
     };
-  };
-
-  const parseFirstLast = (tokensArr) => {
-    if (tokensArr.length < 2) return null;
-    const tokensCopy = [...tokensArr];
-    const lastTokens = [];
-    lastTokens.unshift(tokensCopy.pop());
-    while (tokensCopy.length > 0) {
-      const prevKey = normalizeTokenForLookup(tokensCopy[tokensCopy.length - 1]);
-      if (LAST_NAME_PREFIXES.has(prevKey)) {
-        lastTokens.unshift(tokensCopy.pop());
-      } else {
-        break;
-      }
-    }
-    const firstToken = tokensCopy.shift();
-    const middleTokens = tokensCopy;
-    if (!firstToken || !lastTokens.length) return null;
-    return {
-      firstName: titleCaseName(firstToken),
-      middleName: middleTokens.length ? titleCaseName(middleTokens.join(" ")) : null,
-      lastName: titleCaseName(lastTokens.join(" ")),
-    };
-  };
-
-  let parsed =
-    (assumeLastFirst && parseLastFirst(sanitizedTokens)) ||
-    parseFirstLast(sanitizedTokens) ||
-    parseLastFirst(sanitizedTokens);
-
-  if (!parsed || !parsed.firstName || !parsed.lastName) {
-    return { valid: false, reason: "person_missing_first_or_last", raw: cleaned };
+    return { valid: true, owner: person };
   }
-
-  const person = {
-    type: "person",
-    first_name: parsed.firstName,
-    last_name: parsed.lastName,
-    middle_name: parsed.middleName,
-    prefix_name: prefixName ? titleCaseName(prefixName) : null,
-    suffix_name: suffixName || null,
-  };
-  return { valid: true, owner: person };
+  return { valid: false, reason: "person_missing_first_or_last", raw: cleaned };
 }
 
 function dedupeOwners(owners) {
@@ -354,10 +169,8 @@ function dedupeOwners(owners) {
     if (o.type === "company") {
       norm = `company:${normalizeName(o.name)}`;
     } else {
-      const prefix = o.prefix_name ? normalizeName(o.prefix_name) : "";
       const middle = o.middle_name ? normalizeName(o.middle_name) : "";
-      const suffix = o.suffix_name ? normalizeName(o.suffix_name) : "";
-      norm = `person:${prefix}|${normalizeName(o.first_name)}|${middle}|${normalizeName(o.last_name)}|${suffix}`;
+      norm = `person:${normalizeName(o.first_name)}|${middle}|${normalizeName(o.last_name)}`;
     }
     if (!seen.has(norm)) {
       seen.add(norm);
@@ -389,11 +202,7 @@ function extractCurrentOwners($) {
       return txt($(this).text());
     }).get();
 
-    const ownerSpanTexts = $(el).find('span').map(function() {
-      return txt($(this).text());
-    }).get();
-
-    const allOwnerTexts = [...ownerTextNodes, ...ownerLinkTexts, ...ownerSpanTexts].filter(Boolean);
+    const allOwnerTexts = [...ownerTextNodes, ...ownerLinkTexts].filter(Boolean);
 
     // Combine and process the extracted text
     if (allOwnerTexts.length > 0) {
@@ -427,16 +236,16 @@ function extractSalesOwnersByDate($) {
     const yyyy = dm[3];
     const dateStr = `${yyyy}-${mm}-${dd}`;
 
-    const granteeCell = $(tds.last());
-    const granteeNames = extractNamesFromCell(granteeCell);
-    if (granteeNames.length) {
+    // Grantee is the last td
+    const grantee = txt(tds.last().text());
+    if (grantee) {
       if (!map[dateStr]) map[dateStr] = [];
-      granteeNames.forEach((name) => map[dateStr].push(name));
+      map[dateStr].push(grantee);
     }
 
-    const grantorCell = $(tds.eq(tds.length - 2));
-    const grantorNames = extractNamesFromCell(grantorCell);
-    grantorNames.forEach((name) => priorOwners.push(name));
+    // Grantor is the second to last td
+    const grantor = txt(tds.eq(tds.length - 2).text());
+    if (grantor) priorOwners.push(grantor);
   });
   return { map, priorOwners };
 }
@@ -464,30 +273,6 @@ function resolveOwnersFromRawStrings(rawStrings, invalidCollector) {
   return dedupeOwners(owners);
 }
 
-function extractMailingAddress($) {
-  const addresses = [];
-  $(
-    "#ctlBodyPane_ctl01_mSection span[id$='lblOwnerAddress']",
-  ).each((_, el) => {
-    const htmlContent = $(el).html() || "";
-    const parts = htmlContent
-      .split(/<br\s*\/?>/i)
-      .map((fragment) => {
-        const wrapped = cheerio.load(`<div>${fragment}</div>`);
-        return txt(wrapped.text());
-      })
-      .map((segment) => segment.replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-    const joined = parts.join(", ");
-    if (joined) addresses.push(joined);
-  });
-  if (!addresses.length) return null;
-  const unique = Array.from(
-    new Set(addresses.map((addr) => addr.replace(/\s+/g, " ").trim())),
-  );
-  return unique[0] || null;
-}
-
 const parcelId = getParcelId($);
 const currentOwnerRaw = extractCurrentOwners($);
 const { map: salesMap, priorOwners } = extractSalesOwnersByDate($);
@@ -510,7 +295,7 @@ if (priorOwners && priorOwners.length > 0) {
         granteeNamesNorm.add(`company:${normalizeName(o.name)}`);
       else
         granteeNamesNorm.add(
-          `person:${o.prefix_name ? normalizeName(o.prefix_name) : ""}|${normalizeName(o.first_name)}|${o.middle_name ? normalizeName(o.middle_name) : ""}|${normalizeName(o.last_name)}|${o.suffix_name ? normalizeName(o.suffix_name) : ""}`,
+          `person:${normalizeName(o.first_name)}|${o.middle_name ? normalizeName(o.middle_name) : ""}|${normalizeName(o.last_name)}`,
         );
     });
   });
@@ -524,7 +309,7 @@ if (priorOwners && priorOwners.length > 0) {
         let key;
         if (o.type === "company") key = `company:${normalizeName(o.name)}`;
         else
-          key = `person:${o.prefix_name ? normalizeName(o.prefix_name) : ""}|${normalizeName(o.first_name)}|${o.middle_name ? normalizeName(o.middle_name) : ""}|${normalizeName(o.last_name)}|${o.suffix_name ? normalizeName(o.suffix_name) : ""}`;
+          key = `person:${normalizeName(o.first_name)}|${o.middle_name ? normalizeName(o.middle_name) : ""}|${normalizeName(o.last_name)}`;
         if (!granteeNamesNorm.has(key)) {
           placeholderRaw.push(part);
         }
@@ -580,11 +365,6 @@ if (Object.prototype.hasOwnProperty.call(owners_by_date, "current")) {
 const propKey = `property_${parcelId || "unknown_id"}`;
 const output = {};
 output[propKey] = { owners_by_date: orderedOwnersByDate };
-
-const mailingAddress = extractMailingAddress($);
-if (mailingAddress) {
-  output[propKey].mailing_address = mailingAddress;
-}
 
 function dedupeInvalidOwners(list) {
   const seen = new Set();
