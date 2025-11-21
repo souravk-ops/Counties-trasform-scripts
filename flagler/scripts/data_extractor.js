@@ -1992,39 +1992,6 @@ function writeRelationshipRecordSimple(
 }
 
 const RELATIONSHIP_HINTS = {
-  deed_has_file: {
-    preventSwap: true,
-    from: {
-      pathPrefixes: ["deed_"],
-      allowedExtras: [],
-      disallowExtras: [
-        "deed_type",
-        "document_type",
-        "file_format",
-        "ipfs_url",
-        "name",
-        "original_url",
-      ],
-    },
-    to: {
-      pathPrefixes: ["file_"],
-      allowedExtras: ["request_identifier"],
-      disallowExtras: [
-        "book",
-        "deed_type",
-        "instrument_number",
-        "document_type",
-        "file_format",
-        "ipfs_url",
-        "name",
-        "original_url",
-        "ownership_transfer_date",
-        "page",
-        "purchase_price_amount",
-        "volume",
-      ],
-    },
-  },
   file_has_fact_sheet: {
     preventSwap: true,
     from: {
@@ -2154,18 +2121,6 @@ const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
 ]);
 
 const STRICT_RELATIONSHIP_SCHEMAS = {
-  deed_has_file: {
-    from: {
-      pathPrefixes: ["deed_"],
-      allowedExtras: [],
-      requiredExtras: [],
-    },
-    to: {
-      pathPrefixes: ["file_"],
-      allowedExtras: ["request_identifier"],
-      requiredExtras: [],
-    },
-  },
   sales_history_has_deed: {
     from: {
       pathPrefixes: ["sales_history_"],
@@ -2205,10 +2160,6 @@ const STRICT_RELATIONSHIP_SCHEMAS = {
 };
 
 const RELATIONSHIP_POINTER_RULES = {
-  deed_has_file: {
-    from: { allowedExtras: [] },
-    to: { allowedExtras: ["request_identifier"] },
-  },
   file_has_fact_sheet: {
     from: { allowedExtras: ["request_identifier"] },
     to: { allowedExtras: [] },
@@ -2822,7 +2773,6 @@ function normalizeRelationshipDirectory(type) {
 
 function normalizeManagedRelationshipPayloads() {
   const managedTypes = [
-    "deed_has_file",
     "sales_history_has_deed",
     "property_has_layout",
     "property_has_sales_history",
@@ -3262,48 +3212,6 @@ function deriveDeedRequestIdentifier(
   return null;
 }
 
-function buildFileArtifactsForSale(
-  saleRecord,
-  idx,
-  context,
-) {
-  const { parcelId } = context || {};
-  const instrument = nonEmptyString(saleRecord && saleRecord.instrument);
-  const bookPage = nonEmptyString(saleRecord && saleRecord.bookPage);
-  const normalizedBookPage = bookPage
-    ? bookPage.replace(/[^0-9A-Za-z]+/g, "_")
-    : null;
-  const identifierCandidates = [
-    instrument && normalizedBookPage
-      ? `${instrument}_${normalizedBookPage}`
-      : null,
-    normalizedBookPage ? `book_page_${normalizedBookPage}` : null,
-    instrument ? `${instrument}_${idx}` : null,
-    parcelId ? `${parcelId}_file_${idx}` : null,
-    `deed_file_${idx}`,
-  ];
-  let requestIdentifier = null;
-  for (const value of identifierCandidates) {
-    const normalized = nonEmptyString(value);
-    if (normalized) {
-      requestIdentifier = normalized;
-      break;
-    }
-  }
-  if (!requestIdentifier) return null;
-  const fileNode = {
-    request_identifier: requestIdentifier,
-  };
-  const filename = `file_${idx}.json`;
-  return {
-    fileNode,
-    filename,
-    pointerExtras: {
-      request_identifier: requestIdentifier,
-    },
-  };
-}
-
 function removeFilesMatchingPatterns(patterns, directories = ["data"]) {
   if (!Array.isArray(patterns) || patterns.length === 0) return;
   const dirs =
@@ -3348,7 +3256,6 @@ const EXTERNALLY_MANAGED_PATTERNS = [
 ];
 
 const MANAGED_RELATIONSHIP_TYPES = [
-  "deed_has_file",
   "property_has_layout",
   "property_has_sales_history",
   "sales_history_has_deed",
@@ -3842,18 +3749,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
 
-    const fileArtifacts = buildFileArtifactsForSale(
-      saleRecord,
-      idx,
-      context,
-    );
-    if (fileArtifacts) {
-      writeJSON(
-        path.join("data", fileArtifacts.filename),
-        fileArtifacts.fileNode,
-      );
-    }
-
     processedSales.push({
       source: saleRecord,
       idx,
@@ -3861,14 +3756,6 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       transferDate: saleNode.ownership_transfer_date,
       saleNode,
       deedFilename,
-      fileArtifact: fileArtifacts
-        ? {
-            filename: fileArtifacts.filename,
-            request_identifier:
-              fileArtifacts.pointerExtras &&
-              fileArtifacts.pointerExtras.request_identifier,
-          }
-        : null,
     });
   });
 
@@ -3982,7 +3869,6 @@ function writeSalesRelationshipPayloads(
     return;
   }
   removeRelationshipDirectories([
-    "deed_has_file",
     "sales_history_has_deed",
     "property_has_sales_history",
   ]);
@@ -4016,22 +3902,6 @@ function writeSalesRelationshipPayloads(
       salePointer,
       deedPointer,
     );
-
-    if (rec.fileArtifact && rec.fileArtifact.filename) {
-      const filePointer = buildSimplePointer(
-        rec.fileArtifact.filename,
-        { request_identifier: rec.fileArtifact.request_identifier },
-        ["request_identifier"],
-      );
-      if (filePointer) {
-        writeRelationshipRecordSimple(
-          "deed_has_file",
-          rec.idx,
-          deedPointer,
-          filePointer,
-        );
-      }
-    }
 
     if (propertyPointer) {
       writeRelationshipRecordSimple(
