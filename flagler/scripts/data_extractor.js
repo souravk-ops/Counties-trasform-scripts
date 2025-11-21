@@ -3599,19 +3599,7 @@ function writeOrientedRelationshipRecord(
 }
 
 function writeDirectRelationship(type, index, fromPointer, toPointer) {
-  if (!type || !fromPointer || !toPointer) return;
-  const dirPath = path.join("relationships", type);
-  ensureDir(dirPath);
-  stripForbiddenPointerKeys(fromPointer);
-  stripForbiddenPointerKeys(toPointer);
-  const suffix =
-    index === undefined ||
-    index === null ||
-    (typeof index === "string" && index.trim() === "")
-      ? nextRelationshipIndex(dirPath)
-      : String(index).trim();
-  const targetPath = path.join(dirPath, `${suffix}.json`);
-  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+  writeSimpleRelationshipFile(type, index, fromPointer, toPointer);
 }
 
 function extractPointerForDirectRelationship(pointer, hintSide = {}) {
