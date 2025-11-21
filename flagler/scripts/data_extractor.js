@@ -398,10 +398,21 @@ function writeRelationshipPayloadFile(
   if (!sanitizedFrom || !sanitizedTo) {
     return;
   }
+  const finalFrom = finalizePointerForRelationshipWrite(
+    sanitizedFrom,
+    hint.from,
+  );
+  const finalTo = finalizePointerForRelationshipWrite(
+    sanitizedTo,
+    hint.to,
+  );
+  if (!finalFrom || !finalTo) {
+    return;
+  }
   const targetPath = resolveRelationshipFilePath(type, suffix);
   writeJSON(targetPath, {
-    from: sanitizedFrom,
-    to: sanitizedTo,
+    from: finalFrom,
+    to: finalTo,
   });
 }
 
@@ -806,6 +817,49 @@ function stripForbiddenPointerKeys(pointer) {
     }
   });
   return pointer;
+}
+
+function stripUnexpectedRelationshipExtras(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return pointer;
+  const allowedKeys = new Set(POINTER_BASE_KEYS);
+  resolveAllowedExtrasList(hintSide).forEach((key) =>
+    allowedKeys.add(String(key)),
+  );
+  if (hintSide && Array.isArray(hintSide.requiredExtras)) {
+    hintSide.requiredExtras.forEach((key) =>
+      allowedKeys.add(String(key)),
+    );
+  }
+  Object.keys(pointer).forEach((key) => {
+    const normalizedKey = String(key);
+    if (!allowedKeys.has(normalizedKey)) {
+      delete pointer[key];
+    }
+  });
+  return pointer;
+}
+
+function finalizePointerForRelationshipWrite(pointer, hintSide) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const working = stripUnexpectedRelationshipExtras(
+    { ...pointer },
+    hintSide,
+  );
+  stripForbiddenPointerKeys(working);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(working, hintSide.disallowExtras);
+  }
+  pruneToAllowedPointerKeys(working, hintSide);
+  const ensured = ensurePointerHasRequiredExtras(working, hintSide);
+  if (
+    !ensured ||
+    (hintSide &&
+      Array.isArray(hintSide.requiredExtras) &&
+      !hasRequiredExtras(ensured, hintSide.requiredExtras))
+  ) {
+    return null;
+  }
+  return pointerHasBase(ensured) ? ensured : null;
 }
 
 function ensurePointerHasRequiredExtras(pointer, hintSide) {
@@ -2189,6 +2243,19 @@ const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
   "file_has_fact_sheet",
   "layout_has_fact_sheet",
 ]);
+
+const RELATIONSHIP_TYPES_TO_RESET = [
+  "deed_file",
+  "deed_has_file",
+  "file_has_fact_sheet",
+  "layout_has_fact_sheet",
+  "property_has_file",
+  "property_has_layout",
+  "property_has_sales_history",
+  "sales_history_has_company",
+  "sales_history_has_deed",
+  "sales_history_has_person",
+];
 
 const STRICT_RELATIONSHIP_SCHEMAS = {
   deed_file: {
@@ -4644,6 +4711,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
 
 function main() {
   ensureDir("data");
+  removeRelationshipDirectories(RELATIONSHIP_TYPES_TO_RESET);
   purgeExternallyManagedArtifacts();
   purgeManagedRelationshipDirectories();
   const $ = loadHTML();
@@ -4709,6 +4777,7 @@ function main() {
     "file_has_fact_sheet",
     "layout_has_fact_sheet",
   ]);
+  removeRelationshipDirectories(["file_has_fact_sheet", "layout_has_fact_sheet"]);
 }
 
 if (require.main === module) {
