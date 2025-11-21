@@ -228,6 +228,15 @@ function buildPointerPayloadFromFilename(
   return stripForbiddenPointerKeys(pointer);
 }
 
+function writePointerRelationshipSimple(type, index, fromPath, toPath) {
+  if (!fromPath || !toPath) return;
+  const fromPointer = pointerFromRelativePath(fromPath);
+  const toPointer = pointerFromRelativePath(toPath);
+  if (!fromPointer || !toPointer) return;
+  const targetPath = resolveRelationshipFilePath(type, index);
+  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+}
+
 function preparePointerForRelationship(type, pointerInput, sideKey) {
   if (!type || !pointerInput) return null;
   let candidate = null;
@@ -4084,7 +4093,7 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     processedSales,
     propertyPointer,
   );
-  writeDeedAndFileRelationships(processedSales, propertyPointer);
+  writeDeedAndFileRelationships(processedSales, propertyRelationshipRef);
 
   return processedSales;
 }
@@ -4226,7 +4235,7 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
   });
 }
 
-function writeDeedAndFileRelationships(processedSales, propertyPointer) {
+function writeDeedAndFileRelationships(processedSales, propertyFilename) {
   if (!Array.isArray(processedSales) || processedSales.length === 0) {
     return;
   }
@@ -4237,27 +4246,24 @@ function writeDeedAndFileRelationships(processedSales, propertyPointer) {
   ]);
   processedSales.forEach((rec) => {
     if (!rec.deedFilename || !rec.fileFilename) return;
-    const deedPointer = buildPointerPayloadFromFilename(rec.deedFilename);
-    const filePointer = buildPointerPayloadFromFilename(rec.fileFilename);
-    if (!deedPointer || !filePointer) return;
-    writeRelationshipRecordSimple(
+    writePointerRelationshipSimple(
       "deed_has_file",
       rec.idx,
-      deedPointer,
-      filePointer,
+      rec.deedFilename,
+      rec.fileFilename,
     );
-    writeRelationshipRecordSimple(
+    writePointerRelationshipSimple(
       "deed_file",
       rec.idx,
-      deedPointer,
-      filePointer,
+      rec.deedFilename,
+      rec.fileFilename,
     );
-    if (propertyPointer) {
-      writeRelationshipRecordSimple(
+    if (propertyFilename) {
+      writePointerRelationshipSimple(
         "property_has_file",
         rec.idx,
-        propertyPointer,
-        filePointer,
+        propertyFilename,
+        rec.fileFilename,
       );
     }
   });
