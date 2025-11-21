@@ -2996,7 +2996,6 @@ function repairAllManagedRelationships() {
   Object.entries(RELATIONSHIP_HINTS).forEach(([type, hint]) => {
     const repairHint = {
       ...(hint || {}),
-      preventSwap: false,
       from: hint && hint.from ? { ...hint.from } : {},
       to: hint && hint.to ? { ...hint.to } : {},
     };
