@@ -1991,6 +1991,34 @@ function writeRelationshipRecordSimple(
   });
 }
 
+const FILE_POINTER_DISALLOWED_EXTRAS = [
+  "document_type",
+  "file_format",
+  "ipfs_url",
+  "name",
+  "original_url",
+  "ownership_transfer_date",
+  "purchase_price_amount",
+  "request_identifier",
+  "space_type_index",
+];
+
+const DEED_POINTER_DISALLOWED_EXTRAS = [
+  "book",
+  "deed_type",
+  "document_type",
+  "file_format",
+  "instrument_number",
+  "ipfs_url",
+  "name",
+  "original_url",
+  "ownership_transfer_date",
+  "page",
+  "purchase_price_amount",
+  "request_identifier",
+  "volume",
+];
+
 const RELATIONSHIP_HINTS = {
   file_has_fact_sheet: {
     preventSwap: true,
@@ -2028,6 +2056,39 @@ const RELATIONSHIP_HINTS = {
       ],
     },
     to: { pathPrefixes: ["fact_sheet"], allowedExtras: [] },
+  },
+  deed_file: {
+    from: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      disallowExtras: DEED_POINTER_DISALLOWED_EXTRAS,
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: [],
+      disallowExtras: FILE_POINTER_DISALLOWED_EXTRAS,
+    },
+  },
+  deed_has_file: {
+    from: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      disallowExtras: DEED_POINTER_DISALLOWED_EXTRAS,
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: [],
+      disallowExtras: FILE_POINTER_DISALLOWED_EXTRAS,
+    },
+  },
+  property_has_file: {
+    preventSwap: true,
+    from: { pathPrefixes: ["property"], allowedExtras: [] },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: [],
+      disallowExtras: FILE_POINTER_DISALLOWED_EXTRAS,
+    },
   },
   property_has_layout: {
     preventSwap: true,
@@ -2121,6 +2182,42 @@ const RELATIONSHIPS_MANAGED_EXTERNALLY = new Set([
 ]);
 
 const STRICT_RELATIONSHIP_SCHEMAS = {
+  deed_file: {
+    from: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  },
+  deed_has_file: {
+    from: {
+      pathPrefixes: ["deed_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  },
+  property_has_file: {
+    from: {
+      pathPrefixes: ["property"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["file_"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  },
   sales_history_has_deed: {
     from: {
       pathPrefixes: ["sales_history_"],
@@ -2160,6 +2257,18 @@ const STRICT_RELATIONSHIP_SCHEMAS = {
 };
 
 const RELATIONSHIP_POINTER_RULES = {
+  deed_file: {
+    from: { allowedExtras: [] },
+    to: { allowedExtras: [] },
+  },
+  deed_has_file: {
+    from: { allowedExtras: [] },
+    to: { allowedExtras: [] },
+  },
+  property_has_file: {
+    from: { allowedExtras: [] },
+    to: { allowedExtras: [] },
+  },
   file_has_fact_sheet: {
     from: { allowedExtras: ["request_identifier"] },
     to: { allowedExtras: [] },
