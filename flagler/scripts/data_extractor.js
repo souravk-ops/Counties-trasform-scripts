@@ -1984,11 +1984,18 @@ function writeRelationshipRecordSimple(
     (typeof index === "string" && index.trim() === "")
       ? undefined
       : String(index).trim();
-  const targetPath = resolveRelationshipFilePath(type, suffix);
-  writeJSON(targetPath, {
-    from: preparedFrom,
-    to: preparedTo,
-  });
+  let orientedFrom = preparedFrom;
+  let orientedTo = preparedTo;
+  if (relationshipPointersNeedSwap(type, preparedFrom, preparedTo)) {
+    orientedFrom = preparedTo;
+    orientedTo = preparedFrom;
+  }
+  writeRelationshipPayloadFile(
+    type,
+    suffix,
+    orientedFrom,
+    orientedTo,
+  );
 }
 
 const FILE_POINTER_DISALLOWED_EXTRAS = [
