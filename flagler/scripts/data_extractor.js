@@ -77,6 +77,33 @@ function pointerFromRelativePath(relativePath) {
   return normalized ? { "/": normalized } : null;
 }
 
+function buildSimplePointer(relativePath, extras = null, allowedExtras = []) {
+  if (typeof relativePath !== "string") return null;
+  const normalizedPath = normalizePointerPath(relativePath);
+  if (!normalizedPath) return null;
+  const pointer = { "/": normalizedPath };
+  if (
+    extras &&
+    typeof extras === "object" &&
+    Array.isArray(allowedExtras) &&
+    allowedExtras.length > 0
+  ) {
+    const extrasToCopy = new Set(
+      allowedExtras
+        .filter((key) => key && !FORBIDDEN_POINTER_KEYS.includes(String(key)))
+        .map((key) => String(key)),
+    );
+    extrasToCopy.forEach((key) => {
+      if (!Object.prototype.hasOwnProperty.call(extras, key)) return;
+      const normalizedValue = sanitizePointerExtraValue(key, extras[key]);
+      if (normalizedValue != null) {
+        pointer[key] = normalizedValue;
+      }
+    });
+  }
+  return pointer;
+}
+
 function pointerWithAllowedExtras(relativePath, extras, allowedExtras = []) {
   const pointer = pointerFromRelativePath(relativePath);
   if (!pointer) return null;
@@ -1879,6 +1906,79 @@ function pruneRelationshipPointer(pointer, hintSide) {
 }
 
 const POINTER_JSON_CACHE = new Map();
+
+function sanitizeRelationshipPointerSimple(pointer, hintSide = {}) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const baseRaw =
+    (typeof pointer["/"] === "string" && pointer["/"]) ||
+    (typeof pointer.path === "string" && pointer.path) ||
+    (typeof pointer.filename === "string" && pointer.filename) ||
+    (typeof pointer.file === "string" && pointer.file);
+  if (typeof baseRaw !== "string") return null;
+  const normalizedBase = normalizePointerPath(baseRaw);
+  if (!normalizedBase) return null;
+  const normalizedForMatch = normalizedBase.replace(/^[./\\]+/, "");
+  const prefixes = Array.isArray(hintSide.pathPrefixes)
+    ? hintSide.pathPrefixes
+    : [];
+  if (prefixes.length && !matchesPathPrefix(normalizedForMatch, prefixes)) {
+    return null;
+  }
+  const allowedExtras = Array.isArray(hintSide.allowedExtras)
+    ? hintSide.allowedExtras.map((key) => String(key))
+    : [];
+  const requiredExtras = Array.isArray(hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  const cleaned = { "/": normalizedBase };
+  const extrasToCopy = new Set([...allowedExtras, ...requiredExtras]);
+  extrasToCopy.forEach((key) => {
+    if (!key || FORBIDDEN_POINTER_KEYS.includes(String(key))) return;
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const normalizedValue = sanitizePointerExtraValue(key, pointer[key]);
+    if (normalizedValue != null) {
+      cleaned[key] = normalizedValue;
+    }
+  });
+  const missing = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(cleaned, key) ||
+      cleaned[key] == null ||
+      String(cleaned[key]).trim() === "",
+  );
+  if (missing) return null;
+  return cleaned;
+}
+
+function writeRelationshipRecordSimple(
+  type,
+  index,
+  fromPointer,
+  toPointer,
+) {
+  if (!type) return;
+  const hint = RELATIONSHIP_HINTS[type] || {};
+  const preparedFrom = sanitizeRelationshipPointerSimple(
+    fromPointer,
+    hint.from || {},
+  );
+  const preparedTo = sanitizeRelationshipPointerSimple(
+    toPointer,
+    hint.to || {},
+  );
+  if (!preparedFrom || !preparedTo) return;
+  const suffix =
+    index === undefined ||
+    index === null ||
+    (typeof index === "string" && index.trim() === "")
+      ? undefined
+      : String(index).trim();
+  const targetPath = resolveRelationshipFilePath(type, suffix);
+  writeJSON(targetPath, {
+    from: preparedFrom,
+    to: preparedTo,
+  });
+}
 
 const RELATIONSHIP_HINTS = {
   deed_has_file: {
@@ -3861,17 +3961,12 @@ function writeSalesRelationshipPayloads(
     "property_has_sales_history",
   ]);
   const propertyPointer = propertyRelationshipRef
-    ? buildPointerPayloadFromFilename(propertyRelationshipRef)
+    ? buildSimplePointer(propertyRelationshipRef)
     : null;
 
   processedSales.forEach((rec) => {
-    let salePointer = buildPointerPayloadFromFilename(
+    const salePointer = buildSimplePointer(
       rec.saleFilename,
-      rec.saleNode,
-      ["ownership_transfer_date", "request_identifier"],
-    );
-    salePointer = ensurePointerExtrasFromSource(
-      salePointer,
       rec.saleNode,
       ["ownership_transfer_date", "request_identifier"],
     );
@@ -3884,12 +3979,12 @@ function writeSalesRelationshipPayloads(
     ) {
       return;
     }
-    const deedPointer = buildPointerPayloadFromFilename(rec.deedFilename);
+    const deedPointer = buildSimplePointer(rec.deedFilename);
     if (!deedPointer) {
       return;
     }
 
-    writeDirectRelationship(
+    writeRelationshipRecordSimple(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
@@ -3897,13 +3992,13 @@ function writeSalesRelationshipPayloads(
     );
 
     if (rec.fileArtifact && rec.fileArtifact.filename) {
-      const filePointer = buildPointerPayloadFromFilename(
+      const filePointer = buildSimplePointer(
         rec.fileArtifact.filename,
         { request_identifier: rec.fileArtifact.request_identifier },
         ["request_identifier"],
       );
       if (filePointer) {
-        writeDirectRelationship(
+        writeRelationshipRecordSimple(
           "deed_has_file",
           rec.idx,
           deedPointer,
@@ -3913,7 +4008,7 @@ function writeSalesRelationshipPayloads(
     }
 
     if (propertyPointer) {
-      writeDirectRelationship(
+      writeRelationshipRecordSimple(
         "property_has_sales_history",
         rec.idx,
         propertyPointer,
