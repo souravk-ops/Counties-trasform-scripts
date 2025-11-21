@@ -228,13 +228,23 @@ function buildPointerPayloadFromFilename(
   return stripForbiddenPointerKeys(pointer);
 }
 
-function writePointerRelationshipSimple(type, index, fromPath, toPath) {
-  if (!fromPath || !toPath) return;
-  const fromPointer = pointerFromRelativePath(fromPath);
-  const toPointer = pointerFromRelativePath(toPath);
-  if (!fromPointer || !toPointer) return;
-  const targetPath = resolveRelationshipFilePath(type, index);
-  writeJSON(targetPath, { from: fromPointer, to: toPointer });
+function writePointerRelationshipSimple(
+  type,
+  index,
+  fromRefLike,
+  toRefLike,
+) {
+  if (!type || !fromRefLike || !toRefLike) return;
+  const normalizedFrom =
+    typeof fromRefLike === "string"
+      ? pointerFromRelativePath(fromRefLike)
+      : pointerFromRef(fromRefLike);
+  const normalizedTo =
+    typeof toRefLike === "string"
+      ? pointerFromRelativePath(toRefLike)
+      : pointerFromRef(toRefLike);
+  if (!normalizedFrom || !normalizedTo) return;
+  writeRelationshipRecordSimple(type, index, normalizedFrom, normalizedTo);
 }
 
 function preparePointerForRelationship(type, pointerInput, sideKey) {
@@ -4244,26 +4254,34 @@ function writeDeedAndFileRelationships(processedSales, propertyFilename) {
     "deed_file",
     "property_has_file",
   ]);
+  const propertyPointerForFiles = propertyFilename
+    ? buildSimplePointer(propertyFilename)
+    : null;
   processedSales.forEach((rec) => {
     if (!rec.deedFilename || !rec.fileFilename) return;
-    writePointerRelationshipSimple(
+    const deedPointer = buildSimplePointer(rec.deedFilename);
+    const filePointer = buildSimplePointer(rec.fileFilename);
+    if (!deedPointer || !filePointer) {
+      return;
+    }
+    writeRelationshipRecordSimple(
       "deed_has_file",
       rec.idx,
-      rec.deedFilename,
-      rec.fileFilename,
+      deedPointer,
+      filePointer,
     );
-    writePointerRelationshipSimple(
+    writeRelationshipRecordSimple(
       "deed_file",
       rec.idx,
-      rec.deedFilename,
-      rec.fileFilename,
+      deedPointer,
+      filePointer,
     );
-    if (propertyFilename) {
-      writePointerRelationshipSimple(
+    if (propertyPointerForFiles) {
+      writeRelationshipRecordSimple(
         "property_has_file",
         rec.idx,
-        propertyFilename,
-        rec.fileFilename,
+        propertyPointerForFiles,
+        filePointer,
       );
     }
   });
