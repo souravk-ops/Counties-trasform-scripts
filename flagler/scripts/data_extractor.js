@@ -3321,6 +3321,72 @@ function deriveDeedRequestIdentifier(
   return null;
 }
 
+const INSTRUMENT_TO_DOCUMENT_TYPE = [
+  { token: "QUIT", label: "Quitclaim Deed" },
+  { token: "QCD", label: "Quitclaim Deed" },
+  { token: "WD", label: "Warranty Deed" },
+  { token: "SWD", label: "Special Warranty Deed" },
+  { token: "TRUST", label: "Trustee Deed" },
+  { token: "TD", label: "Trustee Deed" },
+  { token: "MTG", label: "Mortgage" },
+];
+
+function mapInstrumentToDocumentType(value) {
+  const normalized = nonEmptyString(value);
+  if (!normalized) return null;
+  const upper = normalized.toUpperCase();
+  const match = INSTRUMENT_TO_DOCUMENT_TYPE.find(({ token }) =>
+    upper.includes(token),
+  );
+  if (match) return match.label;
+  if (upper.includes("DEED")) return "Deed";
+  return null;
+}
+
+function guessFileFormatFromUrl(value) {
+  const normalized = nonEmptyString(value);
+  if (!normalized) return null;
+  const lower = normalized.split("?")[0].toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".tif") || lower.endsWith(".tiff")) return "image/tiff";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  return null;
+}
+
+function deriveFileDisplayName(idx, saleRecord, transferDate) {
+  const parts = [
+    nonEmptyString(saleRecord && saleRecord.bookPage),
+    transferDate,
+  ].filter(Boolean);
+  if (parts.length) {
+    return `Deed ${parts.join(" ")}`.trim();
+  }
+  return `Deed Document ${idx}`;
+}
+
+function buildFilePayloadForSale(saleRecord, idx, transferDate) {
+  const name = deriveFileDisplayName(idx, saleRecord, transferDate);
+  const originalUrl = nonEmptyString(saleRecord && saleRecord.link);
+  const documentType = mapInstrumentToDocumentType(
+    saleRecord && saleRecord.instrument,
+  );
+  const fileFormat = guessFileFormatFromUrl(originalUrl);
+  const payload = {
+    name,
+  };
+  if (originalUrl) {
+    payload.original_url = originalUrl;
+  }
+  if (documentType) {
+    payload.document_type = documentType;
+  }
+  if (fileFormat) {
+    payload.file_format = fileFormat;
+  }
+  return payload;
+}
+
 function removeFilesMatchingPatterns(patterns, directories = ["data"]) {
   if (!Array.isArray(patterns) || patterns.length === 0) return;
   const dirs =
@@ -3794,6 +3860,9 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
   const propertyRelationshipRef = fs.existsSync(propertyFileOnDisk)
     ? (context && context.propertyFile) || "property.json"
     : null;
+  const propertyPointer = propertyRelationshipRef
+    ? buildSimplePointer(propertyRelationshipRef)
+    : null;
 
   const salesCleanupPatterns = [
     /^relationship_(deed_has_file|deed_file|property_has_file|property_has_sales_history|sales_history_has_deed|sales_deed|sales_history_has_person|sales_history_has_company|sales_person|sales_company)(?:_\d+)?\.json$/i,
@@ -3858,6 +3927,15 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
     const deedFilename = `deed_${idx}.json`;
     writeJSON(path.join("data", deedFilename), deedNode);
 
+    const fileNode = buildFilePayloadForSale(
+      saleRecord,
+      idx,
+      transferDate,
+    );
+    attachSourceHttpRequest(fileNode, defaultSourceHttpRequest);
+    const fileFilename = `file_${idx}.json`;
+    writeJSON(path.join("data", fileFilename), fileNode);
+
     processedSales.push({
       source: saleRecord,
       idx,
@@ -3865,13 +3943,15 @@ function writeSalesDeedsFilesAndRelationships($, sales, context) {
       transferDate: saleNode.ownership_transfer_date,
       saleNode,
       deedFilename,
+      fileFilename,
     });
   });
 
   writeSalesRelationshipPayloads(
     processedSales,
-    propertyRelationshipRef,
+    propertyPointer,
   );
+  writeDeedAndFileRelationships(processedSales, propertyPointer);
 
   return processedSales;
 }
@@ -3970,10 +4050,7 @@ function extractPointerForDirectRelationship(pointer, hintSide = {}) {
   return sanitized;
 }
 
-function writeSalesRelationshipPayloads(
-  processedSales,
-  propertyRelationshipRef,
-) {
+function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
   if (!Array.isArray(processedSales) || processedSales.length === 0) {
     return;
   }
@@ -3981,16 +4058,9 @@ function writeSalesRelationshipPayloads(
     "sales_history_has_deed",
     "property_has_sales_history",
   ]);
-  const propertyPointer = propertyRelationshipRef
-    ? buildSimplePointer(propertyRelationshipRef)
-    : null;
 
   processedSales.forEach((rec) => {
-    const salePointer = buildSimplePointer(
-      rec.saleFilename,
-      rec.saleNode,
-      ["ownership_transfer_date", "request_identifier"],
-    );
+    const salePointer = buildSalesHistoryPointer(rec.saleFilename, rec.saleNode);
     if (
       !salePointer ||
       !Object.prototype.hasOwnProperty.call(
@@ -4018,6 +4088,43 @@ function writeSalesRelationshipPayloads(
         rec.idx,
         propertyPointer,
         salePointer,
+      );
+    }
+  });
+}
+
+function writeDeedAndFileRelationships(processedSales, propertyPointer) {
+  if (!Array.isArray(processedSales) || processedSales.length === 0) {
+    return;
+  }
+  removeRelationshipDirectories([
+    "deed_has_file",
+    "deed_file",
+    "property_has_file",
+  ]);
+  processedSales.forEach((rec) => {
+    if (!rec.deedFilename || !rec.fileFilename) return;
+    const deedPointer = buildPointerPayloadFromFilename(rec.deedFilename);
+    const filePointer = buildPointerPayloadFromFilename(rec.fileFilename);
+    if (!deedPointer || !filePointer) return;
+    writeRelationshipRecordSimple(
+      "deed_has_file",
+      rec.idx,
+      deedPointer,
+      filePointer,
+    );
+    writeRelationshipRecordSimple(
+      "deed_file",
+      rec.idx,
+      deedPointer,
+      filePointer,
+    );
+    if (propertyPointer) {
+      writeRelationshipRecordSimple(
+        "property_has_file",
+        rec.idx,
+        propertyPointer,
+        filePointer,
       );
     }
   });
@@ -4330,10 +4437,9 @@ function writeLayout(parcelId, context) {
     const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
     if (propertyPointer && out.space_type_index) {
-      const layoutPointer = buildPointerPayloadFromFilename(
+      const layoutPointer = buildLayoutPointer(
         layoutFilename,
-        { space_type_index: out.space_type_index },
-        ["space_type_index"],
+        out.space_type_index,
       );
       if (
         layoutPointer &&
