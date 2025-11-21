@@ -2065,6 +2065,7 @@ const RELATIONSHIP_HINTS = {
     to: { pathPrefixes: ["fact_sheet"], allowedExtras: [] },
   },
   deed_file: {
+    preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
       allowedExtras: [],
@@ -2077,6 +2078,7 @@ const RELATIONSHIP_HINTS = {
     },
   },
   deed_has_file: {
+    preventSwap: true,
     from: {
       pathPrefixes: ["deed_"],
       allowedExtras: [],
@@ -4685,6 +4687,13 @@ function main() {
   // Address last
   const secTwpRng = extractSecTwpRng($);
   attemptWriteAddress(unnormalized, secTwpRng, context);
+  sanitizeRelationshipDirectories([
+    "deed_file",
+    "deed_has_file",
+    "property_has_file",
+    "property_has_sales_history",
+    "sales_history_has_deed",
+  ]);
   repairAllManagedRelationships();
   enforceRelationshipSchemaRules([
     "deed_file",
