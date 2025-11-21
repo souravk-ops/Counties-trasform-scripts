@@ -4267,7 +4267,7 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
       return;
     }
 
-    writeRawRelationshipFile(
+    writeSimpleRelationshipFile(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
@@ -4275,7 +4275,7 @@ function writeSalesRelationshipPayloads(processedSales, propertyPointer) {
     );
 
     if (basePropertyPointer && pointerHasBase(basePropertyPointer)) {
-      writeRawRelationshipFile(
+      writeSimpleRelationshipFile(
         "property_has_sales_history",
         rec.idx,
         clonePointerPayload(basePropertyPointer),
@@ -4307,15 +4307,20 @@ function writeDeedAndFileRelationships(processedSales, propertyFilename) {
     if (!deedPointer || !filePointer) {
       return;
     }
-    writeRawRelationshipFile(
+    writeSimpleRelationshipFile(
       "deed_has_file",
       rec.idx,
       deedPointer,
       filePointer,
     );
-    writeRawRelationshipFile("deed_file", rec.idx, deedPointer, filePointer);
+    writeSimpleRelationshipFile(
+      "deed_file",
+      rec.idx,
+      deedPointer,
+      filePointer,
+    );
     if (propertyPointerForFiles && pointerHasBase(propertyPointerForFiles)) {
-      writeRawRelationshipFile(
+      writeSimpleRelationshipFile(
         "property_has_file",
         rec.idx,
         clonePointerPayload(propertyPointerForFiles),
