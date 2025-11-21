@@ -626,6 +626,10 @@ function createDefaultLayout(
   const spaceIndex = spaceTypeCounters[spaceType];
 
   return {
+    source_http_request: {
+      method: "GET",
+      url: `https://apps.paslc.gov/rerecordcard, '')}`
+    },
     request_identifier: `${parcelId}_${spaceType.toLowerCase().replace(/\s/g, '')}_${spaceIndex}`,
     space_type: spaceType,
     space_index: spaceIndex, // Now uses the type-specific index
@@ -881,6 +885,21 @@ function extractLayouts($, parcelId) {
         floorLayout.is_finished = true; // Floors are generally considered "finished"
         allLayouts.push(floorLayout);
 
+        // Add relationship: Building has Floor
+        allRelationships.push({
+          from: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: buildingSpaceIndex,
+          },
+          to: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: floorLayout.space_index,
+          },
+          type: "layout_has_layout" // Relationship type
+        });
+
         // Add rooms to the current floor
         for (let i = 0; i < bedrooms; i++) {
           const roomSpaceTypeIndex = nextFloorTypeIndex(b, floorNum, "Bedroom");
@@ -895,6 +914,20 @@ function extractLayouts($, parcelId) {
           roomLayout.flooring_material_type = interiorFlooring;
           roomLayout.is_finished = true;
           allLayouts.push(roomLayout);
+          // Relationship: Floor has Bedroom
+          allRelationships.push({
+            from: {
+              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+              space_index: floorLayout.space_index,
+            },
+            to: {
+              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+              space_index: roomLayout.space_index,
+            },
+            type: "layout_has_layout"
+          });
         }
         for (let i = 0; i < fullBaths; i++) {
           const roomSpaceTypeIndex = nextFloorTypeIndex(b, floorNum, "Full Bathroom");
@@ -910,6 +943,19 @@ function extractLayouts($, parcelId) {
           roomLayout.is_finished = true;
           allLayouts.push(roomLayout);
           // Relationship: Floor has Full Bathroom
+          allRelationships.push({
+            from: {
+              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+              space_index: floorLayout.space_index,
+            },
+            to: {
+              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+              space_index: roomLayout.space_index,
+            },
+            type: "layout_has_layout"
+          });
         }
         for (let i = 0; i < halfBaths; i++) {
           const roomSpaceTypeIndex = nextFloorTypeIndex(b, floorNum, "Half Bathroom / Powder Room");
@@ -924,6 +970,20 @@ function extractLayouts($, parcelId) {
           roomLayout.flooring_material_type = interiorFlooring;
           roomLayout.is_finished = true;
           allLayouts.push(roomLayout);
+          // Relationship: Floor has Half Bathroom
+          allRelationships.push({
+            from: {
+              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+              space_index: floorLayout.space_index,
+            },
+            to: {
+              data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+              file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+              space_index: roomLayout.space_index,
+            },
+            type: "layout_has_layout"
+          });
         }
       }
     } else {
@@ -941,6 +1001,20 @@ function extractLayouts($, parcelId) {
         roomLayout.flooring_material_type = interiorFlooring;
         roomLayout.is_finished = true;
         allLayouts.push(roomLayout);
+        // Relationship: Building has Bedroom
+        allRelationships.push({
+          from: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: buildingSpaceIndex,
+          },
+          to: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: roomLayout.space_index,
+          },
+          type: "layout_has_layout"
+        });
       }
       for (let i = 0; i < fullBaths; i++) {
         const roomSpaceTypeIndex = nextBuildingTypeIndex(b, "Full Bathroom");
@@ -956,6 +1030,19 @@ function extractLayouts($, parcelId) {
         roomLayout.is_finished = true;
         allLayouts.push(roomLayout);
         // Relationship: Building has Full Bathroom
+        allRelationships.push({
+          from: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: buildingSpaceIndex,
+          },
+          to: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: roomLayout.space_index,
+          },
+          type: "layout_has_layout"
+        });
       }
       for (let i = 0; i < halfBaths; i++) {
         const roomSpaceTypeIndex = nextBuildingTypeIndex(b, "Half Bathroom / Powder Room");
@@ -971,6 +1058,19 @@ function extractLayouts($, parcelId) {
         roomLayout.is_finished = true;
         allLayouts.push(roomLayout);
         // Relationship: Building has Half Bathroom
+        allRelationships.push({
+          from: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: buildingSpaceIndex,
+          },
+          to: {
+            data_group_cid: "bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue", // Placeholder CID
+            file_path: `/tmp/elephant-cli-zip-VDBqkS/data/bafkreicg7ab2lewkld6zubmc3amlejwz2y7s7yivu23mbgqfox7ovqvrue.json`, // Placeholder path
+            space_index: roomLayout.space_index,
+          },
+          type: "layout_has_layout"
+        });
       }
     }
   }
