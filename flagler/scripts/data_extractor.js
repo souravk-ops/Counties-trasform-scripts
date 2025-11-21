@@ -3598,6 +3598,17 @@ function writeOrientedRelationshipRecord(
   );
 }
 
+function writeValidatedRelationship(type, index, fromPointer, toPointer) {
+  if (!type || !fromPointer || !toPointer) return;
+  const suffix =
+    index === undefined ||
+    index === null ||
+    (typeof index === "string" && index.trim() === "")
+      ? undefined
+      : String(index).trim();
+  writeRelationshipPayloadFile(type, suffix, fromPointer, toPointer);
+}
+
 function extractPointerForDirectRelationship(pointer, hintSide = {}) {
   if (!pointer || typeof pointer !== "object") return null;
   const sanitized = {};
@@ -3669,7 +3680,7 @@ function writeSalesRelationshipPayloads(
       return;
     }
 
-    writeOrientedRelationshipRecord(
+    writeValidatedRelationship(
       "sales_history_has_deed",
       rec.idx,
       salePointer,
@@ -3683,7 +3694,7 @@ function writeSalesRelationshipPayloads(
         ["request_identifier"],
       );
       if (filePointer) {
-        writeOrientedRelationshipRecord(
+        writeValidatedRelationship(
           "deed_has_file",
           rec.idx,
           deedPointer,
@@ -3693,7 +3704,7 @@ function writeSalesRelationshipPayloads(
     }
 
     if (propertyPointer) {
-      writeOrientedRelationshipRecord(
+      writeValidatedRelationship(
         "property_has_sales_history",
         rec.idx,
         propertyPointer,
@@ -3937,11 +3948,14 @@ function writeLayout(parcelId, context) {
   if (!layouts) return;
   const key = `property_${parcelId}`;
   const record = (layouts[key] && layouts[key].layouts) ? layouts[key].layouts : [];
-  const propertyLayoutSchema =
-    STRICT_RELATIONSHIP_SCHEMAS.property_has_layout || {
-      from: {},
-      to: {},
-    };
+  const propertyFilename =
+    (context &&
+      typeof context.propertyFile === "string" &&
+      context.propertyFile.trim()) ||
+    "property.json";
+  const propertyPointer = fs.existsSync(path.join("data", propertyFilename))
+    ? buildPointerPayloadFromFilename(propertyFilename)
+    : null;
   let layoutCounter = 0;
   record.forEach((l) => {
     const layoutIdx = layoutCounter + 1;
@@ -4006,62 +4020,22 @@ function writeLayout(parcelId, context) {
     attachSourceHttpRequest(out, defaultSourceHttpRequest);
     const layoutFilename = `layout_${layoutCounter}.json`;
     writeJSON(path.join("data", layoutFilename), out);
-    if (context && fs.existsSync(path.join("data", "property.json"))) {
-      const propertyPointer = buildPointerForWrite(
-        (typeof context.propertyFile === "string" &&
-          context.propertyFile.trim()) ||
-          "property.json",
-      );
-      const layoutPointer = buildLayoutPointer(
+    if (propertyPointer && out.space_type_index) {
+      const layoutPointer = buildPointerPayloadFromFilename(
         layoutFilename,
-        String(normalizedIndexValue).trim(),
+        { space_type_index: out.space_type_index },
+        ["space_type_index"],
       );
-      const strictPropertyPointer =
-        propertyPointer &&
-        buildStrictPointerForSchema(
-          propertyPointer,
-          propertyLayoutSchema.from || {},
-        );
-      const strictLayoutPointer =
+      if (
         layoutPointer &&
-        buildStrictPointerForSchema(
-          layoutPointer,
-          propertyLayoutSchema.to || {},
-        );
-      if (strictPropertyPointer && strictLayoutPointer) {
-        writeOrientedRelationshipRecord(
+        Object.prototype.hasOwnProperty.call(layoutPointer, "space_type_index")
+      ) {
+        writeValidatedRelationship(
           "property_has_layout",
           layoutCounter,
-          strictPropertyPointer,
-          strictLayoutPointer,
+          propertyPointer,
+          layoutPointer,
         );
-      } else if (strictPropertyPointer) {
-        const recoveredIndex =
-          out.space_type_index != null &&
-          String(out.space_type_index).trim() !== ""
-            ? String(out.space_type_index).trim()
-            : null;
-        if (recoveredIndex) {
-          const fallbackLayoutPointer = buildPointerForWrite(
-            layoutFilename,
-            { space_type_index: recoveredIndex },
-            ["space_type_index"],
-          );
-          const strictFallbackPointer =
-            fallbackLayoutPointer &&
-            buildStrictPointerForSchema(
-              fallbackLayoutPointer,
-              propertyLayoutSchema.to || {},
-            );
-          if (strictFallbackPointer) {
-            writeOrientedRelationshipRecord(
-              "property_has_layout",
-              layoutCounter,
-              strictPropertyPointer,
-              strictFallbackPointer,
-            );
-          }
-        }
       }
     }
   });
