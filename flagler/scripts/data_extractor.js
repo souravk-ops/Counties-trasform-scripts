@@ -410,10 +410,14 @@ function orientRelationshipPointers(type, fromPointer, toPointer, hint = RELATIO
     return null;
   }
   const activeHint = hint || {};
+  const allowSwap = !(activeHint.preventSwap === true);
   const fromMatches = pointerMatchesHint(fromPointer, activeHint.from);
   const toMatches = pointerMatchesHint(toPointer, activeHint.to);
   if (fromMatches && toMatches) {
     return { from: fromPointer, to: toPointer };
+  }
+  if (!allowSwap) {
+    return null;
   }
   const swappedFromMatches = pointerMatchesHint(toPointer, activeHint.from);
   const swappedToMatches = pointerMatchesHint(fromPointer, activeHint.to);
@@ -1026,12 +1030,13 @@ function finalizeRelationshipPointerPayload(pointer, hintSide = {}) {
       ? basePath
       : `cid:${basePath}`;
     sanitized.cid = normalizedCid;
-  } else if (
-    /^[a-z]+:/i.test(basePath) &&
-    !basePath.startsWith("./")
-  ) {
-    sanitized.uri = basePath.trim();
   } else {
+    if (
+      /^[a-z]+:/i.test(basePath) &&
+      !basePath.startsWith("./")
+    ) {
+      return null;
+    }
     const normalizedRelative = normalizePointerPath(basePath);
     if (!normalizedRelative) return null;
     sanitized["/"] = normalizedRelative;
@@ -1958,15 +1963,21 @@ function writeRelationshipRecordSimple(
 ) {
   if (!type) return;
   const hint = RELATIONSHIP_HINTS[type] || {};
+  const fromHint = hint.from || {};
+  const toHint = hint.to || {};
   const preparedFrom = sanitizeRelationshipPointerSimple(
     fromPointer,
-    hint.from || {},
+    fromHint,
   );
   const preparedTo = sanitizeRelationshipPointerSimple(
     toPointer,
-    hint.to || {},
+    toHint,
   );
   if (!preparedFrom || !preparedTo) return;
+  stripForbiddenPointerKeys(preparedFrom);
+  stripForbiddenPointerKeys(preparedTo);
+  pruneToAllowedPointerKeys(preparedFrom, fromHint);
+  pruneToAllowedPointerKeys(preparedTo, toHint);
   const suffix =
     index === undefined ||
     index === null ||
@@ -2854,9 +2865,13 @@ function buildPointerFromCandidateForRepair(candidate, hintSide = {}) {
     pointer.cid = normalizedBase.startsWith("cid:")
       ? normalizedBase
       : `cid:${normalizedBase}`;
-  } else if (/^[a-z]+:/i.test(normalizedBase) && !normalizedBase.startsWith("./")) {
-    pointer.uri = normalizedBase.trim();
   } else {
+    if (
+      /^[a-z]+:/i.test(normalizedBase) &&
+      !normalizedBase.startsWith("./")
+    ) {
+      return null;
+    }
     const ensured = normalizePointerPath(normalizedBase);
     if (!ensured) return null;
     pointer["/"] = ensured;
@@ -2974,6 +2989,18 @@ function repairRelationshipDirectory(type, hint = {}) {
     if (JSON.stringify(payload) !== JSON.stringify(nextPayload)) {
       writeJSON(fullPath, nextPayload);
     }
+  });
+}
+
+function repairAllManagedRelationships() {
+  Object.entries(RELATIONSHIP_HINTS).forEach(([type, hint]) => {
+    const repairHint = {
+      ...(hint || {}),
+      preventSwap: false,
+      from: hint && hint.from ? { ...hint.from } : {},
+      to: hint && hint.to ? { ...hint.to } : {},
+    };
+    repairRelationshipDirectory(type, repairHint);
   });
 }
 
@@ -4517,6 +4544,7 @@ function main() {
   // Address last
   const secTwpRng = extractSecTwpRng($);
   attemptWriteAddress(unnormalized, secTwpRng, context);
+  repairAllManagedRelationships();
 }
 
 if (require.main === module) {
