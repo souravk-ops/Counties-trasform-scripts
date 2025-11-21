@@ -230,9 +230,7 @@ function writeSimpleRelationshipFile(type, index, fromPointer, toPointer) {
   const preparedFrom = preparePointerForRelationship(type, fromPointer, "from");
   const preparedTo = preparePointerForRelationship(type, toPointer, "to");
   if (!preparedFrom || !preparedTo) return;
-  const suffix =
-    index === undefined || index === null || index === "" ? undefined : index;
-  writeRelationship(type, preparedFrom, preparedTo, suffix);
+  writeStrictRelationshipRecord(type, index, preparedFrom, preparedTo);
 }
 
 function canonicalizeRelationshipPointer(pointerInput, hintSide = {}) {
@@ -365,6 +363,62 @@ function writeRelationshipPayloadFile(
     from: preparedFrom,
     to: preparedTo,
   });
+}
+
+function orientRelationshipPointers(type, fromPointer, toPointer, hint = RELATIONSHIP_HINTS[type] || {}) {
+  if (!fromPointer || !toPointer) {
+    return null;
+  }
+  const activeHint = hint || {};
+  const fromMatches = pointerMatchesHint(fromPointer, activeHint.from);
+  const toMatches = pointerMatchesHint(toPointer, activeHint.to);
+  if (fromMatches && toMatches) {
+    return { from: fromPointer, to: toPointer };
+  }
+  const swappedFromMatches = pointerMatchesHint(toPointer, activeHint.from);
+  const swappedToMatches = pointerMatchesHint(fromPointer, activeHint.to);
+  if (swappedFromMatches && swappedToMatches) {
+    // Swap the endpoints when the intent is obvious to keep the payload schema-valid.
+    return { from: toPointer, to: fromPointer };
+  }
+  return null;
+}
+
+function writeStrictRelationshipRecord(
+  type,
+  index,
+  fromPointer,
+  toPointer,
+) {
+  if (!type || !fromPointer || !toPointer) return;
+  const hint = RELATIONSHIP_HINTS[type] || {};
+  const schema = STRICT_RELATIONSHIP_SCHEMAS[type] || {};
+  const preparedFrom = preparePointerForRelationshipOutput(
+    fromPointer,
+    hint.from,
+    schema.from,
+  );
+  const preparedTo = preparePointerForRelationshipOutput(
+    toPointer,
+    hint.to,
+    schema.to,
+  );
+  if (!preparedFrom || !preparedTo) return;
+  const oriented = orientRelationshipPointers(
+    type,
+    preparedFrom,
+    preparedTo,
+    hint,
+  );
+  if (!oriented) return;
+  const suffix =
+    index === undefined ||
+    index === null ||
+    (typeof index === "string" && index.trim() === "")
+      ? undefined
+      : String(index).trim();
+  const targetPath = resolveRelationshipFilePath(type, suffix);
+  writeJSON(targetPath, oriented);
 }
 
 function writeCanonicalRelationshipRecord(type, index, fromPointer, toPointer) {
@@ -773,6 +827,35 @@ function sanitizePointerExtraValue(key, raw) {
   }
   const trimmed = typeof raw === "string" ? raw.trim() : String(raw).trim();
   return trimmed || null;
+}
+
+function ensurePointerExtrasFromSource(pointer, source, keys) {
+  if (
+    !pointer ||
+    typeof pointer !== "object" ||
+    !source ||
+    typeof source !== "object" ||
+    !Array.isArray(keys) ||
+    keys.length === 0
+  ) {
+    return pointer;
+  }
+  keys.forEach((key) => {
+    if (!key) return;
+    if (
+      Object.prototype.hasOwnProperty.call(pointer, key) &&
+      pointer[key] != null &&
+      String(pointer[key]).trim() !== ""
+    ) {
+      return;
+    }
+    if (!Object.prototype.hasOwnProperty.call(source, key)) return;
+    const normalized = sanitizePointerExtraValue(key, source[key]);
+    if (normalized != null) {
+      pointer[key] = normalized;
+    }
+  });
+  return pointer;
 }
 
 function resolvePointerBasePath(pointer) {
@@ -3659,8 +3742,13 @@ function writeSalesRelationshipPayloads(
     : null;
 
   processedSales.forEach((rec) => {
-    const salePointer = buildPointerPayloadFromFilename(
+    let salePointer = buildPointerPayloadFromFilename(
       rec.saleFilename,
+      rec.saleNode,
+      ["ownership_transfer_date", "request_identifier"],
+    );
+    salePointer = ensurePointerExtrasFromSource(
+      salePointer,
       rec.saleNode,
       ["ownership_transfer_date", "request_identifier"],
     );
