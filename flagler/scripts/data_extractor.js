@@ -1541,6 +1541,108 @@ function pointerHasBase(pointer) {
   });
 }
 
+function coercePointerToHintedKeys(pointer, hintSide = {}) {
+  if (!pointer || typeof pointer !== "object") return null;
+  const cleaned = {};
+  POINTER_BASE_KEYS.forEach((baseKey) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, baseKey)) return;
+    const raw = pointer[baseKey];
+    if (typeof raw !== "string") return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    if (baseKey === "/") {
+      const normalized = normalizePointerPath(trimmed);
+      if (normalized) {
+        cleaned["/"] = normalized;
+      }
+      return;
+    }
+    cleaned[baseKey] = trimmed;
+  });
+  if (!pointerHasBase(cleaned)) {
+    return null;
+  }
+
+  const allowedExtras = Array.isArray(hintSide.allowedExtras)
+    ? hintSide.allowedExtras.map((key) => String(key))
+    : [];
+  const requiredExtras = Array.isArray(hintSide.requiredExtras)
+    ? hintSide.requiredExtras.map((key) => String(key))
+    : [];
+  const extrasToCopy = Array.from(
+    new Set([...allowedExtras, ...requiredExtras].filter(Boolean)),
+  );
+  extrasToCopy.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(pointer, key)) return;
+    const normalizedValue = sanitizePointerExtraValue(key, pointer[key]);
+    if (normalizedValue != null) {
+      cleaned[key] = normalizedValue;
+    }
+  });
+  const missingRequired = requiredExtras.some(
+    (key) =>
+      !Object.prototype.hasOwnProperty.call(cleaned, key) ||
+      cleaned[key] == null ||
+      String(cleaned[key]).trim() === "",
+  );
+  if (missingRequired) {
+    return null;
+  }
+
+  stripForbiddenPointerKeys(cleaned);
+  if (hintSide && Array.isArray(hintSide.disallowExtras)) {
+    stripDisallowedExtras(cleaned, hintSide.disallowExtras);
+  }
+  pruneToAllowedPointerKeys(cleaned, hintSide);
+  return cleaned;
+}
+
+function enforceRelationshipPointerWhitelists(types) {
+  if (!Array.isArray(types) || types.length === 0) return;
+  types.forEach((type) => {
+    if (typeof type !== "string") return;
+    const relationshipType = type.trim();
+    if (!relationshipType) return;
+    const hint = RELATIONSHIP_HINTS[relationshipType];
+    if (!hint) return;
+    const dirPath = path.join("relationships", relationshipType);
+    let entries;
+    try {
+      entries = fs
+        .readdirSync(dirPath)
+        .filter((filename) => /\.json$/i.test(filename));
+    } catch (err) {
+      if (err && err.code === "ENOENT") return;
+      throw err;
+    }
+    entries.forEach((filename) => {
+      const fullPath = path.join(dirPath, filename);
+      let payload;
+      try {
+        payload = JSON.parse(fs.readFileSync(fullPath, "utf8"));
+      } catch (err) {
+        return;
+      }
+      if (!payload || typeof payload !== "object") return;
+      let mutated = false;
+      ["from", "to"].forEach((side) => {
+        const pointer = payload[side];
+        const hintSide = hint[side];
+        if (!hintSide) return;
+        const coerced = coercePointerToHintedKeys(pointer, hintSide);
+        if (!coerced) return;
+        if (JSON.stringify(coerced) !== JSON.stringify(pointer)) {
+          payload[side] = coerced;
+          mutated = true;
+        }
+      });
+      if (mutated) {
+        writeJSON(fullPath, payload);
+      }
+    });
+  });
+}
+
 function sanitizePointerMetaForRelationship(meta, hintSide) {
   if (!meta || !meta.pointerRaw || typeof meta.pointerRaw !== "object") {
     return null;
@@ -4843,6 +4945,11 @@ function main() {
     "sales_history_has_deed",
     "file_has_fact_sheet",
     "layout_has_fact_sheet",
+  ]);
+  enforceRelationshipPointerWhitelists([
+    "deed_file",
+    "deed_has_file",
+    "property_has_file",
   ]);
   removeRelationshipDirectories(["file_has_fact_sheet", "layout_has_fact_sheet"]);
 }
