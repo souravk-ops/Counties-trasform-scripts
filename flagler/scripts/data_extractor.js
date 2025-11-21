@@ -2261,6 +2261,30 @@ const STRICT_RELATIONSHIP_SCHEMAS = {
       requiredExtras: ["ownership_transfer_date"],
     },
   },
+  file_has_fact_sheet: {
+    from: {
+      pathPrefixes: ["file_"],
+      allowedExtras: ["request_identifier"],
+      requiredExtras: [],
+    },
+    to: {
+      pathPrefixes: ["fact_sheet"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  },
+  layout_has_fact_sheet: {
+    from: {
+      pathPrefixes: ["layout_"],
+      allowedExtras: ["space_type_index"],
+      requiredExtras: ["space_type_index"],
+    },
+    to: {
+      pathPrefixes: ["fact_sheet"],
+      allowedExtras: [],
+      requiredExtras: [],
+    },
+  },
 };
 
 const RELATIONSHIP_POINTER_RULES = {
@@ -4552,11 +4576,7 @@ function attemptWriteAddress(unnorm, secTwpRng, context) {
   if (secTwpRng && secTwpRng.township) address.township = secTwpRng.township;
   if (secTwpRng && secTwpRng.range) address.range = secTwpRng.range;
 
-  const shouldPreferUnnormalized = Boolean(unnormalizedValue);
-
-  if (shouldPreferUnnormalized) {
-    address.unnormalized_address = unnormalizedValue;
-  } else if (hasCompleteNormalizedAddress) {
+  if (hasCompleteNormalizedAddress) {
     const [
       streetNumber,
       streetName,
@@ -4666,6 +4686,16 @@ function main() {
   const secTwpRng = extractSecTwpRng($);
   attemptWriteAddress(unnormalized, secTwpRng, context);
   repairAllManagedRelationships();
+  enforceRelationshipSchemaRules([
+    "deed_file",
+    "deed_has_file",
+    "property_has_file",
+    "property_has_layout",
+    "property_has_sales_history",
+    "sales_history_has_deed",
+    "file_has_fact_sheet",
+    "layout_has_fact_sheet",
+  ]);
 }
 
 if (require.main === module) {
