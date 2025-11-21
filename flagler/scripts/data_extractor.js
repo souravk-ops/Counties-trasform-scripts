@@ -2890,16 +2890,57 @@ function normalizeManagedRelationshipPayloads() {
   removeRelationshipDirectories(["file_has_fact_sheet", "layout_has_fact_sheet"]);
 }
 
-function buildPointerFromCandidateForRepair(candidate, hintSide = {}) {
-  if (!candidate) return null;
+function inferPointerFromRepairContext(context = {}) {
+  const { relationshipType, side, filename } = context;
+  if (
+    !relationshipType ||
+    !side ||
+    typeof filename !== "string" ||
+    !filename.trim()
+  ) {
+    return null;
+  }
+  const normalizedName = filename.replace(/\.json$/i, "").trim();
+  if (!/^\d+$/.test(normalizedName)) return null;
+  const index = Number(normalizedName);
+  if (!Number.isFinite(index) || index <= 0) return null;
+
+  if (
+    relationshipType === "deed_has_file" ||
+    relationshipType === "deed_file"
+  ) {
+    const targetFilename =
+      side === "from" ? `deed_${index}.json` : `file_${index}.json`;
+    return buildPointerPayloadFromFilename(targetFilename);
+  }
+
+  if (relationshipType === "property_has_file" && side === "to") {
+    return buildPointerPayloadFromFilename(`file_${index}.json`);
+  }
+
+  return null;
+}
+
+function buildPointerFromCandidateForRepair(
+  candidate,
+  hintSide = {},
+  context = {},
+) {
+  if (!candidate) {
+    return inferPointerFromRepairContext(context);
+  }
   let pointerSource = candidate;
   if (typeof candidate === "string") {
     pointerSource = pointerFromRelativePath(candidate);
   }
-  if (!pointerSource || typeof pointerSource !== "object") return null;
+  if (!pointerSource || typeof pointerSource !== "object") {
+    return inferPointerFromRepairContext(context);
+  }
 
   const basePath = resolvePointerBasePath(pointerSource);
-  if (!basePath) return null;
+  if (!basePath) {
+    return inferPointerFromRepairContext(context);
+  }
 
   let normalizedBase = basePath;
   if (!/^([a-z]+:)/i.test(basePath) || basePath.startsWith("./")) {
@@ -2977,7 +3018,10 @@ function buildPointerFromCandidateForRepair(candidate, hintSide = {}) {
     allowedExtras,
     requiredExtras,
   });
-  return pointerHasBase(pointer) ? pointer : null;
+  if (pointerHasBase(pointer)) {
+    return pointer;
+  }
+  return inferPointerFromRepairContext(context);
 }
 
 function repairRelationshipDirectory(type, hint = {}) {
@@ -3029,10 +3073,12 @@ function repairRelationshipDirectory(type, hint = {}) {
     const normalizedFrom = buildPointerFromCandidateForRepair(
       fromCandidate,
       fromHint,
+      { relationshipType, side: "from", filename },
     );
     const normalizedTo = buildPointerFromCandidateForRepair(
       toCandidate,
       toHint,
+      { relationshipType, side: "to", filename },
     );
 
     if (!normalizedFrom || !normalizedTo) {
