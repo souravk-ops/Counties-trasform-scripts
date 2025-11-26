@@ -4,7 +4,8 @@
 // - Utilities from owners/utilities_data.json
 // - Layout from owners/layout_data.json
 // - Sales/Tax/Deed from input.html
-// - Writes outputs to ./data/
+// - Writes outputs to ./data/ 
+
 
 const fs = require("fs");
 const path = require("path");
