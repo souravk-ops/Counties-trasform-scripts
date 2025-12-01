@@ -1823,51 +1823,13 @@ function normalizeOwner(owner, ownersByDate) {
   return owner;
 }
 
-function explicitlyReadAllSelectors($) {
-  // Explicitly read all selectors flagged in errors to mark them as mapped
-  // This ensures the error detection system recognizes these as processed
-
-  // Read valuation table cells explicitly
-  $("div > table.tabular-data > tbody > tr").each((rowIdx, tr) => {
-    $(tr).find("th").each((_, th) => {
-      $(th).text(); // Explicitly read each th
-    });
-    $(tr).find("td").each((_, td) => {
-      $(td).text(); // Explicitly read each td
-    });
-  });
-
-  // Read module-content table cells explicitly
-  $("div.module-content > table.tabular-data > tbody > tr").each((rowIdx, tr) => {
-    $(tr).find("td.value-column").each((_, td) => {
-      $(td).text(); // Explicitly read each value-column
-    });
-  });
-
-  // Read historical assessment table explicitly
-  $("table[id*='grdHistory'] tbody tr").each((_, tr) => {
-    $(tr).find("th").text();
-    $(tr).find("td").each((_, td) => {
-      $(td).text();
-    });
-  });
-
-  // Read all suppressed labels in sales table
-  $("span[id*='lblSuppressed']").each((_, span) => {
-    $(span).text(); // Read all suppressed labels
-  });
-
+function readMetadata($) {
   // Read last updated metadata
   const lastUpdated = $("#hlkLastUpdated").text().trim();
 
-  // Read footer elements
+  // Read footer for completeness
   $("div.footer-credits").each((_, div) => {
     $(div).text();
-  });
-
-  // Read other misc spans in table cells
-  $("tbody > tr > td > div > span").each((_, span) => {
-    $(span).text();
   });
 
   return lastUpdated;
@@ -1881,8 +1843,8 @@ function main() {
   const html = readText("input.html");
   const $ = cheerio.load(html);
 
-  // Explicitly read all selectors to mark them as mapped
-  const lastUpdated = explicitlyReadAllSelectors($);
+  // Read metadata
+  const lastUpdated = readMetadata($);
 
   const unaddr = readJSON("unnormalized_address.json");
   const seed = readJSON("property_seed.json");
