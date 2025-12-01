@@ -412,6 +412,13 @@ function parseFloatSafe(str) {
   return Number.isFinite(n) ? n : null;
 }
 
+function pruneNullish(obj) {
+  Object.keys(obj).forEach((key) => {
+    if (obj[key] === null || obj[key] === undefined) delete obj[key];
+  });
+  return obj;
+}
+
 function normalizeId(value) {
   if (value == null) return null;
   const normalized = String(value).replace(/\s+/g, " ").trim();
@@ -3034,7 +3041,7 @@ function main() {
       first_year_on_tax_roll: null,
       first_year_building_on_tax_roll: null,
     };
-    writeJSON(path.join(dataDir, `tax_${work.year}.json`), tax);
+    writeJSON(path.join(dataDir, `tax_${work.year}.json`), pruneNullish(tax));
   }
 
   const certs = parseValuationsCertified($);
@@ -3058,7 +3065,7 @@ function main() {
       first_year_on_tax_roll: null,
       first_year_building_on_tax_roll: null,
     };
-    writeJSON(path.join(dataDir, `tax_${rec.year}.json`), tax);
+    writeJSON(path.join(dataDir, `tax_${rec.year}.json`), pruneNullish(tax));
   });
 
   const sales = parseSales($);
