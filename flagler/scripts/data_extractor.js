@@ -3100,7 +3100,7 @@ function main() {
       first_year_on_tax_roll: null,
       first_year_building_on_tax_roll: null,
     };
-    writeJSON(path.join(dataDir, `tax_${work.year}.json`), pruneNullish(tax));
+    writeJSON(path.join(dataDir, `tax_${work.year}.json`), tax);
   }
 
   const certs = parseValuationsCertified($);
@@ -3124,7 +3124,7 @@ function main() {
       first_year_on_tax_roll: null,
       first_year_building_on_tax_roll: null,
     };
-    writeJSON(path.join(dataDir, `tax_${rec.year}.json`), pruneNullish(tax));
+    writeJSON(path.join(dataDir, `tax_${rec.year}.json`), tax);
   });
 
   const sales = parseSales($);
