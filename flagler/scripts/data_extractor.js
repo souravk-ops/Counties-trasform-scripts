@@ -1753,7 +1753,15 @@ function parseHistoryTableValuations($) {
 
 function parseValuationsCertified($) {
   const tableData = readValuationTable($);
-  if (!tableData) return parseHistoryTableValuations($);
+  const historyData = parseHistoryTableValuations($);
+
+  // If neither table exists, return empty array
+  if (!tableData && (!historyData || !historyData.length)) return [];
+
+  // If only history table exists, return it
+  if (!tableData) return historyData;
+
+  // Process certified values table
   const { years, rowMap } = tableData;
   const labelFor = (primary, fallback) => {
     if (!primary) return null;
@@ -1809,6 +1817,20 @@ function parseValuationsCertified($) {
     };
     results.push(entry);
   });
+
+  // Merge with history data, avoiding duplicates by year
+  if (historyData && historyData.length) {
+    const existingYears = new Set(results.map(r => r.year));
+    historyData.forEach(historyEntry => {
+      if (!existingYears.has(historyEntry.year)) {
+        results.push(historyEntry);
+      }
+    });
+  }
+
+  // Sort by year descending
+  results.sort((a, b) => b.year - a.year);
+
   return results;
 }
 
