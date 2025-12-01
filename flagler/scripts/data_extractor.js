@@ -1569,39 +1569,47 @@ function parseValuationsWorking($) {
     }
     return null;
   };
+  const improvement = moneyToNumber(getValues(["building value", "improvement value"]));
+  const extraFeatures = moneyToNumber(getValues("extra features value"));
+  const land = moneyToNumber(getValues("land value"));
+  const landAgricultural = moneyToNumber(getValues("land agricultural value"));
+  const agriculturalMarket = moneyToNumber(getValues("agricultural (market) value"));
+  const justMarket = moneyToNumber(
+    getValues([
+      "just (market) value",
+      "just market value",
+      "market value",
+    ]),
+  );
+  const assessed = moneyToNumber(
+    getValues([
+      "assessed value",
+      "school assessed value",
+      "non school assessed value",
+    ]),
+  );
+  const exempt = moneyToNumber(getValues("exempt value"));
+  const taxable = moneyToNumber(
+    getValues([
+      "taxable value",
+      "school taxable value",
+      "non school taxable value",
+    ]),
+  );
+  const protected_ = moneyToNumber(getValues("protected value"));
+
   return {
     year,
-    improvement: moneyToNumber(getValues(["building value", "improvement value"])) || null,
-    extraFeatures: moneyToNumber(getValues("extra features value")) || null,
-    land: moneyToNumber(getValues("land value")) || null,
-    landAgricultural: moneyToNumber(getValues("land agricultural value")) || null,
-    agriculturalMarket: moneyToNumber(getValues("agricultural (market) value")) || null,
-    justMarket:
-      moneyToNumber(
-        getValues([
-          "just (market) value",
-          "just market value",
-          "market value",
-        ]),
-      ) || null,
-    assessed:
-      moneyToNumber(
-        getValues([
-          "assessed value",
-          "school assessed value",
-          "non school assessed value",
-        ]),
-      ) || null,
-    exempt: moneyToNumber(getValues("exempt value")) || null,
-    taxable:
-      moneyToNumber(
-        getValues([
-          "taxable value",
-          "school taxable value",
-          "non school taxable value",
-        ]),
-      ) || null,
-    protected: moneyToNumber(getValues("protected value")) || null,
+    improvement: improvement !== null ? improvement : null,
+    extraFeatures: extraFeatures !== null ? extraFeatures : null,
+    land: land !== null ? land : null,
+    landAgricultural: landAgricultural !== null ? landAgricultural : null,
+    agriculturalMarket: agriculturalMarket !== null ? agriculturalMarket : null,
+    justMarket: justMarket !== null ? justMarket : null,
+    assessed: assessed !== null ? assessed : null,
+    exempt: exempt !== null ? exempt : null,
+    taxable: taxable !== null ? taxable : null,
+    protected: protected_ !== null ? protected_ : null,
   };
 }
 
@@ -3082,14 +3090,15 @@ function main() {
   const work = parseValuationsWorking($);
   if (work) {
     const buildingTotal = (work.improvement || 0) + (work.extraFeatures || 0);
-    const agriculturalValue = work.agriculturalMarket || work.landAgricultural || null;
+    // Use nullish coalescing to properly handle 0 values
+    const agriculturalValue = work.agriculturalMarket != null ? work.agriculturalMarket :
+                              work.landAgricultural != null ? work.landAgricultural : null;
     const tax = {
       tax_year: work.year,
       property_assessed_value_amount: work.assessed || null,
       property_market_value_amount: work.justMarket || null,
       property_building_amount: buildingTotal > 0 ? buildingTotal : work.improvement || null,
       property_land_amount: work.land || null,
-      agricultural_valuation_amount: agriculturalValue,
       property_exemption_amount: work.exempt || null,
       property_taxable_value_amount: work.taxable || 0.0,
       homestead_cap_loss_amount: work.protected || null,
@@ -3100,20 +3109,25 @@ function main() {
       first_year_on_tax_roll: null,
       first_year_building_on_tax_roll: null,
     };
+    // Only include agricultural_valuation_amount if it's a number
+    if (typeof agriculturalValue === 'number' && !isNaN(agriculturalValue)) {
+      tax.agricultural_valuation_amount = agriculturalValue;
+    }
     writeJSON(path.join(dataDir, `tax_${work.year}.json`), tax);
   }
 
   const certs = parseValuationsCertified($);
   certs.forEach((rec) => {
     const buildingTotal = (rec.improvement || 0) + (rec.extraFeatures || 0);
-    const agriculturalValue = rec.agriculturalMarket || rec.landAgricultural || null;
+    // Use nullish coalescing to properly handle 0 values
+    const agriculturalValue = rec.agriculturalMarket != null ? rec.agriculturalMarket :
+                              rec.landAgricultural != null ? rec.landAgricultural : null;
     const tax = {
       tax_year: rec.year,
       property_assessed_value_amount: rec.assessed || null,
       property_market_value_amount: rec.justMarket || null,
       property_building_amount: buildingTotal > 0 ? buildingTotal : rec.improvement || null,
       property_land_amount: rec.land || null,
-      agricultural_valuation_amount: agriculturalValue,
       property_exemption_amount: rec.exempt || null,
       property_taxable_value_amount: rec.taxable || 0.0,
       homestead_cap_loss_amount: rec.protected || null,
@@ -3124,6 +3138,10 @@ function main() {
       first_year_on_tax_roll: null,
       first_year_building_on_tax_roll: null,
     };
+    // Only include agricultural_valuation_amount if it's a number
+    if (typeof agriculturalValue === 'number' && !isNaN(agriculturalValue)) {
+      tax.agricultural_valuation_amount = agriculturalValue;
+    }
     writeJSON(path.join(dataDir, `tax_${rec.year}.json`), tax);
   });
 
