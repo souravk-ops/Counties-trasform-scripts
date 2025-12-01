@@ -1216,6 +1216,29 @@ function parseAcres($) {
   return null;
 }
 
+function parseMillageRate($) {
+  const row = findSummaryRow($, ["millage rate"]);
+  if (row && row.text) {
+    const rate = parseFloatSafe(row.text);
+    if (rate != null) return rate;
+  }
+  return null;
+}
+
+function parseTaxDistrict($) {
+  const row = findSummaryRow($, ["tax district"]);
+  return row ? row.text : null;
+}
+
+function parseHomestead($) {
+  const row = findSummaryRow($, ["homestead"]);
+  if (row && row.text) {
+    const normalized = row.text.trim().toUpperCase();
+    return normalized === "Y" || normalized === "YES";
+  }
+  return null;
+}
+
 function parsePropertyUseCode($) {
   const row = findSummaryRow($, [/^property use/, /^property class/]);
   return row ? row.text : null;
@@ -2008,6 +2031,9 @@ function main() {
   const acres = parseAcres($);
   const propertyUseRaw = parsePropertyUseCode($);
   const propertyUse = mapPropertyUseCode(propertyUseRaw);
+  const millageRate = parseMillageRate($);
+  const taxDistrict = parseTaxDistrict($);
+  const homesteadStatus = parseHomestead($);
   const requestIdentifier =
     (unaddr && unaddr.request_identifier) ||
     (seed && seed.request_identifier) ||
@@ -3210,6 +3236,7 @@ function main() {
       property_exemption_amount: work.exempt != null ? work.exempt : null,
       property_taxable_value_amount: work.taxable != null ? work.taxable : 0,
       homestead_cap_loss_amount: work.protected != null ? work.protected : 0,
+      millage_rate: millageRate != null ? millageRate : null,
       monthly_tax_amount: null,
       period_end_date: null,
       period_start_date: null,
@@ -3239,6 +3266,7 @@ function main() {
       property_exemption_amount: rec.exempt != null ? rec.exempt : null,
       property_taxable_value_amount: rec.taxable != null ? rec.taxable : 0,
       homestead_cap_loss_amount: rec.protected != null ? rec.protected : 0,
+      millage_rate: millageRate != null ? millageRate : null,
       monthly_tax_amount: null,
       period_end_date: null,
       period_start_date: null,
