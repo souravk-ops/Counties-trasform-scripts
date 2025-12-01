@@ -1823,120 +1823,6 @@ function normalizeOwner(owner, ownersByDate) {
   return owner;
 }
 
-function readMetadata($) {
-  // Read last updated metadata
-  const lastUpdated = $("#hlkLastUpdated").text().trim();
-
-  // Read footer for completeness
-  $("div.footer-credits").each((_, div) => {
-    $(div).text();
-  });
-
-  return lastUpdated;
-}
-
-function ensureAllTableCellsRead($) {
-  // Explicitly read all cells from valuation and history tables to satisfy validator
-  // This ensures every selector mentioned in errors.csv is marked as processed
-
-  // Read all cells from grdValuation table
-  const valuationTable = $("table[id*='grdValuation']").first();
-  if (valuationTable && valuationTable.length) {
-    valuationTable.find("thead th").each((_, th) => {
-      $(th).text().trim();
-    });
-    valuationTable.find("tbody tr").each((_, tr) => {
-      $(tr).find("th").each((_, th) => {
-        $(th).text().trim();
-      });
-      $(tr).find("td").each((_, td) => {
-        $(td).text().trim();
-      });
-    });
-  }
-
-  // Read all cells from grdHistory table
-  const historyTable = $("table[id*='grdHistory']").first();
-  if (historyTable && historyTable.length) {
-    historyTable.find("thead th").each((_, th) => {
-      $(th).text().trim();
-    });
-    historyTable.find("tbody tr").each((_, tr) => {
-      $(tr).find("th").each((_, th) => {
-        $(th).text().trim();
-      });
-      $(tr).find("td").each((_, td) => {
-        $(td).text().trim();
-        // Also read any nested spans/divs
-        $(td).find("span, div").each((_, elem) => {
-          $(elem).text().trim();
-        });
-      });
-    });
-  }
-
-  // Read all cells from sales table
-  const salesTable = $("table[id*='grdSales']").first();
-  if (salesTable && salesTable.length) {
-    salesTable.find("thead th").each((_, th) => {
-      $(th).text().trim();
-    });
-    salesTable.find("tbody tr").each((_, tr) => {
-      $(tr).find("th").each((_, th) => {
-        $(th).text().trim();
-      });
-      $(tr).find("td").each((_, td) => {
-        $(td).text().trim();
-        // Read all span elements with IDs (like sprGrantor_lblSuppressed)
-        $(td).find("span[id*='spr']").each((_, span) => {
-          $(span).text().trim();
-        });
-        // Read all input elements
-        $(td).find("input").each((_, input) => {
-          $(input).attr("value");
-          $(input).attr("onclick");
-        });
-      });
-    });
-  }
-
-  // Read all tabular-data tables to catch any others
-  $("table.tabular-data").each((_, table) => {
-    $(table).find("thead th").each((_, th) => {
-      $(th).text().trim();
-    });
-    $(table).find("tbody tr").each((_, tr) => {
-      $(tr).find("th").each((_, th) => {
-        $(th).text().trim();
-      });
-      $(tr).find("td").each((_, td) => {
-        $(td).text().trim();
-        // Read nested elements
-        $(td).find("span, div").each((_, elem) => {
-          $(elem).text().trim();
-        });
-      });
-    });
-  });
-
-  // Read module-content tables
-  $("div.module-content table").each((_, table) => {
-    $(table).find("thead th").each((_, th) => {
-      $(th).text().trim();
-    });
-    $(table).find("tbody tr").each((_, tr) => {
-      $(tr).find("th").each((_, th) => {
-        $(th).text().trim();
-      });
-      $(tr).find("td").each((_, td) => {
-        $(td).text().trim();
-        $(td).find("span, div").each((_, elem) => {
-          $(elem).text().trim();
-        });
-      });
-    });
-  });
-}
 
 function main() {
   const dataDir = path.join(".", "data");
@@ -1945,12 +1831,6 @@ function main() {
 
   const html = readText("input.html");
   const $ = cheerio.load(html);
-
-  // Ensure all table cells are read to satisfy validator
-  ensureAllTableCellsRead($);
-
-  // Read metadata
-  const lastUpdated = readMetadata($);
 
   const unaddr = readJSON("unnormalized_address.json");
   const seed = readJSON("property_seed.json");
