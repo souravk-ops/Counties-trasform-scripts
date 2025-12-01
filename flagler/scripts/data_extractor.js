@@ -1564,8 +1564,11 @@ function parseValuationsWorking($) {
   };
   return {
     year,
-    improvement: moneyToNumber(getValues("improvement value")) || null,
+    improvement: moneyToNumber(getValues(["building value", "improvement value"])) || null,
+    extraFeatures: moneyToNumber(getValues("extra features value")) || null,
     land: moneyToNumber(getValues("land value")) || null,
+    landAgricultural: moneyToNumber(getValues("land agricultural value")) || null,
+    agriculturalMarket: moneyToNumber(getValues("agricultural (market) value")) || null,
     justMarket:
       moneyToNumber(
         getValues([
@@ -1582,6 +1585,7 @@ function parseValuationsWorking($) {
           "non school assessed value",
         ]),
       ) || null,
+    exempt: moneyToNumber(getValues("exempt value")) || null,
     taxable:
       moneyToNumber(
         getValues([
@@ -1590,6 +1594,7 @@ function parseValuationsWorking($) {
           "non school taxable value",
         ]),
       ) || null,
+    protected: moneyToNumber(getValues("protected value")) || null,
   };
 }
 
@@ -1619,9 +1624,45 @@ function readValuationTable($) {
   return { years, rowMap };
 }
 
+function parseHistoryTableValuations($) {
+  const table = $("table[id*='grdHistory']").first();
+  if (!table || !table.length) return [];
+
+  const results = [];
+  table.find("tbody tr").each((_, tr) => {
+    const $tr = $(tr);
+    const yearText = $tr.find("th").first().text().trim();
+    const year = parseIntSafe(yearText);
+    if (!year) return;
+
+    const cells = [];
+    $tr.find("td").each((_, td) => {
+      cells.push($(td).text().trim());
+    });
+
+    // Columns: Building Value, Extra Features, Land Value, Agricultural Value, Just Market, Assessed, Exempt, Taxable, Protected
+    if (cells.length >= 9) {
+      results.push({
+        year,
+        improvement: moneyToNumber(cells[0]),
+        extraFeatures: moneyToNumber(cells[1]),
+        land: moneyToNumber(cells[2]),
+        agriculturalMarket: moneyToNumber(cells[3]),
+        justMarket: moneyToNumber(cells[4]),
+        assessed: moneyToNumber(cells[5]),
+        exempt: moneyToNumber(cells[6]),
+        taxable: moneyToNumber(cells[7]),
+        protected: moneyToNumber(cells[8]),
+      });
+    }
+  });
+
+  return results;
+}
+
 function parseValuationsCertified($) {
   const tableData = readValuationTable($);
-  if (!tableData) return [];
+  if (!tableData) return parseHistoryTableValuations($);
   const { years, rowMap } = tableData;
   const labelFor = (primary, fallback) => {
     if (!primary) return null;
@@ -1637,7 +1678,7 @@ function parseValuationsCertified($) {
     labelFor("Just Market Value", "Just (Market) Value") ||
     labelFor("Market Value");
   const lblLand = labelFor("Land Value");
-  const lblImpr = labelFor("Improvement Value");
+  const lblImpr = labelFor("Improvement Value", "Building Value") || labelFor("Building Value");
   const lblAssessed = labelFor(
     "Assessed Value",
     "School Assessed Value",
@@ -1646,6 +1687,12 @@ function parseValuationsCertified($) {
     "Taxable Value",
     "School Taxable Value",
   ) || labelFor("Non School Taxable Value");
+
+  const lblExtraFeatures = labelFor("Extra Features Value");
+  const lblLandAgricultural = labelFor("Land Agricultural Value");
+  const lblAgriculturalMarket = labelFor("Agricultural (Market) Value");
+  const lblExempt = labelFor("Exempt Value");
+  const lblProtected = labelFor("Protected Value");
 
   const results = [];
   years.forEach((year, index) => {
@@ -1659,9 +1706,14 @@ function parseValuationsCertified($) {
     const entry = {
       year,
       improvement: valueAt(lblImpr),
+      extraFeatures: valueAt(lblExtraFeatures),
       land: valueAt(lblLand),
+      landAgricultural: valueAt(lblLandAgricultural),
+      agriculturalMarket: valueAt(lblAgriculturalMarket),
       assessed: valueAt(lblAssessed),
+      exempt: valueAt(lblExempt),
       taxable: valueAt(lblTaxable),
+      protected: valueAt(lblProtected),
       justMarket: just,
     };
     results.push(entry);
@@ -2963,13 +3015,18 @@ function main() {
 
   const work = parseValuationsWorking($);
   if (work) {
+    const buildingTotal = (work.improvement || 0) + (work.extraFeatures || 0);
+    const agriculturalValue = work.agriculturalMarket || work.landAgricultural || null;
     const tax = {
       tax_year: work.year,
       property_assessed_value_amount: work.assessed || null,
       property_market_value_amount: work.justMarket || null,
-      property_building_amount: work.improvement || null,
+      property_building_amount: buildingTotal > 0 ? buildingTotal : work.improvement || null,
       property_land_amount: work.land || null,
+      agricultural_valuation_amount: agriculturalValue,
+      property_exemption_amount: work.exempt || null,
       property_taxable_value_amount: work.taxable || 0.0,
+      homestead_cap_loss_amount: work.protected || null,
       monthly_tax_amount: null,
       period_end_date: null,
       period_start_date: null,
@@ -2982,13 +3039,18 @@ function main() {
 
   const certs = parseValuationsCertified($);
   certs.forEach((rec) => {
+    const buildingTotal = (rec.improvement || 0) + (rec.extraFeatures || 0);
+    const agriculturalValue = rec.agriculturalMarket || rec.landAgricultural || null;
     const tax = {
       tax_year: rec.year,
       property_assessed_value_amount: rec.assessed || null,
       property_market_value_amount: rec.justMarket || null,
-      property_building_amount: rec.improvement || null,
+      property_building_amount: buildingTotal > 0 ? buildingTotal : rec.improvement || null,
       property_land_amount: rec.land || null,
+      agricultural_valuation_amount: agriculturalValue,
+      property_exemption_amount: rec.exempt || null,
       property_taxable_value_amount: rec.taxable || 0.0,
+      homestead_cap_loss_amount: rec.protected || null,
       monthly_tax_amount: null,
       period_end_date: null,
       period_start_date: null,
