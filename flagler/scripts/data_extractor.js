@@ -2335,10 +2335,14 @@ function main() {
       permit_issue_date: permitIssueDate,
       completion_date: null,
       contractor_type: contractorType,
-      permit_required: permitNumber ? true : null,
-      fee: typeof estimatedCostAmount === "number" ? estimatedCostAmount : null,
+      permit_required: permitNumber ? true : false,
       request_identifier: improvementRequestId,
     };
+
+    // Only include fee if it's a valid number
+    if (typeof estimatedCostAmount === "number" && !isNaN(estimatedCostAmount)) {
+      improvement.fee = estimatedCostAmount;
+    }
 
     Object.keys(improvement).forEach((key) => {
       if (improvement[key] === undefined) {
@@ -2375,10 +2379,11 @@ function main() {
       permit_issue_date: null,
       completion_date: completionDate,
       contractor_type: "Unknown",
-      permit_required: null,
-      fee: null,
+      permit_required: false,
       request_identifier: improvementRequestId,
     };
+
+    // Don't include fee for extra features as they typically don't have associated costs in this context
 
     Object.keys(improvement).forEach((key) => {
       if (improvement[key] === undefined) {
