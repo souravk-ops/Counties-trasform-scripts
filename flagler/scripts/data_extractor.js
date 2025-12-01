@@ -1447,6 +1447,29 @@ function determinePropertyImprovementClass(permits) {
   return scored[0].type || null;
 }
 
+function parseSubAreaSqFtTable($) {
+  const table = $("table[id*='gvwSubAreaSqFtDetail']").first();
+  if (!table || !table.length) return [];
+
+  const rows = [];
+  table.find("tbody tr").each((_, tr) => {
+    const $tr = $(tr);
+    const type = cleanText($tr.find("th").first().text());
+    const cells = [];
+    $tr.find("td").each((idx, td) => {
+      cells.push(cleanText($(td).text()));
+    });
+    if (!type && !cells.some((val) => val && val.length > 0)) return;
+    rows.push({
+      type: type || null,
+      description: cells[0] || null,
+      sqFootage: cells[1] || null,
+      actYear: cells[2] || null,
+    });
+  });
+  return rows;
+}
+
 function parseExtraFeaturesTable($) {
   const section = findSectionByTitle($, ["Extra Features"]);
   if (!section) return [];
@@ -1976,6 +1999,7 @@ function main() {
 
   const permitEntries = parsePermitTable($);
   const extraFeatures = parseExtraFeaturesTable($);
+  const subAreas = parseSubAreaSqFtTable($);
   const propertyImprovementClass =
     determinePropertyImprovementClass(permitEntries);
 
@@ -2459,7 +2483,7 @@ function main() {
 
   const normalizedBuildings = Array.isArray(layoutBuildings)
     ? layoutBuildings.map((building, idx) => {
-        const subAreas = Array.isArray(building && building.sub_areas)
+        const subAreasFromLayout = Array.isArray(building && building.sub_areas)
           ? building.sub_areas.map((entry) => ({
               description:
                 entry && entry.description != null
@@ -2470,6 +2494,14 @@ function main() {
               square_feet: parseIntSafe(entry && entry.square_feet),
             }))
           : [];
+        // Merge with parsed HTML subAreas if no layout subAreas exist
+        const mergedSubAreas = subAreasFromLayout.length
+          ? subAreasFromLayout
+          : subAreas.map((sa) => ({
+              description: sa.description,
+              type: sa.type,
+              square_feet: parseIntSafe(sa.sqFootage),
+            }));
         return {
           index: idx + 1,
           type:
@@ -2512,7 +2544,7 @@ function main() {
                 ? building.stories
                 : null,
             ) || null,
-          subAreas,
+          subAreas: mergedSubAreas,
         };
       })
     : [];
@@ -2588,6 +2620,7 @@ function main() {
         path,
         childPaths: [],
         childCount: 0,
+        subAreasFromHTML: i === 0 ? subAreas : [], // Assign subAreas to first building
       });
     }
   }
@@ -2660,6 +2693,20 @@ function main() {
                 floor_level: "1st Floor",
                 size_square_feet:
                   subArea.square_feet != null ? subArea.square_feet : null,
+              }),
+            );
+          });
+        } else if (info.subAreasFromHTML && info.subAreasFromHTML.length) {
+          // Use HTML subAreas if no metadata available
+          info.subAreasFromHTML.forEach((subArea) => {
+            const label = titleCase(
+              subArea.description || subArea.type || "Sub Area",
+            );
+            attachLayoutToBuilding(
+              info.index,
+              createLayoutRecord(label, {
+                floor_level: "1st Floor",
+                size_square_feet: parseIntSafe(subArea.sqFootage),
               }),
             );
           });
