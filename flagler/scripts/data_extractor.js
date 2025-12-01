@@ -1447,6 +1447,53 @@ function determinePropertyImprovementClass(permits) {
   return scored[0].type || null;
 }
 
+function parseExtraFeaturesTable($) {
+  const section = findSectionByTitle($, ["Extra Features"]);
+  if (!section) return [];
+  const table = section.find("table[id*='gvwExtraFeatures']").first();
+  if (!table || !table.length) return [];
+
+  const rows = [];
+  table.find("tbody tr").each((_, tr) => {
+    const $tr = $(tr);
+    const code = cleanText($tr.find("th").first().text());
+    const cells = [];
+    $tr.find("td").each((idx, td) => {
+      cells.push(cleanText($(td).text()));
+    });
+    if (!code && !cells.some((val) => val && val.length > 0)) return;
+    rows.push({
+      code: code || null,
+      description: cells[0] || null,
+      area: cells[1] || null,
+      effectiveYearBuilt: cells[2] || null,
+    });
+  });
+  return rows;
+}
+
+function mapExtraFeatureToImprovementType(description) {
+  if (!description) return "GeneralBuilding";
+  const upper = description.toUpperCase();
+  if (upper.includes("FIREPLACE")) return "GeneralBuilding";
+  if (upper.includes("DRIVEWAY") || upper.includes("DRWAY") || upper.includes("DRIV")) {
+    return "SiteDevelopment";
+  }
+  if (upper.includes("WALKWAY") || upper.includes("WLKWAY") || upper.includes("WALK")) {
+    return "SiteDevelopment";
+  }
+  if (upper.includes("FENCE") || upper.includes("FENC")) return "Fencing";
+  if (upper.includes("STORAGE") || upper.includes("SHED") || upper.includes("BLDG")) {
+    return "BuildingAddition";
+  }
+  if (upper.includes("POOL")) return "PoolSpaInstallation";
+  if (upper.includes("DECK")) return "BuildingAddition";
+  if (upper.includes("PATIO") || upper.includes("PAT")) return "SiteDevelopment";
+  if (upper.includes("PORCH")) return "ScreenEnclosure";
+  if (upper.includes("GARAGE") || upper.includes("CARPORT")) return "BuildingAddition";
+  return "GeneralBuilding";
+}
+
 function parsePermitTable($) {
   const section = findSectionByTitle($, "Permits");
   if (!section) return [];
@@ -1928,6 +1975,7 @@ function main() {
   const companyLookup = new Map();
 
   const permitEntries = parsePermitTable($);
+  const extraFeatures = parseExtraFeaturesTable($);
   const propertyImprovementClass =
     determinePropertyImprovementClass(permitEntries);
 
@@ -2257,6 +2305,8 @@ function main() {
   });
 
   const propertyImprovementOutputs = [];
+
+  // Process permit entries
   permitEntries.forEach((permit, idx) => {
     const improvementType =
       mapPermitImprovementType(permit.type) || "Other";
@@ -2299,6 +2349,42 @@ function main() {
     if (!improvement.improvement_type && !improvement.permit_number) {
       return;
     }
+
+    const filename = `property_improvement_${propertyImprovementOutputs.length + 1}.json`;
+    writeJSON(path.join(dataDir, filename), improvement);
+    propertyImprovementOutputs.push({ filename, path: `./${filename}` });
+  });
+
+  // Process extra features (existing improvements)
+  extraFeatures.forEach((feature, idx) => {
+    const improvementType = mapExtraFeatureToImprovementType(feature.description);
+    const completionYear = parseIntSafe(feature.effectiveYearBuilt);
+    const completionDate = completionYear
+      ? `${completionYear}-01-01`
+      : null;
+
+    const improvementRequestId = feature.code
+      ? `${requestIdentifier || parcelId || propId}-feature-${feature.code}`
+      : `${requestIdentifier || parcelId || propId}-feature-${idx + 1}`;
+
+    const improvement = {
+      improvement_type: improvementType,
+      improvement_status: "Completed",
+      improvement_action: "Addition",
+      permit_number: null,
+      permit_issue_date: null,
+      completion_date: completionDate,
+      contractor_type: "Unknown",
+      permit_required: null,
+      fee: null,
+      request_identifier: improvementRequestId,
+    };
+
+    Object.keys(improvement).forEach((key) => {
+      if (improvement[key] === undefined) {
+        delete improvement[key];
+      }
+    });
 
     const filename = `property_improvement_${propertyImprovementOutputs.length + 1}.json`;
     writeJSON(path.join(dataDir, filename), improvement);
