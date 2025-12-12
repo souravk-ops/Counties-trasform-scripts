@@ -99,19 +99,37 @@ function mapExteriorMaterials(tokens) {
   return out;
 }
 
+function mapExteriorMaterialSecondary(token) {
+  if (!token) return null;
+  const upper = token.toUpperCase();
+  // Check BRICK first (includes BRK abbreviation)
+  if (upper.includes("BRICK") || upper.includes("BRK")) return "Brick Accent";
+  // Check STONE
+  if (upper.includes("STONE")) return "Stone Accent";
+  // Check WOOD-related materials
+  if (upper.includes("WOOD") || upper.includes("CEDAR") || upper.includes("T-111")) return "Wood Trim";
+  // Check METAL materials
+  if (upper.includes("METAL") || upper.includes("ALUMIN")) return "Metal Trim";
+  // Check STUCCO (includes STUC abbreviation)
+  if (upper.includes("STUCCO") || upper.includes("STUC")) return "Stucco Accent";
+  // Check VINYL
+  if (upper.includes("VINYL")) return "Vinyl Accent";
+  // Check CONCRETE BLOCK before checking BLOCK alone to avoid incorrect mapping
+  if (upper.includes("CONCRETE BLOCK") || upper.startsWith("CB") || upper.includes("BLOCK")) {
+    return "Decorative Block";
+  }
+  // If no match, return null (don't set secondary material)
+  return null;
+}
+
 function mapExteriorSecondaryMaterials(tokens) {
   const out = [];
   tokens.forEach((tok) => {
-    const t = tok.toUpperCase().trim();
+    const t = tok.trim();
     if (!t) return;
     // Map to accent/trim materials only - these are the valid enum values
-    if (t.includes("BRK") || t.includes("BRICK")) out.push("Brick Accent");
-    else if (t.includes("STONE")) out.push("Stone Accent");
-    else if (t.includes("CEDAR") || t.includes("WOOD") || t.includes("T-111")) out.push("Wood Trim");
-    else if (t.includes("METAL") || (t.includes("SIDING") && !t.includes("VINYL") && !t.includes("WOOD"))) out.push("Metal Trim");
-    else if (t.includes("STUC")) out.push("Stucco Accent");
-    else if (t.includes("VINYL")) out.push("Vinyl Accent");
-    else if (t.includes("BLOCK") || t.includes("CONCRETE") || t === "CB") out.push("Decorative Block");
+    const mapped = mapExteriorMaterialSecondary(t);
+    if (mapped) out.push(mapped);
   });
   return out;
 }
