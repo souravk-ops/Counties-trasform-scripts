@@ -1285,14 +1285,40 @@ function writePersonCompaniesSalesRelationships(
       }
     });
   } catch (e) {}
+  // First pass: collect all person and company names that will actually be linked to sales records or mailing addresses
   const personMap = new Map();
-  Object.keys(ownersByDate).forEach((dateKey) => {
-    // Skip unknown_date_* entries as they have no sales records to link to
-    if (/^unknown_date_\d+$/.test(dateKey)) return;
+  const companyNamesUsed = new Set();
 
-    const arr = ownersByDate[dateKey];
-    (arr || []).forEach((o) => {
-      if (o.type === "person") {
+  // Get current owners who will get mailing addresses
+  const currentOwners = ownersByDate["current"] || [];
+
+  // Add persons from current owners (they will get mailing address relationships)
+  currentOwners.forEach((o) => {
+    if (o.type === "person") {
+      const k = `${(o.first_name || "").trim().toUpperCase()}|${(o.last_name || "").trim().toUpperCase()}`;
+      if (!personMap.has(k))
+        personMap.set(k, {
+          first_name: o.first_name,
+          middle_name: o.middle_name,
+          last_name: o.last_name,
+        });
+      else {
+        const existing = personMap.get(k);
+        if (!existing.middle_name && o.middle_name)
+          existing.middle_name = o.middle_name;
+      }
+    }
+  });
+
+  // Add persons and companies from sales records (they will get sales_history relationships)
+  salesRecords.forEach((rec) => {
+    const ownersOnDate =
+      (rec.saleDateISO && ownersByDate[rec.saleDateISO]) || [];
+
+    // Add persons from owners on the sale date
+    ownersOnDate
+      .filter((o) => o.type === "person")
+      .forEach((o) => {
         const k = `${(o.first_name || "").trim().toUpperCase()}|${(o.last_name || "").trim().toUpperCase()}`;
         if (!personMap.has(k))
           personMap.set(k, {
@@ -1305,9 +1331,39 @@ function writePersonCompaniesSalesRelationships(
           if (!existing.middle_name && o.middle_name)
             existing.middle_name = o.middle_name;
         }
+      });
+
+    // Add companies from owners on the sale date
+    ownersOnDate
+      .filter((o) => o.type === "company")
+      .forEach((o) => {
+        if ((o.name || "").trim()) {
+          companyNamesUsed.add((o.name || "").trim());
+        }
+      });
+
+    // Add persons and companies from parsed buyers
+    (rec.parsedBuyers || []).forEach((buyer) => {
+      if (buyer.type === "person") {
+        const k = `${(buyer.first_name || "").trim().toUpperCase()}|${(buyer.last_name || "").trim().toUpperCase()}`;
+        if (!personMap.has(k))
+          personMap.set(k, {
+            first_name: buyer.first_name,
+            middle_name: buyer.middle_name,
+            last_name: buyer.last_name,
+          });
+        else {
+          const existing = personMap.get(k);
+          if (!existing.middle_name && buyer.middle_name)
+            existing.middle_name = buyer.middle_name;
+        }
+      } else if (buyer.type === "company" && (buyer.name || "").trim()) {
+        companyNamesUsed.add((buyer.name || "").trim());
       }
     });
   });
+
+  // Only create person files for persons that will be linked
   people = Array.from(personMap.values()).map((p) => ({
     first_name: p.first_name ? titleCaseName(p.first_name) : null,
     middle_name: p.middle_name ? titleCaseName(p.middle_name) : null,
@@ -1323,29 +1379,6 @@ function writePersonCompaniesSalesRelationships(
     writeJSON(path.join("data", `person_${idx + 1}.json`), p);
   });
 
-  // First pass: collect all company names that will actually be linked to sales records
-  const companyNamesUsed = new Set();
-  salesRecords.forEach((rec) => {
-    const ownersOnDate =
-      (rec.saleDateISO && ownersByDate[rec.saleDateISO]) || [];
-
-    // Add companies from owners on the sale date
-    ownersOnDate
-      .filter((o) => o.type === "company")
-      .forEach((o) => {
-        if ((o.name || "").trim()) {
-          companyNamesUsed.add((o.name || "").trim());
-        }
-      });
-
-    // Add companies from parsed buyers
-    (rec.parsedBuyers || []).forEach((buyer) => {
-      if (buyer.type === "company" && (buyer.name || "").trim()) {
-        companyNamesUsed.add((buyer.name || "").trim());
-      }
-    });
-  });
-
   // Only create company files for companies that will be linked
   companies = Array.from(companyNamesUsed).map((n) => ({
     name: n,
@@ -1355,7 +1388,6 @@ function writePersonCompaniesSalesRelationships(
     writeJSON(path.join("data", `company_${idx + 1}.json`), c);
   });
 
-  const currentOwners = ownersByDate["current"] || [];
   writeMailingAddressesForOwners($, currentOwners, propertySeed);
 
   // Relationships: link sale to owners present on that date (both persons and companies)
