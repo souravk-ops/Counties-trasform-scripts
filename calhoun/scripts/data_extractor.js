@@ -1295,17 +1295,14 @@ function writePersonCompaniesSalesRelationships(
       }
     });
   } catch (e) {}
-
-  // First pass: collect all person names that will actually be linked to sales records
   const personMap = new Map();
-  salesRecords.forEach((rec) => {
-    const ownersOnDate =
-      (rec.saleDateISO && ownersByDate[rec.saleDateISO]) || [];
+  Object.keys(ownersByDate).forEach((dateKey) => {
+    // Skip unknown_date_* entries as they have no sales records to link to
+    if (/^unknown_date_\d+$/.test(dateKey)) return;
 
-    // Add persons from owners on the sale date
-    ownersOnDate
-      .filter((o) => o.type === "person")
-      .forEach((o) => {
+    const arr = ownersByDate[dateKey];
+    (arr || []).forEach((o) => {
+      if (o.type === "person") {
         const k = `${(o.first_name || "").trim().toUpperCase()}|${(o.last_name || "").trim().toUpperCase()}`;
         if (!personMap.has(k))
           personMap.set(k, {
@@ -1318,28 +1315,9 @@ function writePersonCompaniesSalesRelationships(
           if (!existing.middle_name && o.middle_name)
             existing.middle_name = o.middle_name;
         }
-      });
-
-    // Add persons from parsed buyers
-    (rec.parsedBuyers || []).forEach((buyer) => {
-      if (buyer.type === "person") {
-        const k = `${(buyer.first_name || "").trim().toUpperCase()}|${(buyer.last_name || "").trim().toUpperCase()}`;
-        if (!personMap.has(k))
-          personMap.set(k, {
-            first_name: buyer.first_name,
-            middle_name: buyer.middle_name,
-            last_name: buyer.last_name,
-          });
-        else {
-          const existing = personMap.get(k);
-          if (!existing.middle_name && buyer.middle_name)
-            existing.middle_name = buyer.middle_name;
-        }
       }
     });
   });
-
-  // Only create person files for persons that will be linked
   people = Array.from(personMap.values()).map((p) => ({
     first_name: p.first_name ? titleCaseName(p.first_name) : null,
     middle_name: p.middle_name ? titleCaseName(p.middle_name) : null,
