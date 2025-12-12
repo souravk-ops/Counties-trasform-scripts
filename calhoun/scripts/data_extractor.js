@@ -1289,6 +1289,9 @@ function writePersonCompaniesSalesRelationships(
   const personMap = new Map();
   const companyNamesUsed = new Set();
 
+  // Get valid sales dates to ensure we only process owners from actual sales records
+  const validSalesDates = new Set(salesRecords.map(rec => rec.saleDateISO).filter(Boolean));
+
   // Get current owners who will get mailing addresses
   const currentOwners = ownersByDate["current"] || [];
 
@@ -1488,7 +1491,24 @@ function writePersonCompaniesSalesRelationships(
     }
   });
 
+  // Track which persons and companies actually get relationship files created
+  const personsWithRelationships = new Set();
+  const companiesWithRelationships = new Set();
+
   writeMailingAddressesForOwners($, currentOwners, propertySeed);
+
+  // After mailing addresses are written, check which persons/companies have mailing address relationships
+  try {
+    fs.readdirSync("data").forEach((f) => {
+      const personMailMatch = f.match(/^relationship_person_(\d+)_has_mailing_address\.json$/);
+      const companyMailMatch = f.match(/^relationship_company_(\d+)_has_mailing_address\.json$/);
+      if (personMailMatch) {
+        personsWithRelationships.add(parseInt(personMailMatch[1]));
+      } else if (companyMailMatch) {
+        companiesWithRelationships.add(parseInt(companyMailMatch[1]));
+      }
+    });
+  } catch (e) {}
 
   // Relationships: link sale to owners present on that date (both persons and companies)
   let relPersonCounter = 0;
@@ -1504,6 +1524,7 @@ function writePersonCompaniesSalesRelationships(
         if (pIdx) {
           relPersonCounter++;
           linked.add(`person:${pIdx}`);
+          personsWithRelationships.add(pIdx);
           writeJSON(
             path.join(
               "data",
@@ -1528,6 +1549,7 @@ function writePersonCompaniesSalesRelationships(
         if (cIdx) {
           relCompanyCounter++;
           linked.add(`company:${cIdx}`);
+          companiesWithRelationships.add(cIdx);
           writeJSON(
             path.join(
               "data",
@@ -1552,6 +1574,7 @@ function writePersonCompaniesSalesRelationships(
         if (pIdx && !linked.has(`person:${pIdx}`)) {
           relPersonCounter++;
           linked.add(`person:${pIdx}`);
+          personsWithRelationships.add(pIdx);
           writeJSON(
             path.join(
               "data",
@@ -1573,6 +1596,7 @@ function writePersonCompaniesSalesRelationships(
         if (cIdx && !linked.has(`company:${cIdx}`)) {
           relCompanyCounter++;
           linked.add(`company:${cIdx}`);
+          companiesWithRelationships.add(cIdx);
           writeJSON(
             path.join(
               "data",
@@ -1592,6 +1616,25 @@ function writePersonCompaniesSalesRelationships(
       }
     });
   });
+
+  // Clean up any person/company files that don't have relationships
+  try {
+    fs.readdirSync("data").forEach((f) => {
+      const personMatch = f.match(/^person_(\d+)\.json$/);
+      const companyMatch = f.match(/^company_(\d+)\.json$/);
+      if (personMatch) {
+        const idx = parseInt(personMatch[1]);
+        if (!personsWithRelationships.has(idx)) {
+          fs.unlinkSync(path.join("data", f));
+        }
+      } else if (companyMatch) {
+        const idx = parseInt(companyMatch[1]);
+        if (!companiesWithRelationships.has(idx)) {
+          fs.unlinkSync(path.join("data", f));
+        }
+      }
+    });
+  } catch (e) {}
 
 }
 
