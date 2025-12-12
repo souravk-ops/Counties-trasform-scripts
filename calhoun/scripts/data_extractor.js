@@ -1311,6 +1311,7 @@ function writePersonCompaniesSalesRelationships(
   });
 
   // Add persons and companies from sales records (they will get sales_history relationships)
+  // ONLY include owners whose date key matches a valid sales record date (excludes "unknown_date_X" entries that have no matching sales_history)
   salesRecords.forEach((rec) => {
     const ownersOnDate =
       (rec.saleDateISO && ownersByDate[rec.saleDateISO]) || [];
