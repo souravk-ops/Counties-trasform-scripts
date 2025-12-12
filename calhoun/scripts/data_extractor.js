@@ -1307,6 +1307,9 @@ function writePersonCompaniesSalesRelationships(
         if (!existing.middle_name && o.middle_name)
           existing.middle_name = o.middle_name;
       }
+    } else if (o.type === "company" && (o.name || "").trim()) {
+      // Add companies from current owners (they will get mailing address relationships)
+      companyNamesUsed.add((o.name || "").trim());
     }
   });
 
