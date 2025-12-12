@@ -1651,35 +1651,11 @@ function writeLayout(parcelId) {
 }
 
 function linkLayoutsToAssets(layoutCtx, structureCtx, utilityCtx) {
-  const hasLayouts =
-    layoutCtx &&
-    Array.isArray(layoutCtx.buildingLayouts) &&
-    layoutCtx.buildingLayouts.length > 0;
-
-  // If no layouts exist, link structures and utilities directly to property.json
-  if (!hasLayouts) {
-    // Link structures to property.json
-    if (
-      structureCtx &&
-      Array.isArray(structureCtx.structures) &&
-      structureCtx.structures.length
-    ) {
-      structureCtx.structures.forEach((structure) => {
-        writeRelationshipFile("property.json", structure.fileName);
-      });
-    }
-
-    // Link utilities to property.json
-    if (
-      utilityCtx &&
-      Array.isArray(utilityCtx.utilities) &&
-      utilityCtx.utilities.length
-    ) {
-      utilityCtx.utilities.forEach((utility) => {
-        writeRelationshipFile("property.json", utility.fileName);
-      });
-    }
-
+  if (
+    !layoutCtx ||
+    !Array.isArray(layoutCtx.buildingLayouts) ||
+    !layoutCtx.buildingLayouts.length
+  ) {
     return;
   }
 
