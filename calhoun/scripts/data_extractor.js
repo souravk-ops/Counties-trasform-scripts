@@ -1296,7 +1296,11 @@ function writePersonCompaniesSalesRelationships(
     });
   } catch (e) {}
   const personMap = new Map();
-  Object.values(ownersByDate).forEach((arr) => {
+  Object.keys(ownersByDate).forEach((dateKey) => {
+    // Skip unknown_date_* entries as they have no sales records to link to
+    if (/^unknown_date_\d+$/.test(dateKey)) return;
+
+    const arr = ownersByDate[dateKey];
     (arr || []).forEach((o) => {
       if (o.type === "person") {
         const k = `${(o.first_name || "").trim().toUpperCase()}|${(o.last_name || "").trim().toUpperCase()}`;
@@ -1329,7 +1333,11 @@ function writePersonCompaniesSalesRelationships(
     writeJSON(path.join("data", `person_${idx + 1}.json`), p);
   });
   const companyNames = new Set();
-  Object.values(ownersByDate).forEach((arr) => {
+  Object.keys(ownersByDate).forEach((dateKey) => {
+    // Skip unknown_date_* entries as they have no sales records to link to
+    if (/^unknown_date_\d+$/.test(dateKey)) return;
+
+    const arr = ownersByDate[dateKey];
     (arr || []).forEach((o) => {
       if (o.type === "company" && (o.name || "").trim())
         companyNames.add((o.name || "").trim());
