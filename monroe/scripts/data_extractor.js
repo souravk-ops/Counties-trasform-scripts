@@ -427,6 +427,22 @@ function titleCase(str) {
   return (str || "").replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
+function isValidFirstOrLastName(name) {
+  if (!name || typeof name !== "string") return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  // Must match pattern: ^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$
+  return /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/.test(trimmed);
+}
+
+function isValidMiddleName(name) {
+  if (!name || typeof name !== "string") return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  // Must match pattern: ^[A-Z][a-zA-Z\s\-',.]*$
+  return /^[A-Z][a-zA-Z\s\-',.]*$/.test(trimmed);
+}
+
 const COMPANY_KEYWORDS =
   /(\b|\s)(inc\.?|l\.l\.c\.|llc|ltd\.?|foundation|alliance|solutions|corp\.?|co\.?|services|trust\b|trustee\b|trustees\b|tr\b|associates|partners|partnership|investment|investments|lp\b|llp\b|bank\b|n\.a\.|na\b|pllc\b|company|enterprises|properties|holdings|estate)(\b|\s)/i;
 const SUFFIXES_IGNORE =
@@ -2139,20 +2155,37 @@ function main() {
 
   function createPersonRecord(personData) {
     if (!personData) return null;
-    const firstName =
+
+    // Extract and normalize names
+    const firstNameRaw =
       personData.first_name != null
         ? String(personData.first_name).trim()
         : "";
-    const lastName =
+    const lastNameRaw =
       personData.last_name != null ? String(personData.last_name).trim() : "";
+
+    // Normalize using titleCase to ensure proper format
+    const firstName = firstNameRaw ? titleCase(firstNameRaw) : "";
+    const lastName = lastNameRaw ? titleCase(lastNameRaw) : "";
+
+    // Validate that names match the required pattern
+    if (!isValidFirstOrLastName(firstName) || !isValidFirstOrLastName(lastName)) {
+      // Cannot create person without valid first and last name
+      return null;
+    }
+
     const middleRaw =
       personData.middle_name != null
         ? String(personData.middle_name).trim()
         : "";
-    const middleName = middleRaw ? middleRaw : null;
+    const middleNormalized = middleRaw ? titleCase(middleRaw) : null;
+
+    // Validate middle name if present
+    const middleName = middleNormalized && isValidMiddleName(middleNormalized) ? middleNormalized : null;
+
     const key =
       firstName || lastName
-        ? `${firstName.toLowerCase()}|${middleRaw.toLowerCase()}|${lastName.toLowerCase()}`
+        ? `${firstName.toLowerCase()}|${(middleName || "").toLowerCase()}|${lastName.toLowerCase()}`
         : null;
 
     if (key && personLookup.has(key)) {
@@ -2163,8 +2196,8 @@ function main() {
     const filename = `person_${personIndex}.json`;
     const personObj = {
       birth_date: personData.birth_date || null,
-      first_name: firstName || "",
-      last_name: lastName || "",
+      first_name: firstName,
+      last_name: lastName,
       middle_name: middleName,
       prefix_name:
         personData && personData.prefix_name != null
