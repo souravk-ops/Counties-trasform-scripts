@@ -99,6 +99,23 @@ function mapExteriorMaterials(tokens) {
   return out;
 }
 
+function mapExteriorSecondaryMaterials(tokens) {
+  const out = [];
+  tokens.forEach((tok) => {
+    const t = tok.toUpperCase().trim();
+    if (!t) return;
+    // Map to accent/trim materials only - these are the valid enum values
+    if (t.includes("BRK") || t.includes("BRICK")) out.push("Brick Accent");
+    else if (t.includes("STONE")) out.push("Stone Accent");
+    else if (t.includes("CEDAR") || t.includes("WOOD") || t.includes("T-111")) out.push("Wood Trim");
+    else if (t.includes("METAL") || (t.includes("SIDING") && !t.includes("VINYL") && !t.includes("WOOD"))) out.push("Metal Trim");
+    else if (t.includes("STUC")) out.push("Stucco Accent");
+    else if (t.includes("VINYL")) out.push("Vinyl Accent");
+    else if (t.includes("BLOCK") || t.includes("CONCRETE")) out.push("Decorative Block");
+  });
+  return out;
+}
+
 function mapInteriorSurface(tokens) {
   const out = [];
   tokens.forEach((tok) => {
@@ -287,8 +304,14 @@ function buildStructureRecords(parcelId, buildings) {
     const exteriorMaterials = mapExteriorMaterials(extTokens);
     if (exteriorMaterials.length) {
       structure.exterior_wall_material_primary = exteriorMaterials[0];
-      if (exteriorMaterials.length > 1) {
-        structure.exterior_wall_material_secondary = exteriorMaterials[1];
+    }
+
+    // Map secondary materials separately from the second token onwards - only accent/trim materials are valid
+    if (extTokens.length > 1) {
+      const secondaryTokens = extTokens.slice(1);
+      const exteriorSecondary = mapExteriorSecondaryMaterials(secondaryTokens);
+      if (exteriorSecondary.length > 0) {
+        structure.exterior_wall_material_secondary = exteriorSecondary[0];
       }
     }
 
