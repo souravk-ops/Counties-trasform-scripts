@@ -1205,16 +1205,47 @@ function writeMailingAddressesForOwners(
     }
   }
 
+  // First pass: determine which addresses will have valid relationships
+  const validAddressesWithOwners = [];
+  assignments.forEach((address, idx) => {
+    if (!address) return;
+    const owner = currentOwners[idx];
+    if (!owner) return;
+
+    let ownerFound = false;
+    if (owner.type === "person") {
+      const pIdx = findPersonIndexByName(owner.first_name, owner.last_name);
+      if (pIdx) {
+        ownerFound = true;
+        validAddressesWithOwners.push({
+          address,
+          ownerType: "person",
+          ownerIndex: pIdx,
+        });
+      }
+    } else if (owner.type === "company") {
+      const cIdx = findCompanyIndexByName(owner.name);
+      if (cIdx) {
+        ownerFound = true;
+        validAddressesWithOwners.push({
+          address,
+          ownerType: "company",
+          ownerIndex: cIdx,
+        });
+      }
+    }
+  });
+
+  // Second pass: create mailing_address files only for addresses with valid relationships
   const addressIndexMap = new Map();
   let mailingCounter = 0;
 
-  assignments.forEach((address) => {
-    if (!address) return;
-    if (!addressIndexMap.has(address)) {
+  validAddressesWithOwners.forEach((item) => {
+    if (!addressIndexMap.has(item.address)) {
       mailingCounter += 1;
-      addressIndexMap.set(address, mailingCounter);
+      addressIndexMap.set(item.address, mailingCounter);
       const mailingObj = {
-        unnormalized_address: address,
+        unnormalized_address: item.address,
         latitude: null,
         longitude: null,
         source_http_request: sourceHttpRequest,
@@ -1227,36 +1258,31 @@ function writeMailingAddressesForOwners(
     }
   });
 
-  assignments.forEach((address, idx) => {
-    if (!address) return;
-    const mailingIdx = addressIndexMap.get(address);
+  // Third pass: create relationships
+  validAddressesWithOwners.forEach((item) => {
+    const mailingIdx = addressIndexMap.get(item.address);
     if (!mailingIdx) return;
     const mailingPath = `./mailing_address_${mailingIdx}.json`;
-    const owner = currentOwners[idx];
-    if (!owner) return;
-    if (owner.type === "person") {
-      const pIdx = findPersonIndexByName(owner.first_name, owner.last_name);
-      if (!pIdx) return;
+
+    if (item.ownerType === "person") {
       writeJSON(
         path.join(
           "data",
-          `relationship_person_${pIdx}_has_mailing_address.json`,
+          `relationship_person_${item.ownerIndex}_has_mailing_address.json`,
         ),
         {
-          from: { "/": `./person_${pIdx}.json` },
+          from: { "/": `./person_${item.ownerIndex}.json` },
           to: { "/": mailingPath },
         },
       );
-    } else if (owner.type === "company") {
-      const cIdx = findCompanyIndexByName(owner.name);
-      if (!cIdx) return;
+    } else if (item.ownerType === "company") {
       writeJSON(
         path.join(
           "data",
-          `relationship_company_${cIdx}_has_mailing_address.json`,
+          `relationship_company_${item.ownerIndex}_has_mailing_address.json`,
         ),
         {
-          from: { "/": `./company_${cIdx}.json` },
+          from: { "/": `./company_${item.ownerIndex}.json` },
           to: { "/": mailingPath },
         },
       );
