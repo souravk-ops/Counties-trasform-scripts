@@ -1367,8 +1367,8 @@ function writePersonCompaniesSalesRelationships(
     });
   });
 
-  // Only create person files for persons that will be linked
-  people = Array.from(personMap.values()).map((p) => ({
+  // First, create temporary arrays with ALL persons and companies
+  const allPersons = Array.from(personMap.values()).map((p) => ({
     first_name: p.first_name ? titleCaseName(p.first_name) : null,
     middle_name: p.middle_name ? titleCaseName(p.middle_name) : null,
     last_name: p.last_name ? titleCaseName(p.last_name) : null,
@@ -1379,17 +1379,113 @@ function writePersonCompaniesSalesRelationships(
     veteran_status: null,
     request_identifier: parcelId,
   }));
-  people.forEach((p, idx) => {
-    writeJSON(path.join("data", `person_${idx + 1}.json`), p);
-  });
 
-  // Only create company files for companies that will be linked
-  companies = Array.from(companyNamesUsed).map((n) => ({
+  const allCompanies = Array.from(companyNamesUsed).map((n) => ({
     name: n,
     request_identifier: parcelId,
   }));
-  companies.forEach((c, idx) => {
-    writeJSON(path.join("data", `company_${idx + 1}.json`), c);
+
+  // Track which persons and companies actually get relationships
+  const personsUsed = new Set();
+  const companiesUsed = new Set();
+
+  // Check which persons from current owners will get mailing addresses
+  currentOwners.forEach((o) => {
+    if (o.type === "person") {
+      const tf = titleCaseName(o.first_name);
+      const tl = titleCaseName(o.last_name);
+      for (let i = 0; i < allPersons.length; i++) {
+        if (allPersons[i].first_name === tf && allPersons[i].last_name === tl) {
+          personsUsed.add(i + 1);
+          break;
+        }
+      }
+    } else if (o.type === "company") {
+      const tn = (o.name || "").trim();
+      for (let i = 0; i < allCompanies.length; i++) {
+        if ((allCompanies[i].name || "").trim() === tn) {
+          companiesUsed.add(i + 1);
+          break;
+        }
+      }
+    }
+  });
+
+  // Check which persons and companies will get sales relationships
+  salesRecords.forEach((rec) => {
+    const ownersOnDate =
+      (rec.saleDateISO && ownersByDate[rec.saleDateISO]) || [];
+
+    ownersOnDate
+      .filter((o) => o.type === "person")
+      .forEach((o) => {
+        const tf = titleCaseName(o.first_name);
+        const tl = titleCaseName(o.last_name);
+        for (let i = 0; i < allPersons.length; i++) {
+          if (allPersons[i].first_name === tf && allPersons[i].last_name === tl) {
+            personsUsed.add(i + 1);
+            break;
+          }
+        }
+      });
+
+    ownersOnDate
+      .filter((o) => o.type === "company")
+      .forEach((o) => {
+        const tn = (o.name || "").trim();
+        for (let i = 0; i < allCompanies.length; i++) {
+          if ((allCompanies[i].name || "").trim() === tn) {
+            companiesUsed.add(i + 1);
+            break;
+          }
+        }
+      });
+
+    (rec.parsedBuyers || []).forEach((buyer) => {
+      if (buyer.type === "person") {
+        const tf = titleCaseName(buyer.first_name);
+        const tl = titleCaseName(buyer.last_name);
+        for (let i = 0; i < allPersons.length; i++) {
+          if (allPersons[i].first_name === tf && allPersons[i].last_name === tl) {
+            personsUsed.add(i + 1);
+            break;
+          }
+        }
+      } else if (buyer.type === "company") {
+        const tn = (buyer.name || "").trim();
+        for (let i = 0; i < allCompanies.length; i++) {
+          if ((allCompanies[i].name || "").trim() === tn) {
+            companiesUsed.add(i + 1);
+            break;
+          }
+        }
+      }
+    });
+  });
+
+  // Only create person and company files for those that will actually be used
+  people = [];
+  const personIndexMap = new Map(); // Maps old index to new index
+  let newPersonIdx = 0;
+  allPersons.forEach((p, oldIdx) => {
+    if (personsUsed.has(oldIdx + 1)) {
+      newPersonIdx++;
+      people.push(p);
+      personIndexMap.set(oldIdx + 1, newPersonIdx);
+      writeJSON(path.join("data", `person_${newPersonIdx}.json`), p);
+    }
+  });
+
+  companies = [];
+  const companyIndexMap = new Map(); // Maps old index to new index
+  let newCompanyIdx = 0;
+  allCompanies.forEach((c, oldIdx) => {
+    if (companiesUsed.has(oldIdx + 1)) {
+      newCompanyIdx++;
+      companies.push(c);
+      companyIndexMap.set(oldIdx + 1, newCompanyIdx);
+      writeJSON(path.join("data", `company_${newCompanyIdx}.json`), c);
+    }
   });
 
   writeMailingAddressesForOwners($, currentOwners, propertySeed);
