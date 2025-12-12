@@ -24,6 +24,7 @@ const DEED_TYPE_MAP = {
   SD: "Sheriff's Deed",
   "SHRF'S DEED": "Sheriff's Deed",
   TD: "Tax Deed",
+  TR: "Trustee's Deed",
   TRD: "Trustee's Deed",
   "TRUSTEE DEED": "Trustee's Deed",
   PRD: "Personal Representative Deed",
@@ -51,6 +52,7 @@ const DEED_TYPE_MAP = {
   VPD: "Vacation of Plat Deed",
   AOC: "Assignment of Contract",
   ROC: "Release of Contract",
+  PB: "Miscellaneous",
 };
 
 function clearDir(p) {
