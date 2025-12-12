@@ -424,17 +424,7 @@ function cleanText(text) {
 }
 
 function titleCase(str) {
-  if (!str) return "";
-  // Handle names with special characters (spaces, hyphens, apostrophes, etc.)
-  // Pattern requires: ^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$
-  const text = String(str).trim();
-  if (!text) return "";
-
-  // Split by word boundaries while preserving separators
-  return text.replace(/\b\w+/g, (word) => {
-    if (!word) return word;
-    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-  });
+  return (str || "").replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
 const COMPANY_KEYWORDS =
@@ -2097,28 +2087,21 @@ function main() {
 
   function createPersonRecord(personData) {
     if (!personData) return null;
-    const firstNameRaw =
+    const firstName =
       personData.first_name != null
         ? String(personData.first_name).trim()
         : "";
-    const lastNameRaw =
+    const lastName =
       personData.last_name != null ? String(personData.last_name).trim() : "";
     const middleRaw =
       personData.middle_name != null
         ? String(personData.middle_name).trim()
         : "";
-
-    // Validate that we have at least first_name and last_name
-    if (!firstNameRaw || !lastNameRaw) {
-      return null;
-    }
-
-    // Apply title case to ensure names match the required pattern
-    const firstName = titleCase(firstNameRaw);
-    const lastName = titleCase(lastNameRaw);
-    const middleName = middleRaw ? titleCase(middleRaw) : null;
-
-    const key = `${firstName.toLowerCase()}|${(middleName || "").toLowerCase()}|${lastName.toLowerCase()}`;
+    const middleName = middleRaw ? middleRaw : null;
+    const key =
+      firstName || lastName
+        ? `${firstName.toLowerCase()}|${middleRaw.toLowerCase()}|${lastName.toLowerCase()}`
+        : null;
 
     if (key && personLookup.has(key)) {
       return personLookup.get(key);
@@ -2128,8 +2111,8 @@ function main() {
     const filename = `person_${personIndex}.json`;
     const personObj = {
       birth_date: personData.birth_date || null,
-      first_name: firstName,
-      last_name: lastName,
+      first_name: firstName || "",
+      last_name: lastName || "",
       middle_name: middleName,
       prefix_name:
         personData && personData.prefix_name != null
