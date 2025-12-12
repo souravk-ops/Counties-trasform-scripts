@@ -90,7 +90,7 @@ function mapExteriorMaterials(tokens) {
       out.push("Wood Siding"); // Added T-111
     if (t.includes("STUC")) out.push("Stucco");
     if (t.includes("VINYL")) out.push("Vinyl Siding");
-    if (t.includes("BLOCK") || t.includes("CONCRETE"))
+    if (t.includes("BLOCK") || t.includes("CONCRETE") || t === "CB")
       out.push("Concrete Block");
     if (t.includes("METAL")) out.push("Metal Siding");
     if (t.includes("SIDING") && !t.includes("VINYL") && !t.includes("WOOD"))
@@ -111,7 +111,7 @@ function mapExteriorSecondaryMaterials(tokens) {
     else if (t.includes("METAL") || (t.includes("SIDING") && !t.includes("VINYL") && !t.includes("WOOD"))) out.push("Metal Trim");
     else if (t.includes("STUC")) out.push("Stucco Accent");
     else if (t.includes("VINYL")) out.push("Vinyl Accent");
-    else if (t.includes("BLOCK") || t.includes("CONCRETE")) out.push("Decorative Block");
+    else if (t.includes("BLOCK") || t.includes("CONCRETE") || t === "CB") out.push("Decorative Block");
   });
   return out;
 }
