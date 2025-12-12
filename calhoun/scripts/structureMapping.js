@@ -99,24 +99,6 @@ function mapExteriorMaterials(tokens) {
   return out;
 }
 
-function mapExteriorSecondaryAccent(tokens) {
-  const out = [];
-  tokens.forEach((tok) => {
-    const t = tok.toUpperCase().trim();
-    if (!t) return;
-    // Map to accent materials for secondary exterior wall field
-    if (t.includes("BRK") || t.includes("BRICK")) out.push("Brick Accent");
-    if (t.includes("STONE")) out.push("Stone Accent");
-    if (t.includes("CEDAR") || t.includes("WOOD") || t.includes("T-111") || t.includes("TRIM"))
-      out.push("Wood Trim");
-    if (t.includes("METAL") && (t.includes("TRIM") || t.includes("ACCENT"))) out.push("Metal Trim");
-    if (t.includes("STUC") && (t.includes("ACCENT") || t.includes("TRIM"))) out.push("Stucco Accent");
-    if (t.includes("VINYL") && (t.includes("ACCENT") || t.includes("TRIM"))) out.push("Vinyl Accent");
-    if (t.includes("DECORATIVE") && t.includes("BLOCK")) out.push("Decorative Block");
-  });
-  return out;
-}
-
 function mapInteriorSurface(tokens) {
   const out = [];
   tokens.forEach((tok) => {
@@ -305,12 +287,9 @@ function buildStructureRecords(parcelId, buildings) {
     const exteriorMaterials = mapExteriorMaterials(extTokens);
     if (exteriorMaterials.length) {
       structure.exterior_wall_material_primary = exteriorMaterials[0];
-    }
-
-    // Map secondary exterior wall materials separately - only accent materials are valid
-    const exteriorSecondary = mapExteriorSecondaryAccent(extTokens);
-    if (exteriorSecondary.length > 0) {
-      structure.exterior_wall_material_secondary = exteriorSecondary[0];
+      if (exteriorMaterials.length > 1) {
+        structure.exterior_wall_material_secondary = exteriorMaterials[1];
+      }
     }
 
     const interiorSurface = mapInteriorSurface(intTokens);
