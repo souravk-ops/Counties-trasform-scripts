@@ -1332,18 +1332,32 @@ function writePersonCompaniesSalesRelationships(
   people.forEach((p, idx) => {
     writeJSON(path.join("data", `person_${idx + 1}.json`), p);
   });
-  const companyNames = new Set();
-  Object.keys(ownersByDate).forEach((dateKey) => {
-    // Skip unknown_date_* entries as they have no sales records to link to
-    if (/^unknown_date_\d+$/.test(dateKey)) return;
 
-    const arr = ownersByDate[dateKey];
-    (arr || []).forEach((o) => {
-      if (o.type === "company" && (o.name || "").trim())
-        companyNames.add((o.name || "").trim());
+  // First pass: collect all company names that will actually be linked to sales records
+  const companyNamesUsed = new Set();
+  salesRecords.forEach((rec) => {
+    const ownersOnDate =
+      (rec.saleDateISO && ownersByDate[rec.saleDateISO]) || [];
+
+    // Add companies from owners on the sale date
+    ownersOnDate
+      .filter((o) => o.type === "company")
+      .forEach((o) => {
+        if ((o.name || "").trim()) {
+          companyNamesUsed.add((o.name || "").trim());
+        }
+      });
+
+    // Add companies from parsed buyers
+    (rec.parsedBuyers || []).forEach((buyer) => {
+      if (buyer.type === "company" && (buyer.name || "").trim()) {
+        companyNamesUsed.add((buyer.name || "").trim());
+      }
     });
   });
-  companies = Array.from(companyNames).map((n) => ({
+
+  // Only create company files for companies that will be linked
+  companies = Array.from(companyNamesUsed).map((n) => ({
     name: n,
     request_identifier: parcelId,
   }));
