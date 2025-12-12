@@ -1413,7 +1413,7 @@ function writePersonCompaniesSalesRelationships($, parcelId, salesRecords) {
   const ownersByDate = record.owners_by_date;
 
   const personCanonical = new Map();
-  const companySet = new Set();
+  const companyCanonical = new Map();
   Object.values(ownersByDate).forEach((arr) => {
     (arr || []).forEach((o) => {
       if (o.type === "person") {
@@ -1429,7 +1429,10 @@ function writePersonCompaniesSalesRelationships($, parcelId, salesRecords) {
           if (!existing.middle_name && o.middle_name) existing.middle_name = o.middle_name;
         }
       } else if (o.type === "company" && (o.name || "").trim()) {
-        companySet.add((o.name || "").trim());
+        const normKey = (o.name || "").trim().toUpperCase();
+        if (!companyCanonical.has(normKey)) {
+          companyCanonical.set(normKey, (o.name || "").trim());
+        }
       }
     });
   });
@@ -1460,7 +1463,7 @@ function writePersonCompaniesSalesRelationships($, parcelId, salesRecords) {
   });
 
   const companyIndexMap = new Map();
-  Array.from(companySet).forEach((name, idx) => {
+  Array.from(companyCanonical.values()).forEach((name, idx) => {
     const companyObj = {
       name,
       request_identifier: parcelId,
