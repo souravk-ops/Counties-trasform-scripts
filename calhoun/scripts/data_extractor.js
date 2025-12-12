@@ -1227,6 +1227,8 @@ function writeMailingAddressesForOwners(
     }
   });
 
+  const mailingAddressesUsed = new Set();
+
   assignments.forEach((address, idx) => {
     if (!address) return;
     const mailingIdx = addressIndexMap.get(address);
@@ -1237,6 +1239,7 @@ function writeMailingAddressesForOwners(
     if (owner.type === "person") {
       const pIdx = findPersonIndexByName(owner.first_name, owner.last_name);
       if (!pIdx) return;
+      mailingAddressesUsed.add(mailingIdx);
       writeJSON(
         path.join(
           "data",
@@ -1250,6 +1253,7 @@ function writeMailingAddressesForOwners(
     } else if (owner.type === "company") {
       const cIdx = findCompanyIndexByName(owner.name);
       if (!cIdx) return;
+      mailingAddressesUsed.add(mailingIdx);
       writeJSON(
         path.join(
           "data",
@@ -1262,6 +1266,19 @@ function writeMailingAddressesForOwners(
       );
     }
   });
+
+  // Clean up any mailing address files that don't have relationships
+  try {
+    fs.readdirSync("data").forEach((f) => {
+      const mailingMatch = f.match(/^mailing_address_(\d+)\.json$/);
+      if (mailingMatch) {
+        const idx = parseInt(mailingMatch[1]);
+        if (!mailingAddressesUsed.has(idx)) {
+          fs.unlinkSync(path.join("data", f));
+        }
+      }
+    });
+  } catch (e) {}
 }
 
 function writePersonCompaniesSalesRelationships(
