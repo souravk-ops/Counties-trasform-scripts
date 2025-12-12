@@ -1995,7 +1995,7 @@ function writeExtraLayouts(parcelId, extraLayouts, startLayoutIndex, startSpaceI
   };
 }
 
-function writeExtraStructures(parcelId, extraStructures, startStructureIndex) {
+function writeExtraStructures(parcelId, extraStructures, startStructureIndex, primaryLayoutFileName) {
   let structureIndex = startStructureIndex;
   extraStructures.forEach((info) => {
     const record = createDefaultStructureRecord(parcelId);
@@ -2007,7 +2007,12 @@ function writeExtraStructures(parcelId, extraStructures, startStructureIndex) {
     }
     const fileName = `structure_${structureIndex++}.json`;
     writeJSON(path.join("data", fileName), record);
-    writeRelationshipFile("property.json", fileName);
+    // Link extra structures to the primary building layout instead of property
+    if (primaryLayoutFileName) {
+      writeRelationshipFile(primaryLayoutFileName, fileName);
+    } else {
+      writeRelationshipFile("property.json", fileName);
+    }
   });
   return { nextStructureIndex: structureIndex };
 }
@@ -2162,10 +2167,15 @@ function main() {
 
     let nextStructureIndex = structureCtx.nextStructureIndex || 1;
     if (extraAssets.structures.length) {
+      // Get the primary building layout filename (layout_1.json in most cases)
+      const primaryLayoutFileName = layoutCtx && layoutCtx.buildingLayouts && layoutCtx.buildingLayouts.length > 0
+        ? layoutCtx.buildingLayouts[0].fileName
+        : null;
       const structureExtraCtx = writeExtraStructures(
         parcelId,
         extraAssets.structures,
         nextStructureIndex,
+        primaryLayoutFileName,
       );
       nextStructureIndex = structureExtraCtx.nextStructureIndex;
     }
