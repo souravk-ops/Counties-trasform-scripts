@@ -2198,7 +2198,22 @@ function main() {
     linkLayoutsToAssets(layoutCtx, structureCtx, utilityCtx);
 
     const extraFeatures = extractExtraFeatures($);
-    const extraAssets = mapExtraFeatures(extraFeatures);
+    // Deduplicate identical extra features (e.g., multiple identical sheds)
+    const deduplicatedFeatures = [];
+    const seen = new Set();
+    extraFeatures.forEach((feature) => {
+      const key = JSON.stringify({
+        code: feature.code,
+        description: feature.description,
+        dimensions: feature.dimensions,
+        year: feature.year
+      });
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduplicatedFeatures.push(feature);
+      }
+    });
+    const extraAssets = mapExtraFeatures(deduplicatedFeatures);
 
     let nextLayoutIndex = layoutCtx.nextLayoutIndex || 1;
     let nextSpaceIndex = layoutCtx.nextSpaceIndex || 1;
