@@ -1776,7 +1776,7 @@ function mapFoundationMaterial(value) {
   if (upper.includes("CONCRETE") && upper.includes("BLOCK")) return "Concrete Block";
   if (upper.includes("POURED") && upper.includes("CONCRETE")) return "Poured Concrete";
   if (upper.includes("CONCRETE")) return "Poured Concrete";
-  if (upper.includes("MASONRY")) return "Masonry";
+  if (upper.includes("MASONRY")) return "Concrete Block";
   if (upper.includes("STONE")) return "Stone";
   if (upper.includes("BRICK")) return "Brick";
   if (upper.includes("STEEL")) return "Steel Piers";
