@@ -1381,7 +1381,7 @@ function writePersonCompaniesSalesRelationships(
     us_citizenship_status: null,
     veteran_status: null,
     request_identifier: parcelId,
-  }));
+  })).filter((p) => p.first_name !== null && p.last_name !== null);
   people.forEach((p, idx) => {
     writeJSON(path.join("data", `person_${idx + 1}.json`), p);
   });
