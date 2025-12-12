@@ -1166,18 +1166,8 @@ function writeMailingAddressesForOwners(
     (propertySeed && propertySeed.source_http_request) || null;
 
   if (!currentOwners || currentOwners.length === 0) {
-    const primaryBlock = blocks.find(
-      (b) => b.address && b.address.trim().length > 0,
-    );
-    if (!primaryBlock) return;
-    const mailingObj = {
-      unnormalized_address: primaryBlock.address,
-      latitude: null,
-      longitude: null,
-      source_http_request: sourceHttpRequest,
-      request_identifier: requestIdentifier,
-    };
-    writeJSON(path.join("data", "mailing_address_1.json"), mailingObj);
+    // If there are no current owners, don't create mailing address files
+    // Mailing addresses should only exist when they can be linked to owners
     return;
   }
 
