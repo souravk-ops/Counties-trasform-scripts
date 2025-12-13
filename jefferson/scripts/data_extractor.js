@@ -1291,13 +1291,13 @@ function cleanNameField(s) {
 }
 
 function validateNameField(s) {
-  // Validates that name field matches pattern: ^[A-Z][a-zA-Z\s\-',.]*$
+  // Validates that name field matches pattern: ^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$
   // Returns the string if valid, null otherwise
   if (!s || typeof s !== 'string') return null;
   const trimmed = s.trim();
   if (trimmed.length === 0) return null;
-  // Check if matches the required pattern
-  const namePattern = /^[A-Z][a-zA-Z\s\-',.]*$/;
+  // Check if matches the required pattern from Elephant schema
+  const namePattern = /^[A-Z][a-z]*([ \-',.][A-Za-z][a-z]*)*$/;
   if (!namePattern.test(trimmed)) return null;
   return trimmed;
 }
