@@ -1636,22 +1636,33 @@ function writePersonCompaniesSalesRelationships(
 
   // Clean up any person/company files that don't have relationships
   try {
-    fs.readdirSync("data").forEach((f) => {
-      const personMatch = f.match(/^person_(\d+)\.json$/);
-      const companyMatch = f.match(/^company_(\d+)\.json$/);
-      if (personMatch) {
-        const idx = parseInt(personMatch[1]);
-        if (!personsWithRelationships.has(idx)) {
-          fs.unlinkSync(path.join("data", f));
+    if (fs.existsSync("data")) {
+      const files = fs.readdirSync("data");
+      files.forEach((f) => {
+        const personMatch = f.match(/^person_(\d+)\.json$/);
+        const companyMatch = f.match(/^company_(\d+)\.json$/);
+        if (personMatch) {
+          const idx = parseInt(personMatch[1]);
+          if (!personsWithRelationships.has(idx)) {
+            const filePath = path.join("data", f);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          }
+        } else if (companyMatch) {
+          const idx = parseInt(companyMatch[1]);
+          if (!companiesWithRelationships.has(idx)) {
+            const filePath = path.join("data", f);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          }
         }
-      } else if (companyMatch) {
-        const idx = parseInt(companyMatch[1]);
-        if (!companiesWithRelationships.has(idx)) {
-          fs.unlinkSync(path.join("data", f));
-        }
-      }
-    });
-  } catch (e) {}
+      });
+    }
+  } catch (e) {
+    console.error("Error during person/company cleanup:", e);
+  }
 
 }
 
