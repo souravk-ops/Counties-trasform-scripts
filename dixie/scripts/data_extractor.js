@@ -1429,10 +1429,7 @@ function writePersonCompaniesSalesRelationships($, parcelId, salesRecords) {
           if (!existing.middle_name && o.middle_name) existing.middle_name = o.middle_name;
         }
       } else if (o.type === "company" && (o.name || "").trim()) {
-        const normKey = (o.name || "").trim().toUpperCase();
-        if (!companyCanonical.has(normKey)) {
-          companyCanonical.set(normKey, (o.name || "").trim());
-        }
+        companySet.add((o.name || "").trim());
       }
     });
   });
@@ -1464,6 +1461,7 @@ function writePersonCompaniesSalesRelationships($, parcelId, salesRecords) {
 
   const companyIndexMap = new Map();
   Array.from(companyCanonical.values()).forEach((name, idx) => {
+  Array.from(companySet).forEach((name, idx) => {
     const companyObj = {
       name,
       request_identifier: parcelId,
