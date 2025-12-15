@@ -81,20 +81,42 @@ function titleCaseNamePart(part) {
 
   if (cleaned === "") return null;
 
-  return cleaned
+  // Roman numerals and common suffixes that should stay uppercase
+  const preserveUppercase = new Set([
+    "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+    "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+    "JR", "SR", "ESQ", "PHD", "MD", "DDS", "DVM", "LLC", "INC", "LTD", "LP", "LLP"
+  ]);
+
+  const result = cleaned
     .toLowerCase()
     .split(/\s+/)
-    .map((word) =>
-      word
+    .map((word) => {
+      // Check if the word (without trailing punctuation) should be preserved in uppercase
+      const wordUpper = word.replace(/[,.]$/g, "").toUpperCase();
+      const trailingPunct = word.match(/[,.]$/)?.[0] || "";
+
+      if (preserveUppercase.has(wordUpper)) {
+        return wordUpper + trailingPunct;
+      }
+
+      return word
         .split(/([-',.])/)
         .map((segment) =>
           /[-',.]/.test(segment)
             ? segment
             : segment.charAt(0).toUpperCase() + segment.slice(1),
         )
-        .join(""),
-    )
+        .join("");
+    })
     .join(" ");
+
+  // Remove any trailing or leading separators that don't belong
+  const finalResult = result
+    .replace(/^[\s\-',.]+/, "")  // Remove leading separators
+    .replace(/[\s\-',.]+$/, "");  // Remove trailing separators
+
+  return finalResult || null;
 }
 
 function cleanMoneyToNumber(str) {
@@ -2121,10 +2143,6 @@ function main() {
     to: { "/": "./address.json" },
   });
 
-  if (mailingAddress) {
-    writeJSON("mailing_address.json", mailingAddress);
-  }
-
   const sales = [];
   $("#ctl00_cphBody_gridSalesHistory tr").each((i, el) => {
     if (i === 0) return;
@@ -2341,7 +2359,9 @@ function main() {
         });
       }
 
-      if (mailingAddress) {
+      if (mailingAddress && (personPaths.length > 0 || companyPaths.length > 0)) {
+        // Only write mailing_address.json if there are owners to create relationships with
+        writeJSON("mailing_address.json", mailingAddress);
         const mailingPath = "./mailing_address.json";
         personPaths.forEach((personPath) => {
         const relName = relationshipFileName(personPath, mailingPath);
