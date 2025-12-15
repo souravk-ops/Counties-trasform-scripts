@@ -265,6 +265,26 @@ function findEnumMatch(enumMap, rawValue) {
   return null;
 }
 
+// Maps primary exterior wall materials to secondary accent/trim types
+function mapPrimaryToSecondaryWallMaterial(primaryMaterial) {
+  if (!primaryMaterial) return null;
+
+  const mapping = {
+    "Brick": "Brick Accent",
+    "Natural Stone": "Stone Accent",
+    "Manufactured Stone": "Stone Accent",
+    "Stucco": "Stucco Accent",
+    "Vinyl Siding": "Vinyl Accent",
+    "Wood Siding": "Wood Trim",
+    "Fiber Cement Siding": "Wood Trim",
+    "Metal Siding": "Metal Trim",
+    "Concrete Block": "Decorative Block",
+    "EIFS": "Stucco Accent",
+  };
+
+  return mapping[primaryMaterial] || null;
+}
+
 const LAYOUT_SPACE_TYPE_VALUES = [
   "Building",
   "Living Room",
@@ -1701,7 +1721,7 @@ function extractStructure($) {
           }
           if (/vertical\s+sheet/i.test(detail)) {
             if (result.exterior_wall_material_primary)
-              result.exterior_wall_material_secondary = "Wood Siding";
+              result.exterior_wall_material_secondary = "Wood Trim";
             else result.exterior_wall_material_primary = "Wood Siding";
           }
         }
@@ -1872,7 +1892,7 @@ function applyExtraFeaturesToStructure(features, structureRecord) {
           structureRecord.exterior_wall_material_primary !== wallMatch &&
           !structureRecord.exterior_wall_material_secondary
         )
-          structureRecord.exterior_wall_material_secondary = wallMatch;
+          structureRecord.exterior_wall_material_secondary = mapPrimaryToSecondaryWallMaterial(wallMatch);
       }
 
       const floorMatch = findEnumMatch(
